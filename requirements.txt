@@ -1,0 +1,15 @@
+# --- Core OpenEnv Framework ---
+openenv-core>=0.1.0  # The correct Hackathon CLI and SDK
+
+# --- Math & Simulation ---
+pydantic>=2.5.0 # Required for OpenEnv typed models
+numpy>=1.24.0   # For queue simulator and Lyapunov calculations
+
+# --- Infrastructure & Server ---
+# OpenEnv typically usesuv for running, but these are common backends
+fastapi>=0.100.0
+uvicorn>=0.22.0
+
+# --- Agent Baseline ---
+# Using standard OpenAI client as requested (LiteLLM excluded)
+openai>=1.10.0
