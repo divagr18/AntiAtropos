@@ -36,20 +36,23 @@ except Exception as e:  # pragma: no cover
     ) from e
 
 try:
-    from ..models import AntiAtroposAction, AntiAtroposObservation
+    # Change these names to match models.py
+    from ..models import SREAction, ClusterObservation
     from .AntiAtropos_environment import AntiAtroposEnvironment
 except ModuleNotFoundError:
-    from models import AntiAtroposAction, AntiAtroposObservation
+    # And here as well
+    from models import SREAction, ClusterObservation
     from server.AntiAtropos_environment import AntiAtroposEnvironment
 
 
 # Create the app with web interface and README integration
+# Create the app with the correct class names
 app = create_app(
     AntiAtroposEnvironment,
-    AntiAtroposAction,
-    AntiAtroposObservation,
+    SREAction,           # Changed from AntiAtroposAction
+    ClusterObservation,  # Changed from AntiAtroposObservation
     env_name="AntiAtropos",
-    max_concurrent_envs=1,  # increase this number to allow more concurrent WebSocket sessions
+    max_concurrent_envs=1,
 )
 
 

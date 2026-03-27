@@ -7,10 +7,19 @@
 """AntiAtropos Environment."""
 
 from .client import AntiAtroposEnv
-from .models import AntiAtroposAction, AntiAtroposObservation
+from .models import (
+    SREAction,
+    ActionType,
+    ClusterObservation,
+    NodeObservation,
+    NodeStatus,
+)
 
 __all__ = [
-    "AntiAtroposAction",
-    "AntiAtroposObservation",
     "AntiAtroposEnv",
+    "SREAction",
+    "ActionType",
+    "ClusterObservation",
+    "NodeObservation",
+    "NodeStatus",
 ]
