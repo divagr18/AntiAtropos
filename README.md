@@ -1,17 +1,17 @@
-# AntiApropos 🛡️
+# AntiAtropos 🛡️
 
 > **Meta PyTorch OpenEnv Hackathon x SST — India AI Hackathon '26**
 > Deadline: April 7, 2026
 
-AntiApropos is an **autonomous infrastructure management environment** for AI agents, built on the [OpenEnv](https://github.com/meta-pytorch/OpenEnv) framework. It simulates a live microservice cluster and challenges an LLM-based SRE agent to keep the system stable, cost-efficient, and within SLA — all at the same time.
+AntiAtropos is an **autonomous infrastructure management environment** for AI agents, built on the [OpenEnv](https://github.com/meta-pytorch/OpenEnv) framework. It simulates a live microservice cluster and challenges an LLM-based SRE agent to keep the system stable, cost-efficient, and within SLA — all at the same time.
 
-The name is a play on *"à propos"* (French: appropriate/relevant) — an SRE who acts *anti-apropos* triggers cascades. This environment rewards the agent that acts *precisely when and how it should*.
+The name is a play on *"à propos"* (French: appropriate/relevant) — an SRE who acts *anti-Atropos* triggers cascades. This environment rewards the agent that acts *precisely when and how it should*.
 
 ---
 
 ## What is it?
 
-Most OpenEnv environments are games (chess, 2048, blackjack). AntiApropos simulates a task that **Site Reliability Engineers (SREs) and DevOps teams perform every day**: balancing a microservice cluster under variable load.
+Most OpenEnv environments are games (chess, 2048, blackjack). AntiAtropos simulates a task that **Site Reliability Engineers (SREs) and DevOps teams perform every day**: balancing a microservice cluster under variable load.
 
 An agent observes a real-time cluster dashboard and must issue management commands each tick:
 
@@ -78,13 +78,13 @@ The agent must **minimise drift** (keep `ΔV ≤ 0`) while also minimising cost.
 
 ```
 AntiAntropos/
-├── AntiApropos/                      ← OpenEnv package root (openenv init AntiApropos)
+├── AntiAtropos/                      ← OpenEnv package root (openenv init AntiAtropos)
 │   ├── models.py                     ← Pydantic schemas: SREAction, ClusterObservation, NodeObservation
 │   ├── client.py                     ← EnvClient: async/sync interface for the AI agent
 │   ├── openenv.yaml                  ← Environment manifest (name, version, entrypoint)
 │   ├── pyproject.toml                ← Package dependencies
 │   └── server/
-│       ├── AntiApropos_environment.py ← Core orchestration: step(), reset(), reward logic
+│       ├── AntiAtropos_environment.py ← Core orchestration: step(), reset(), reward logic
 │       ├── app.py                    ← FastAPI app (created by openenv scaffold)
 │       ├── Dockerfile                ← Container image for HF Spaces deployment
 │       └── requirements.txt          ← Docker-level dependencies
@@ -104,7 +104,7 @@ AntiAntropos/
 
 | Phase | What Gets Built | Status |
 |---|---|---|
-| **Phase 1** — Interface Definition | `models.py`, `client.py`, `AntiApropos_environment.py` schemas + step skeleton | ✅ Done |
+| **Phase 1** — Interface Definition | `models.py`, `client.py`, `AntiAtropos_environment.py` schemas + step skeleton | ✅ Done |
 | **Phase 2** — Simulator | `simulator.py`: M/M/1 queue equations, 3 traffic profiles, action physics | 🔲 Next |
 | **Phase 3** — Lyapunov Grader | `stability.py` + `grader.py`: energy computation, drift, episode scoring | 🔲 Pending |
 | **Phase 4** — Baseline Agent | `baseline.py`: LLM agent loop, local testing via `uv run server` | 🔲 Pending |
@@ -116,7 +116,7 @@ AntiAntropos/
 
 ```bash
 # Install dependencies
-cd AntiApropos
+cd AntiAtropos
 pip install -e .
 
 # Start the OpenEnv server
@@ -132,8 +132,8 @@ ENABLE_WEB_INTERFACE=true uv run server
 ## Deployment
 
 ```bash
-# From the AntiApropos/ directory
-openenv push --repo-id your-hf-username/AntiApropos
+# From the AntiAtropos/ directory
+openenv push --repo-id your-hf-username/AntiAtropos
 ```
 
 This packages the server into the scaffolded Dockerfile and deploys it as a Hugging Face Space, where the baseline agent (and hackathon judges) can connect to it.

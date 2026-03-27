@@ -5,9 +5,9 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-FastAPI application for the Antiapropos Environment.
+FastAPI application for the AntiAtropos Environment.
 
-This module creates an HTTP server that exposes the AntiaproposEnvironment
+This module creates an HTTP server that exposes the AntiAtroposEnvironment
 over HTTP and WebSocket endpoints, compatible with EnvClient.
 
 Endpoints:
@@ -36,19 +36,19 @@ except Exception as e:  # pragma: no cover
     ) from e
 
 try:
-    from ..models import AntiaproposAction, AntiaproposObservation
-    from .AntiApropos_environment import AntiaproposEnvironment
+    from ..models import AntiAtroposAction, AntiAtroposObservation
+    from .AntiAtropos_environment import AntiAtroposEnvironment
 except ModuleNotFoundError:
-    from models import AntiaproposAction, AntiaproposObservation
-    from server.AntiApropos_environment import AntiaproposEnvironment
+    from models import AntiAtroposAction, AntiAtroposObservation
+    from server.AntiAtropos_environment import AntiAtroposEnvironment
 
 
 # Create the app with web interface and README integration
 app = create_app(
-    AntiaproposEnvironment,
-    AntiaproposAction,
-    AntiaproposObservation,
-    env_name="AntiApropos",
+    AntiAtroposEnvironment,
+    AntiAtroposAction,
+    AntiAtroposObservation,
+    env_name="AntiAtropos",
     max_concurrent_envs=1,  # increase this number to allow more concurrent WebSocket sessions
 )
 
@@ -60,7 +60,7 @@ def main(host: str = "0.0.0.0", port: int = 8000):
     This function enables running the server without Docker:
         uv run --project . server
         uv run --project . server --port 8001
-        python -m AntiApropos.server.app
+        python -m AntiAtropos.server.app
 
     Args:
         host: Host address to bind to (default: "0.0.0.0")
@@ -68,7 +68,7 @@ def main(host: str = "0.0.0.0", port: int = 8000):
 
     For production deployments, consider using uvicorn directly with
     multiple workers:
-        uvicorn AntiApropos.server.app:app --workers 4
+        uvicorn AntiAtropos.server.app:app --workers 4
     """
     import uvicorn
 

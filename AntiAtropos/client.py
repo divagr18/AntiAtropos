@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""Antiapropos Environment Client."""
+"""AntiAtropos Environment Client."""
 
 from typing import Dict
 
@@ -12,14 +12,14 @@ from openenv.core import EnvClient
 from openenv.core.client_types import StepResult
 from openenv.core.env_server.types import State
 
-from .models import AntiaproposAction, AntiaproposObservation
+from .models import AntiAtroposAction, AntiAtroposObservation
 
 
-class AntiaproposEnv(
-    EnvClient[AntiaproposAction, AntiaproposObservation, State]
+class AntiAtroposEnv(
+    EnvClient[AntiAtroposAction, AntiAtroposObservation, State]
 ):
     """
-    Client for the Antiapropos Environment.
+    Client for the AntiAtropos Environment.
 
     This client maintains a persistent WebSocket connection to the environment server,
     enabling efficient multi-step interactions with lower latency.
@@ -27,29 +27,29 @@ class AntiaproposEnv(
 
     Example:
         >>> # Connect to a running server
-        >>> with AntiaproposEnv(base_url="http://localhost:8000") as client:
+        >>> with AntiAtroposEnv(base_url="http://localhost:8000") as client:
         ...     result = client.reset()
         ...     print(result.observation.echoed_message)
         ...
-        ...     result = client.step(AntiaproposAction(message="Hello!"))
+        ...     result = client.step(AntiAtroposAction(message="Hello!"))
         ...     print(result.observation.echoed_message)
 
     Example with Docker:
         >>> # Automatically start container and connect
-        >>> client = AntiaproposEnv.from_docker_image("AntiApropos-env:latest")
+        >>> client = AntiAtroposEnv.from_docker_image("AntiAtropos-env:latest")
         >>> try:
         ...     result = client.reset()
-        ...     result = client.step(AntiaproposAction(message="Test"))
+        ...     result = client.step(AntiAtroposAction(message="Test"))
         ... finally:
         ...     client.close()
     """
 
-    def _step_payload(self, action: AntiaproposAction) -> Dict:
+    def _step_payload(self, action: AntiAtroposAction) -> Dict:
         """
-        Convert AntiaproposAction to JSON payload for step message.
+        Convert AntiAtroposAction to JSON payload for step message.
 
         Args:
-            action: AntiaproposAction instance
+            action: AntiAtroposAction instance
 
         Returns:
             Dictionary representation suitable for JSON encoding
@@ -58,18 +58,18 @@ class AntiaproposEnv(
             "message": action.message,
         }
 
-    def _parse_result(self, payload: Dict) -> StepResult[AntiaproposObservation]:
+    def _parse_result(self, payload: Dict) -> StepResult[AntiAtroposObservation]:
         """
-        Parse server response into StepResult[AntiaproposObservation].
+        Parse server response into StepResult[AntiAtroposObservation].
 
         Args:
             payload: JSON response data from server
 
         Returns:
-            StepResult with AntiaproposObservation
+            StepResult with AntiAtroposObservation
         """
         obs_data = payload.get("observation", {})
-        observation = AntiaproposObservation(
+        observation = AntiAtroposObservation(
             echoed_message=obs_data.get("echoed_message", ""),
             message_length=obs_data.get("message_length", 0),
             done=payload.get("done", False),

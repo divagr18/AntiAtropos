@@ -5,9 +5,9 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-Data models for the AntiApropos Environment.
+Data models for the AntiAtropos Environment.
 
-AntiApropos is an autonomous SRE environment. An agent observes a live
+AntiAtropos is an autonomous SRE environment. An agent observes a live
 microservice cluster (latencies, queues, costs) and takes management actions
 (scale, reroute, shed load) to maintain system stability, measured via
 Lyapunov Energy.

@@ -1,5 +1,5 @@
 spec_version: 1
-name: AntiApropos
+name: AntiAtropos
 type: space
 runtime: fastapi
 app: server.app:app

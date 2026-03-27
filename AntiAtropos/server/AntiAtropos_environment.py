@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-AntiApropos Environment — Server-Side Implementation.
+AntiAtropos Environment — Server-Side Implementation.
 
 This module is the central orchestration layer.  It:
   1. Receives a typed SREAction from the OpenEnv framework.
@@ -46,7 +46,7 @@ COST_PER_NODE_PER_HOUR: float = 0.10  # USD/hr per active node
 # Main Environment Class
 # ---------------------------------------------------------------------------
 
-class AntiAproposEnvironment(Environment):
+class AntiAtroposEnvironment(Environment):
     """
     Autonomous SRE simulation environment.
 

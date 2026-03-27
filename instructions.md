@@ -1,4 +1,4 @@
-This document serves as the **Software Requirements Specification (SRS)** for **AntiApropos**, an autonomous infrastructure management environment built for the Meta PyTorch OpenEnv Hackathon.
+This document serves as the **Software Requirements Specification (SRS)** for **AntiAtropos**, an autonomous infrastructure management environment built for the Meta PyTorch OpenEnv Hackathon.
 https://www.scaler.com/school-of-technology/meta-pytorch-hackathon/dashboard?utm_source=midfunnel&utm_medium=email&utm_campaign=r1_confirmation_team
 ---
 
@@ -17,7 +17,7 @@ https://www.scaler.com/school-of-technology/meta-pytorch-hackathon/dashboard?utm
 
 ---
 
-## 2. Project Vision: AntiApropos
+## 2. Project Vision: AntiAtropos
 **Concept:** An autonomous Site Reliability Engineer (SRE) agent that manages a cluster of microservices. It balances operational cost against system stability using **Lyapunov-inspired control logic**.
 
 
@@ -40,11 +40,11 @@ The system is designed in four swappable layers to allow for rapid iteration and
 * **Modularity:** Allows swapping between a "Hard Shield" (Rule-based) and a "Soft Lyapunov Penalty" (RL-based).
 
 ### **Layer C: The OpenEnv Interface (Bridge)**
-* **Modules:** `models.py`, `client.py`, and `server/AntiApropos_environment.py`
+* **Modules:** `models.py`, `client.py`, and `server/AntiAtropos_environment.py`
 * **Function:** Maps simulator states to typed Pydantic models and runs the execution logic via a strict client-server separation as dictated by the OpenEnv standard.
 * **Components:**
     * `models.py`: Strongly-typed Pydantic schemas (`Action`, `Observation`, `State`).
-    * `server/AntiApropos_environment.py`: The `Environment` subclass. Contains the actual `reset()` and `step()` server-side logic integrating `simulator.py` and `stability.py`.
+    * `server/AntiAtropos_environment.py`: The `Environment` subclass. Contains the actual `reset()` and `step()` server-side logic integrating `simulator.py` and `stability.py`.
     * `client.py`: The async/sync `EnvClient` wrapper used by AI models to interact over HTTP/WebSockets.
 * **Core API (Handled via OpenEnv):**
     * `reset()`: Re-initializes the simulator and returns the initial `Observation`.
@@ -98,8 +98,8 @@ $$R_t = -(\alpha \cdot \Delta V(s) + \beta \cdot \text{Cost} + \gamma \cdot \tex
 
 | Phase | Component | Focus |
 | :--- | :--- | :--- |
-| **Phase 1** | **Interface Definition** | Populate the scaffolded `models.py`, `client.py`, and `server/AntiApropos_environment.py` with specific Pydantic schemas and logic definitions. |
-| **Phase 2** | **Basic Simulator** | Build `simulator.py` with simple queue math. Inject it into the `AntiApropos_environment.py` loop. |
+| **Phase 1** | **Interface Definition** | Populate the scaffolded `models.py`, `client.py`, and `server/AntiAtropos_environment.py` with specific Pydantic schemas and logic definitions. |
+| **Phase 2** | **Basic Simulator** | Build `simulator.py` with simple queue math. Inject it into the `AntiAtropos_environment.py` loop. |
 | **Phase 3** | **Lyapunov Grader** | Implement `stability.py` to calculate drift and score the agent's performance. |
 | **Phase 4** | **Baseline Agent & Local Testing** | Test locally via `uv run server`. Write `baseline.py` using an OpenAI/Groq client to test if the tasks are solvable in the environment. |
 | **Phase 5** | **HF Deployment** | Configure `server/requirements.txt` and run `openenv push` to securely containerize and deploy the app to Hugging Face Spaces. |

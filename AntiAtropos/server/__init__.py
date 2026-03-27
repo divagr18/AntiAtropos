@@ -4,8 +4,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""Antiapropos environment server components."""
+"""AntiAtropos environment server components."""
 
-from .AntiApropos_environment import AntiaproposEnvironment
+from .AntiAtropos_environment import AntiAtroposEnvironment
 
-__all__ = ["AntiaproposEnvironment"]
+__all__ = ["AntiAtroposEnvironment"]

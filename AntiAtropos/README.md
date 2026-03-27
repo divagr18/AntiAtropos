@@ -1,5 +1,5 @@
 ---
-title: Antiapropos Environment Server
+title: AntiAtropos Environment Server
 emoji: 🎶
 colorFrom: gray
 colorTo: red
@@ -11,30 +11,30 @@ tags:
   - openenv
 ---
 
-# Antiapropos Environment
+# AntiAtropos Environment
 
 A simple test environment that echoes back messages. Perfect for testing the env APIs as well as demonstrating environment usage patterns.
 
 ## Quick Start
 
-The simplest way to use the Antiapropos environment is through the `AntiaproposEnv` class:
+The simplest way to use the AntiAtropos environment is through the `AntiAtroposEnv` class:
 
 ```python
-from AntiApropos import AntiaproposAction, AntiaproposEnv
+from AntiAtropos import AntiAtroposAction, AntiAtroposEnv
 
 try:
     # Create environment from Docker image
-    AntiAproposenv = AntiaproposEnv.from_docker_image("AntiApropos-env:latest")
+    AntiAtroposenv = AntiAtroposEnv.from_docker_image("AntiAtropos-env:latest")
 
     # Reset
-    result = AntiAproposenv.reset()
+    result = AntiAtroposenv.reset()
     print(f"Reset: {result.observation.echoed_message}")
 
     # Send multiple messages
     messages = ["Hello, World!", "Testing echo", "Final message"]
 
     for msg in messages:
-        result = AntiAproposenv.step(AntiaproposAction(message=msg))
+        result = AntiAtroposenv.step(AntiAtroposAction(message=msg))
         print(f"Sent: '{msg}'")
         print(f"  → Echoed: '{result.observation.echoed_message}'")
         print(f"  → Length: {result.observation.message_length}")
@@ -42,10 +42,10 @@ try:
 
 finally:
     # Always clean up
-    AntiAproposenv.close()
+    AntiAtroposenv.close()
 ```
 
-That's it! The `AntiaproposEnv.from_docker_image()` method handles:
+That's it! The `AntiAtroposEnv.from_docker_image()` method handles:
 - Starting the Docker container
 - Waiting for the server to be ready
 - Connecting to the environment
@@ -57,7 +57,7 @@ Before using the environment, you need to build the Docker image:
 
 ```bash
 # From project root
-docker build -t AntiApropos-env:latest -f server/Dockerfile .
+docker build -t AntiAtropos-env:latest -f server/Dockerfile .
 ```
 
 ## Deploying to Hugging Face Spaces
@@ -119,11 +119,11 @@ The deployed space includes:
 ## Environment Details
 
 ### Action
-**AntiaproposAction**: Contains a single field
+**AntiAtroposAction**: Contains a single field
 - `message` (str) - The message to echo back
 
 ### Observation
-**AntiaproposObservation**: Contains the echo response and metadata
+**AntiAtroposObservation**: Contains the echo response and metadata
 - `echoed_message` (str) - The message echoed back
 - `message_length` (int) - Length of the message
 - `reward` (float) - Reward based on message length (length × 0.1)
@@ -140,35 +140,35 @@ The reward is calculated as: `message_length × 0.1`
 
 ### Connecting to an Existing Server
 
-If you already have a Antiapropos environment server running, you can connect directly:
+If you already have a AntiAtropos environment server running, you can connect directly:
 
 ```python
-from AntiApropos import AntiaproposEnv
+from AntiAtropos import AntiAtroposEnv
 
 # Connect to existing server
-AntiAproposenv = AntiaproposEnv(base_url="<ENV_HTTP_URL_HERE>")
+AntiAtroposenv = AntiAtroposEnv(base_url="<ENV_HTTP_URL_HERE>")
 
 # Use as normal
-result = AntiAproposenv.reset()
-result = AntiAproposenv.step(AntiaproposAction(message="Hello!"))
+result = AntiAtroposenv.reset()
+result = AntiAtroposenv.step(AntiAtroposAction(message="Hello!"))
 ```
 
-Note: When connecting to an existing server, `AntiAproposenv.close()` will NOT stop the server.
+Note: When connecting to an existing server, `AntiAtroposenv.close()` will NOT stop the server.
 
 ### Using the Context Manager
 
 The client supports context manager usage for automatic connection management:
 
 ```python
-from AntiApropos import AntiaproposAction, AntiaproposEnv
+from AntiAtropos import AntiAtroposAction, AntiAtroposEnv
 
 # Connect with context manager (auto-connects and closes)
-with AntiaproposEnv(base_url="http://localhost:8000") as env:
+with AntiAtroposEnv(base_url="http://localhost:8000") as env:
     result = env.reset()
     print(f"Reset: {result.observation.echoed_message}")
     # Multiple steps with low latency
     for msg in ["Hello", "World", "!"]:
-        result = env.step(AntiaproposAction(message=msg))
+        result = env.step(AntiAtroposAction(message=msg))
         print(f"Echoed: {result.observation.echoed_message}")
 ```
 
@@ -185,9 +185,9 @@ modify `server/app.py` to use factory mode:
 ```python
 # In server/app.py - use factory mode for concurrent sessions
 app = create_app(
-    AntiaproposEnvironment,  # Pass class, not instance
-    AntiaproposAction,
-    AntiaproposObservation,
+    AntiAtroposEnvironment,  # Pass class, not instance
+    AntiAtroposAction,
+    AntiAtroposObservation,
     max_concurrent_envs=4,  # Allow 4 concurrent sessions
 )
 ```
@@ -195,14 +195,14 @@ app = create_app(
 Then multiple clients can connect simultaneously:
 
 ```python
-from AntiApropos import AntiaproposAction, AntiaproposEnv
+from AntiAtropos import AntiAtroposAction, AntiAtroposEnv
 from concurrent.futures import ThreadPoolExecutor
 
 def run_episode(client_id: int):
-    with AntiaproposEnv(base_url="http://localhost:8000") as env:
+    with AntiAtroposEnv(base_url="http://localhost:8000") as env:
         result = env.reset()
         for i in range(10):
-            result = env.step(AntiaproposAction(message=f"Client {client_id}, step {i}"))
+            result = env.step(AntiAtroposAction(message=f"Client {client_id}, step {i}"))
         return client_id, result.observation.message_length
 
 # Run 4 episodes concurrently
@@ -218,7 +218,7 @@ Test the environment logic directly without starting the HTTP server:
 
 ```bash
 # From the server directory
-python3 server/AntiApropos_environment.py
+python3 server/AntiAtropos_environment.py
 ```
 
 This verifies that:
@@ -238,18 +238,18 @@ uvicorn server.app:app --reload
 ## Project Structure
 
 ```
-AntiApropos/
+AntiAtropos/
 ├── .dockerignore         # Docker build exclusions
 ├── __init__.py            # Module exports
 ├── README.md              # This file
 ├── openenv.yaml           # OpenEnv manifest
 ├── pyproject.toml         # Project metadata and dependencies
 ├── uv.lock                # Locked dependencies (generated)
-├── client.py              # AntiaproposEnv client
+├── client.py              # AntiAtroposEnv client
 ├── models.py              # Action and Observation models
 └── server/
     ├── __init__.py        # Server module exports
-    ├── AntiApropos_environment.py  # Core environment logic
+    ├── AntiAtropos_environment.py  # Core environment logic
     ├── app.py             # FastAPI application (HTTP + WebSocket endpoints)
     └── Dockerfile         # Container image definition
 ```

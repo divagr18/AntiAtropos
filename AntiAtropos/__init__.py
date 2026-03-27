@@ -4,13 +4,13 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""Antiapropos Environment."""
+"""AntiAtropos Environment."""
 
-from .client import AntiaproposEnv
-from .models import AntiaproposAction, AntiaproposObservation
+from .client import AntiAtroposEnv
+from .models import AntiAtroposAction, AntiAtroposObservation
 
 __all__ = [
-    "AntiaproposAction",
-    "AntiaproposObservation",
-    "AntiaproposEnv",
+    "AntiAtroposAction",
+    "AntiAtroposObservation",
+    "AntiAtroposEnv",
 ]
