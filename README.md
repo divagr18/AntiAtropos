@@ -25,7 +25,7 @@ Where $Q_i$ is the queue depth at node $i$. A rising $V(s)$ indicates the cluste
 
 ### The Reward Signal
 The reward function implements a drift-penalization strategy:
-$$R_t = -(\alpha \cdot \Delta V(s) + \beta \cdot \text{Cost} + \gamma \cdot \text{SLA\_Violations})$$
+$$R_t = -(\alpha \cdot \Delta V(s) + \beta \cdot \text{Cost} + \gamma \cdot \text{SLA Violations})$$
 The agent must **minimize drift** (keep $\Delta V \leq 0$) while optimizing for cost and strict 200ms latency SLAs.
 
 ---
