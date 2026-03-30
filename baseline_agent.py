@@ -42,7 +42,7 @@ def decide_action(obs) -> SREAction:
         parameter=1.0  # Add 1 unit of capacity
     )
 
-def run_baseline(task_id: str, url: str = "http://localhost:8000"):
+def run_baseline(task_id: str, url: str = "https://pranavkk-antiatropos.hf.space"):
     print(f"\n--- Running Baseline Agent on {task_id} ---")
     history = []
     

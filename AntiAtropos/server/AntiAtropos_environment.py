@@ -36,9 +36,13 @@ except ImportError:
 # Reward hyper-parameters (synchronized with stability.py constants)
 # ---------------------------------------------------------------------------
 
-ALPHA: float = 1.0   # Weight on Lyapunov energy drift ΔV(s)
-BETA:  float = 0.05  # Weight on infrastructure cost
-GAMMA: float = 2.0   # Weight on SLA violations
+ALPHA: float = 1e-5   # Massively scaled down Weight on Lyapunov energy drift ΔV(s)
+BETA:  float = 1.0    # Weight on infrastructure cost
+GAMMA: float = 1.0    # Weight on SLA violations
+
+MAX_QUEUE_NORM = 200.0
+MAX_LATENCY_NORM = 1000.0
+MAX_REQUEST_RATE_NORM = 100.0
 
 MAX_STEPS: int = 100      # Episode length
 N_NODES:   int = 5        # Cluster size
@@ -182,10 +186,10 @@ class AntiAtroposEnvironment(Environment):
             NodeObservation(
                 node_id=n["node_id"],
                 status=n["status"],
-                queue_depth=n["queue_depth"],
-                latency_ms=n["latency_ms"],
-                incoming_request_rate=n["incoming_request_rate"],
-                cpu_utilization=n["cpu_utilization"],
+                queue_depth=min(1.0, max(0.0, float(n["queue_depth"]) / MAX_QUEUE_NORM)),
+                latency_ms=min(1.0, max(0.0, float(n["latency_ms"]) / MAX_LATENCY_NORM)),
+                incoming_request_rate=min(1.0, max(0.0, float(n["incoming_request_rate"]) / MAX_REQUEST_RATE_NORM)),
+                cpu_utilization=min(1.0, max(0.0, float(n["cpu_utilization"]))),
                 done=False,
                 reward=0.0,
             )
@@ -198,7 +202,7 @@ class AntiAtroposEnvironment(Environment):
             active_nodes=sum(1 for n in self._nodes if n["status"] != NodeStatus.FAILED),
             average_latency_ms=self._avg_latency(self._nodes),
             error_rate=self._error_rate(self._nodes),
-            total_queue_backlog=sum(n["queue_depth"] for n in self._nodes),
+            total_queue_backlog=sum(min(1.0, max(0.0, float(n["queue_depth"]) / MAX_QUEUE_NORM)) for n in self._nodes),
             current_cost_per_hour=self._compute_cost(self._nodes),
             lyapunov_energy=self._prev_lyapunov,
             nodes=node_obs,

@@ -79,9 +79,10 @@ class SREAction(Action):
     parameter: float = Field(
         default=0.0,
         ge=0.0,
+        le=1.0,
         description=(
-            "Magnitude of the action. Interpretation depends on action_type:\n"
-            "  - SCALE_UP / SCALE_DOWN: integer number of nodes to add/remove (e.g. 2.0).\n"
+            "Magnitude of the action strictly bounded to [0.0, 1.0]. Interpretation depends on action_type:\n"
+            "  - SCALE_UP / SCALE_DOWN: scaled gracefully to MAX_SCALING_STEP internally.\n"
             "  - REROUTE_TRAFFIC / SHED_LOAD: fraction of load to move/drop [0.0, 1.0].\n"
             "  - NO_OP: ignored."
         ),
@@ -114,12 +115,12 @@ class NodeObservation(Observation):
         description="Coarse health classification: HEALTHY, DEGRADED, or FAILED.",
     )
 
-    queue_depth: int = Field(
-        default=0,
-        ge=0,
+    queue_depth: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
         description=(
-            "Number of requests currently waiting in this node's queue. "
-            "This is the Q_i term in the Lyapunov energy V(s) = Σ Q_i²."
+            "Normalized queue depth [0.0, 1.0]. Represents the % of theoretical max queue."
         ),
     )
 
@@ -189,12 +190,11 @@ class ClusterObservation(Observation):
         ),
     )
 
-    total_queue_backlog: int = Field(
-        default=0,
-        ge=0,
+    total_queue_backlog: float = Field(
+        default=0.0,
+        ge=0.0,
         description=(
-            "Sum of queue_depth across all nodes. "
-            "Equivalent to Σ Q_i — the un-squared Lyapunov proxy."
+            "Normalized sum of queue_depth across all nodes."
         ),
     )
 
