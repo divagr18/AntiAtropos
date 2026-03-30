@@ -39,7 +39,7 @@ try:
     # Change these names to match models.py
     from ..models import SREAction, ClusterObservation
     from .AntiAtropos_environment import AntiAtroposEnvironment
-except ModuleNotFoundError:
+except (ModuleNotFoundError, ImportError):
     # And here as well
     from models import SREAction, ClusterObservation
     from server.AntiAtropos_environment import AntiAtroposEnvironment
@@ -52,7 +52,7 @@ app = create_app(
     SREAction,           # Changed from AntiAtroposAction
     ClusterObservation,  # Changed from AntiAtroposObservation
     env_name="AntiAtropos",
-    max_concurrent_envs=1,
+    max_concurrent_envs=100,
 )
 
 

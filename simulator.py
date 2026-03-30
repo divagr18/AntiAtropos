@@ -62,6 +62,12 @@ MIN_CAPACITY: int = 1
 COST_PER_CAPACITY_UNIT_PER_HOUR: float = 0.05
 """USD/hr per capacity unit.  Cluster cost = Σ capacity_i × this value."""
 
+BOOT_DELAY_TICKS: int = 5
+SENSOR_DROPOUT_PROB: float = 0.05
+CONTROL_PLANE_DROPOUT_PROB: float = 0.05
+MAX_SCALING_STEP: int = 3
+
+
 # ---------------------------------------------------------------------------
 # Traffic profile constants
 # ---------------------------------------------------------------------------
@@ -123,6 +129,7 @@ class NodeState:
 
     # Per-tick accounting (reset each tick)
     dropped_requests: float = 0.0
+    pending_capacity_queue: list[int] = field(default_factory=list)
 
     # Derived (recomputed whenever capacity or status changes)
     _service_rate: float = field(init=False, repr=False)
@@ -205,7 +212,14 @@ class ClusterSimulator:
 
     def state(self) -> list[dict]:
         """Return current per-node state as a list of plain dicts."""
-        return [n.to_dict() for n in self._nodes]
+        state_list = []
+        for n in self._nodes:
+            d = n.to_dict()
+            if self._rng.random() < SENSOR_DROPOUT_PROB:
+                d["queue_depth"] = 0
+                d["latency_ms"] = -1.0
+            state_list.append(d)
+        return state_list
 
     def apply_action(self, action) -> None:
         """
@@ -221,22 +235,28 @@ class ClusterSimulator:
         if action.action_type.value == "NO_OP":
             return
 
+        if self._rng.random() < CONTROL_PLANE_DROPOUT_PROB:
+            # Simulate Control-Plane Dropout API failure
+            return
+
         target = self._find_node(action.target_node_id)
         if target is None:
             return  # unknown node; silently ignore
 
         at = action.action_type.value
-        param = max(0.0, action.parameter)
+        param = min(1.0, max(0.0, action.parameter)) # Bound tightly to [0,1]
 
         if at == "SCALE_UP":
-            delta = max(1, int(param))
-            target.capacity = min(MAX_CAPACITY, target.capacity + delta)
+            delta = max(1, int(param * MAX_SCALING_STEP))
+            current_max = target.capacity + len(target.pending_capacity_queue)
+            actual_delta = min(delta, MAX_CAPACITY - current_max)
+            for _ in range(actual_delta):
+                target.pending_capacity_queue.append(BOOT_DELAY_TICKS)
             if target.status == NodeStatus.DEGRADED:
                 target.status = NodeStatus.HEALTHY
-            target.recompute_service_rate()
 
         elif at == "SCALE_DOWN":
-            delta = max(1, int(param))
+            delta = max(1, int(param * MAX_SCALING_STEP))
             target.capacity = max(MIN_CAPACITY, target.capacity - delta)
             target.recompute_service_rate()
 
@@ -272,14 +292,39 @@ class ClusterSimulator:
             4. Classify node status (HEALTHY / DEGRADED / FAILED).
         """
         self._tick_count += 1
+        self._update_capacity()
         self._inject_traffic()
         self._update_queues()
         self._update_derived_metrics()
         self._update_statuses()
 
+    def _update_capacity(self) -> None:
+        """Process pending capacity from SCALE_UP actions"""
+        for node in self._nodes:
+            if node.pending_capacity_queue:
+                # Decrement all timers by 1 tick
+                node.pending_capacity_queue = [t - 1 for t in node.pending_capacity_queue]
+                
+                # Turn ready units into actual capacity
+                ready_count = sum(1 for t in node.pending_capacity_queue if t <= 0)
+                if ready_count > 0:
+                    node.capacity = min(MAX_CAPACITY, node.capacity + ready_count)
+                    node.recompute_service_rate()
+                
+                # Keep only units still booting
+                node.pending_capacity_queue = [t for t in node.pending_capacity_queue if t > 0]
+
     # -----------------------------------------------------------------------
     # Private — initialisation
     # -----------------------------------------------------------------------
+
+    def _randomize_domain(self) -> None:
+        """Randomize physical constraints to prevent overfitting (Domain Randomization)"""
+        self._t1_ramp_slope = self._rng.uniform(0.5, 2.0)
+        self._t1_init_lambda = self._rng.uniform(25.0, 40.0)
+        
+        self._t2_fail_tick = self._rng.randint(10, 80)
+        self._t2_init_lambda = self._rng.uniform(35.0, 45.0)
 
     def _reset_nodes(self) -> None:
         self._nodes = [
@@ -294,10 +339,10 @@ class ClusterSimulator:
     def _initial_lambda(self) -> float:
         """Return the task-appropriate starting arrival rate."""
         if self._task_id == "task-2":
-            return T2_INITIAL_LAMBDA
+            return self._t2_init_lambda
         if self._task_id == "task-3":
             return T3_INITIAL_LAMBDA
-        return T1_INITIAL_LAMBDA   # task-1 default
+        return self._t1_init_lambda   # task-1 default
 
     def _find_node(self, node_id: str) -> Optional[NodeState]:
         for n in self._nodes:
@@ -321,15 +366,9 @@ class ClusterSimulator:
     def _profile_task1(self, t: int) -> None:
         """
         Linear traffic ramp — uniform across all nodes.
-
-        λ_i(t) = T1_INITIAL_LAMBDA + T1_RAMP_SLOPE × t
-
-        With default values:
-            λ exceeds μ=45 at t = (45−35)/1 = 10 ticks.
-            Queue reaches OVERLOAD_THRESHOLD (~80 req) around tick 22.
-            SLA violation starts around tick 25 unless the agent acts.
+        Uses randomized ramp slope for domain randomization.
         """
-        lambda_t = T1_INITIAL_LAMBDA + T1_RAMP_SLOPE * t
+        lambda_t = self._t1_init_lambda + self._t1_ramp_slope * t
         for node in self._nodes:
             if node.status != NodeStatus.FAILED:
                 node.incoming_request_rate = lambda_t
@@ -339,18 +378,15 @@ class ClusterSimulator:
 
     def _profile_task2(self, t: int) -> None:
         """
-        Stable traffic until T2_FAIL_TICK, then a random node fails.
-
-        On failure the load balancer spreads the dead node's λ across
-        surviving nodes, pushing them above μ=45 and causing queue build-up.
+        Stable traffic until random T2_FAIL_TICK, then a random node fails.
         """
         # Set baseline for all live nodes
         for node in self._nodes:
             if node.status != NodeStatus.FAILED:
-                node.incoming_request_rate = T2_INITIAL_LAMBDA
+                node.incoming_request_rate = self._t2_init_lambda
 
         # Inject failure exactly once at the designated tick
-        if t == T2_FAIL_TICK and self._failed_node_id is None:
+        if t == self._t2_fail_tick and self._failed_node_id is None:
             victim = self._rng.choice(self._nodes)
             victim.status = NodeStatus.FAILED
             victim.incoming_request_rate = 0.0
@@ -358,13 +394,11 @@ class ClusterSimulator:
             self._failed_node_id = victim.node_id
 
         # Redistribute the failed node's load to the survivors
-        # Effective λ per survivor = (N × T2_INITIAL_LAMBDA) / N_survivors
-        # E.g.  5×40/4 = 50  >  μ=45  →  queues build at 5 req/tick
         if self._failed_node_id is not None:
             survivors = [n for n in self._nodes if n.status != NodeStatus.FAILED]
             n_survivors = len(survivors)
             if n_survivors > 0:
-                total_lambda = self._n_nodes * T2_INITIAL_LAMBDA
+                total_lambda = self._n_nodes * self._t2_init_lambda
                 per_survivor = total_lambda / n_survivors
                 for node in survivors:
                     node.incoming_request_rate = per_survivor
