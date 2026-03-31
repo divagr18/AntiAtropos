@@ -24,11 +24,11 @@ from openenv.core.env_server.types import State
 
 try:
     from ..models import SREAction, ClusterObservation, NodeObservation, NodeStatus
-    from ..simulator import ClusterSimulator
+    from ..simulator import ClusterSimulator, COST_PER_CAPACITY_UNIT_PER_HOUR
     from ..stability import compute_lyapunov, compute_reward
 except ImportError:
     from models import SREAction, ClusterObservation, NodeObservation, NodeStatus  # type: ignore[no-redef]
-    from simulator import ClusterSimulator  # type: ignore[no-redef]
+    from simulator import ClusterSimulator, COST_PER_CAPACITY_UNIT_PER_HOUR  # type: ignore[no-redef]
     from stability import compute_lyapunov, compute_reward  # type: ignore[no-redef]
 
 
@@ -46,7 +46,6 @@ MAX_REQUEST_RATE_NORM = 100.0
 
 MAX_STEPS: int = 100      # Episode length
 N_NODES:   int = 5        # Cluster size
-COST_PER_CAPACITY_UNIT: float = 0.05  # USD/hr per capacity unit (matches simulator.py)
 
 
 class AntiAtroposEnvironment(Environment):
@@ -57,20 +56,6 @@ class AntiAtroposEnvironment(Environment):
     (SCALE_UP, SCALE_DOWN, REROUTE_TRAFFIC, SHED_LOAD, NO_OP) each step.
     The environment advances one discrete time-tick per step, computes the
     Lyapunov reward, and returns the updated ClusterObservation.
-
-    Reward formula:
-        R_t = -(α·ΔV(s)  +  β·Cost  +  γ·SLA_Violations)
-
-    where:
-        V(s) = Σ Q_i²  (sum of squared queue depths — Lyapunov energy)
-
-    Stability is the primary objective (α term). Cost optimisation and SLA
-    compliance are secondary regularisers (β, γ terms).
-
-    Tasks (set via reset(task_id=...)):
-        task-1  Predictive Scaling  — linearly rising traffic, keep latency <200ms.
-        task-2  Fault Tolerance     — random node failure, reroute before queues explode.
-        task-3  Stability Under Surge — stochastic DDoS burst, shed load on non-critical nodes.
     """
 
     SUPPORTS_CONCURRENT_SESSIONS: bool = True
@@ -124,7 +109,7 @@ class AntiAtroposEnvironment(Environment):
         # 4. Compute Lyapunov stability metrics from Ground Truth
         current_lyapunov = compute_lyapunov(self._nodes_true)
         
-        # 5. Compute scalar reward
+        # 5. Compute scalar reward using updated counters
         cost = self._compute_cost(self._nodes_true)
         reward = compute_reward(
             v_prev=self._prev_lyapunov,
@@ -159,12 +144,15 @@ class AntiAtroposEnvironment(Environment):
     # -----------------------------------------------------------------------
 
     def _compute_cost(self, nodes_true: list[dict]) -> float:
-        """Calculates current running cost based on capacity units."""
-        total_capacity = sum(
-            n.get("capacity", 1) 
-            for n in nodes_true if n["status"] != NodeStatus.FAILED
-        )
-        return total_capacity * COST_PER_CAPACITY_UNIT
+        """Calculates current running infra cost using provisioned capacity units."""
+        total_capacity_units = 0
+        for node in nodes_true:
+            if node["status"] == NodeStatus.FAILED:
+                continue
+            # Both live and pending units are billed as infrastructure is provisioned.
+            total_capacity_units += int(node.get("capacity_units", 0))
+            total_capacity_units += int(node.get("pending_capacity_units", 0))
+        return total_capacity_units * COST_PER_CAPACITY_UNIT_PER_HOUR
 
     def _avg_latency(self, nodes: list[dict]) -> float:
         """Computes mean latency across all non-failed nodes."""
