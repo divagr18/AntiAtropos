@@ -118,10 +118,7 @@ class NodeObservation(Observation):
     queue_depth: float = Field(
         default=0.0,
         ge=0.0,
-        le=1.0,
-        description=(
-            "Normalized queue depth [0.0, 1.0]. Represents the % of theoretical max queue."
-        ),
+        description="Current queue depth in requests.",
     )
 
     latency_ms: float = Field(
@@ -133,7 +130,7 @@ class NodeObservation(Observation):
     incoming_request_rate: float = Field(
         default=0.0,
         ge=0.0,
-        description="Requests per second currently arriving at this node.",
+        description="Incoming request rate for this node in requests per tick.",
     )
 
     cpu_utilization: float = Field(
@@ -193,9 +190,7 @@ class ClusterObservation(Observation):
     total_queue_backlog: float = Field(
         default=0.0,
         ge=0.0,
-        description=(
-            "Normalized sum of queue_depth across all nodes."
-        ),
+        description="Sum of queue depth across all nodes in requests.",
     )
 
     current_cost_per_hour: float = Field(
