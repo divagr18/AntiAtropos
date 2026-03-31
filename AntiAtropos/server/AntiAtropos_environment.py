@@ -24,11 +24,11 @@ from openenv.core.env_server.types import State
 
 try:
     from ..models import SREAction, ClusterObservation, NodeObservation, NodeStatus
-    from ..simulator import ClusterSimulator
+    from ..simulator import ClusterSimulator, COST_PER_CAPACITY_UNIT_PER_HOUR
     from ..stability import compute_lyapunov, compute_reward
 except ImportError:
     from models import SREAction, ClusterObservation, NodeObservation, NodeStatus  # type: ignore[no-redef]
-    from simulator import ClusterSimulator  # type: ignore[no-redef]
+    from simulator import ClusterSimulator, COST_PER_CAPACITY_UNIT_PER_HOUR  # type: ignore[no-redef]
     from stability import compute_lyapunov, compute_reward  # type: ignore[no-redef]
 
 
@@ -40,13 +40,8 @@ ALPHA: float = 1e-5   # Massively scaled down Weight on Lyapunov energy drift Δ
 BETA:  float = 1.0    # Weight on infrastructure cost
 GAMMA: float = 1.0    # Weight on SLA violations
 
-MAX_QUEUE_NORM = 200.0
-MAX_LATENCY_NORM = 1000.0
-MAX_REQUEST_RATE_NORM = 100.0
-
 MAX_STEPS: int = 100      # Episode length
 N_NODES:   int = 5        # Cluster size
-COST_PER_NODE_PER_HOUR: float = 0.10  # Baseline USD/hr per active node
 
 
 class AntiAtroposEnvironment(Environment):
@@ -113,7 +108,13 @@ class AntiAtroposEnvironment(Environment):
         # 3: Compute Lyapunov stability metrics
         current_lyapunov = compute_lyapunov(self._nodes)
         
-        # 4: Compute scalar reward using the stability layer logic
+        # 4: SLA check for this tick before reward accounting
+        avg_latency = self._avg_latency(self._nodes)
+        error_rate  = self._error_rate(self._nodes)
+        if avg_latency > 200.0 or error_rate > 0.05:
+            self._sla_violations += 1
+
+        # 5: Compute scalar reward using this step's updated counters
         cost = self._compute_cost(self._nodes)
         reward = compute_reward(
             v_prev=self._prev_lyapunov,
@@ -124,14 +125,8 @@ class AntiAtroposEnvironment(Environment):
             beta=BETA,
             gamma=GAMMA
         )
-        
-        self._prev_lyapunov = current_lyapunov
 
-        # 5: SLA Check
-        avg_latency = self._avg_latency(self._nodes)
-        error_rate  = self._error_rate(self._nodes)
-        if avg_latency > 200.0 or error_rate > 0.05:
-            self._sla_violations += 1
+        self._prev_lyapunov = current_lyapunov
 
         # 6: Termination check
         done = (
@@ -154,9 +149,15 @@ class AntiAtroposEnvironment(Environment):
     # -----------------------------------------------------------------------
 
     def _compute_cost(self, nodes: list[dict]) -> float:
-        """Calculates current running cost based on active nodes."""
-        active = sum(1 for n in nodes if n["status"] != NodeStatus.FAILED)
-        return active * COST_PER_NODE_PER_HOUR
+        """Calculates running infra cost using provisioned capacity units."""
+        total_capacity_units = 0
+        for node in nodes:
+            if node["status"] == NodeStatus.FAILED:
+                continue
+            # Pending units are billed as provisioned capacity.
+            total_capacity_units += int(node.get("capacity_units", 0))
+            total_capacity_units += int(node.get("pending_capacity_units", 0))
+        return total_capacity_units * COST_PER_CAPACITY_UNIT_PER_HOUR
 
     def _avg_latency(self, nodes: list[dict]) -> float:
         """Computes mean latency across all non-failed nodes."""
@@ -186,9 +187,9 @@ class AntiAtroposEnvironment(Environment):
             NodeObservation(
                 node_id=n["node_id"],
                 status=n["status"],
-                queue_depth=min(1.0, max(0.0, float(n["queue_depth"]) / MAX_QUEUE_NORM)),
-                latency_ms=min(1.0, max(0.0, float(n["latency_ms"]) / MAX_LATENCY_NORM)),
-                incoming_request_rate=min(1.0, max(0.0, float(n["incoming_request_rate"]) / MAX_REQUEST_RATE_NORM)),
+                queue_depth=max(0.0, float(n["queue_depth"])),
+                latency_ms=max(0.0, float(n["latency_ms"])),
+                incoming_request_rate=max(0.0, float(n["incoming_request_rate"])),
                 cpu_utilization=min(1.0, max(0.0, float(n["cpu_utilization"]))),
                 done=False,
                 reward=0.0,
@@ -202,7 +203,7 @@ class AntiAtroposEnvironment(Environment):
             active_nodes=sum(1 for n in self._nodes if n["status"] != NodeStatus.FAILED),
             average_latency_ms=self._avg_latency(self._nodes),
             error_rate=self._error_rate(self._nodes),
-            total_queue_backlog=sum(min(1.0, max(0.0, float(n["queue_depth"]) / MAX_QUEUE_NORM)) for n in self._nodes),
+            total_queue_backlog=sum(max(0.0, float(n["queue_depth"])) for n in self._nodes),
             current_cost_per_hour=self._compute_cost(self._nodes),
             lyapunov_energy=self._prev_lyapunov,
             nodes=node_obs,

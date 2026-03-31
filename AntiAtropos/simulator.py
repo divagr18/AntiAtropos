@@ -160,6 +160,8 @@ class NodeState:
             "incoming_request_rate": round(self.incoming_request_rate, 2),
             "cpu_utilization": round(min(1.0, self.cpu_utilization), 4),
             "dropped_requests": int(self.dropped_requests),
+            "capacity_units": int(self.capacity),
+            "pending_capacity_units": int(len(self.pending_capacity_queue)),
         }
 
 
@@ -196,7 +198,12 @@ class ClusterSimulator:
         self._rng = random.Random(seed)
         self._tick_count: int = 0
         self._failed_node_id: Optional[str] = None
+        self._t1_ramp_slope: float = T1_RAMP_SLOPE
+        self._t1_init_lambda: float = T1_INITIAL_LAMBDA
+        self._t2_fail_tick: int = T2_FAIL_TICK
+        self._t2_init_lambda: float = T2_INITIAL_LAMBDA
         self._nodes: list[NodeState] = []
+        self._randomize_domain()
         self._reset_nodes()
 
     # -----------------------------------------------------------------------
@@ -208,6 +215,7 @@ class ClusterSimulator:
         self._task_id = task_id
         self._tick_count = 0
         self._failed_node_id = None
+        self._randomize_domain()
         self._reset_nodes()
 
     def state(self) -> list[dict]:

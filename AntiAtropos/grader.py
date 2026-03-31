@@ -62,12 +62,12 @@ SLA_ERROR_RATE: float = 0.05
 # Cost calibration
 # ---------------------------------------------------------------------------
 
-# Baseline cost = all N nodes active at initial capacity, no scaling.
-# environment.py: cost = active_nodes × $0.10 / hr.
-# With N=5 nodes and none failed:  $0.50 / hr is the neutral baseline.
-BASELINE_COST_PER_HOUR: float = 0.50
-MIN_COST_PER_HOUR: float = 0.10   # 1 node surviving
-MAX_COST_PER_HOUR: float = 2.00   # all 5 nodes healthy (no capacity scaling in cost model)
+# Baseline cost = all 5 nodes at initial capacity 3 with $0.05 / capacity-unit.
+# 5 * 3 * 0.05 = $0.75 / hr.
+
+BASELINE_COST_PER_HOUR: float = 0.75
+MIN_COST_PER_HOUR: float = 0.05   # 1 active node at min capacity 1
+MAX_COST_PER_HOUR: float = 2.50   # 5 nodes at max capacity 10
 
 # ---------------------------------------------------------------------------
 # Stability normalisation
@@ -293,3 +293,4 @@ def grade_episode(
     for obs in observations:
         grader.record(obs)
     return grader.score()
+
