@@ -11,7 +11,7 @@ def decide_action(obs) -> SREAction:
     #
     distressed_nodes = [
         n for n in obs.nodes 
-        if n.status != NodeStatus.FAILED and n.queue_depth > 60
+        if n.status != NodeStatus.FAILED and n.queue_depth > 0.30  # 60 / 200 max queue limit
     ]
     
     if not distressed_nodes:
@@ -25,7 +25,7 @@ def decide_action(obs) -> SREAction:
     # If queue is critical (>120) or latency is near the 200ms SLA limit, 
     # drop traffic immediately. Note: Protect node-0 in Task-3.
     #
-    if worst_node.queue_depth > 120 or worst_node.latency_ms > 180:
+    if worst_node.queue_depth > 0.60 or worst_node.latency_ms > 0.18:
         if not (obs.task_id == "task-3" and worst_node.node_id == "node-0"):
             return SREAction(
                 action_type=ActionType.SHED_LOAD,

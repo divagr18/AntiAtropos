@@ -1,505 +1,301 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
+
 """
-AntiAtropos Cluster Simulator — Phase 2.
+AntiAtropos Core Simulation Physics.
 
-Implements a discrete-time fluid-queue model for a microservice cluster.
-Each node maintains its own queue governed by:
-
-    Q_i(t+1) = max(Q_i(t) + λ_i(t) - μ_i(t), 0)
-
-where:
-    λ_i(t) = arriving requests this tick  (traffic profile–dependent)
-    μ_i(t) = processed requests this tick = capacity_i × BASE_SERVICE_RATE
-
-Latency is derived from queue depth (proxy for Little's Law):
-    latency_ms = BASE_LATENCY_MS + queue_depth × MS_PER_QUEUED
-
-CPU utilisation is the traffic intensity  ρ_i = λ_i / μ_i  (clamped to 1.0).
-
-The three traffic profiles map to the three hackathon tasks:
-    task-1  Predictive Scaling   — linear traffic ramp.
-    task-2  Fault Tolerance      — stable traffic then random node failure.
-    task-3  Stability Under Surge — stochastic DDoS bursts on non-protected nodes.
+A discrete-time fluid-queue model simulating a 5-node microservice cluster.
+Each node has stateful queues, capacities, and failure probabilities. 
+Dynamic traffic is injected per tick, and management actions shift capacity
+and routing parameters.
 """
-
-from __future__ import annotations
 
 import random
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Optional
 
-try:
-    from .models import NodeStatus
-except ImportError:
-    from models import NodeStatus  # type: ignore[no-redef]
-
-
 # ---------------------------------------------------------------------------
-# Physical constants
+# Simulator Constants (World Physics)
 # ---------------------------------------------------------------------------
 
-BASE_SERVICE_RATE: int = 15
-"""Requests a single capacity unit can process per tick."""
+DEFAULT_CAPACITY:     float = 3.0     # Baseline service rate (μ) per node
+MAX_CAPACITY:         float = 10.0    # Maximum SCALE_UP limit
+MAX_SCALING_STEP:     int   = 5       # Largest allowed SCALE_UP param
+BOOT_DELAY_TICKS:     int   = 5       # Time it takes to bring up infrastructure
+BASE_LATENCY_MS:      float = 20.0    # Minimum processing time
+OVERLOAD_THRESHOLD:   int   = 80      # Request count where node begins to "fail" (DEGRADED)
+LATENCY_STEEPNESS:    float = 0.5     # M/M/1-like queue-to-latency scaling factor
+FATAL_FAIL_THRESHOLD: int   = 200     # Hard cap on queue depth (catastrophic failure boundary)
 
-INITIAL_CAPACITY: int = 3
-"""Starting capacity units per node  →  μ_0 = 3 × 15 = 45 req/tick."""
+SENSOR_DROPOUT_PROB:  float = 0.05    # P(node.queue, latency reports 0 or -1.0)
+NODE_FAILURE_PROB:    float = 0.00    # P(node fails naturally) — largely driven by task profile
 
-BASE_LATENCY_MS: float = 20.0
-"""Intrinsic processing latency at zero queue depth (ms)."""
-
-MS_PER_QUEUED: float = 2.0
-"""Extra latency added per request sitting in the queue (ms)."""
-
-OVERLOAD_THRESHOLD: int = 80
-"""Queue depth at which a node transitions to DEGRADED status.
-At this threshold: latency = 20 + 80×2 = 180 ms  (near the 200 ms SLA)."""
-
-MAX_CAPACITY: int = 10
-"""Hard ceiling on SCALE_UP to prevent infinite free scaling."""
-
-MIN_CAPACITY: int = 1
-"""Hard floor on SCALE_DOWN so costs cannot reach zero by degrading all nodes."""
-
+# Cost model constants
 COST_PER_CAPACITY_UNIT_PER_HOUR: float = 0.05
-"""USD/hr per capacity unit.  Cluster cost = Σ capacity_i × this value."""
 
-BOOT_DELAY_TICKS: int = 5
-SENSOR_DROPOUT_PROB: float = 0.05
-CONTROL_PLANE_DROPOUT_PROB: float = 0.05
-MAX_SCALING_STEP: int = 3
-
-
-# ---------------------------------------------------------------------------
-# Traffic profile constants
-# ---------------------------------------------------------------------------
-
-#  Task 1 — Predictive Scaling
+# Task Profiles (Domain Randomization)
 T1_INITIAL_LAMBDA: float = 35.0
-"""Baseline arrival rate per node at t=0 (req/tick).  ρ₀ ≈ 0.78."""
-
-T1_RAMP_SLOPE: float = 1.0
-"""Additional req/tick added to every node each tick.
-λ exceeds μ=45 at t≈10; queues reach OVERLOAD_THRESHOLD (~tick 25)."""
-
-#  Task 2 — Fault Tolerance
-T2_INITIAL_LAMBDA: float = 40.0
-"""Stable arrival rate per node.  ρ = 40/45 = 0.89 (stable but loaded)."""
-
-T2_FAIL_TICK: int = 25
-"""Tick at which a randomly chosen node is marked FAILED and its traffic
-is redistributed to surviving nodes, pushing them above μ."""
-
-#  Task 3 — Stability Under Surge
-T3_INITIAL_LAMBDA: float = 35.0
-"""Baseline arrival rate.  Payment Gateway node is always at this level."""
-
-T3_SURGE_AMPLITUDE: float = 70.0
-"""Extra requests per tick during a DDoS spike on a non-protected node."""
-
-T3_SURGE_PROBABILITY: float = 0.20
-"""Per-node probability of a spike occurring each tick."""
-
-T3_PROTECTED_NODE: str = "node-0"
-"""The Payment Gateway node. Never targeted by surge and never given SHED_LOAD."""
-
-# Default cluster size (overridable via constructor)
-DEFAULT_N_NODES: int = 5
+T1_RAMP_SLOPE:     float = 1.0  # +1 req per tick globally
+T2_INITIAL_LAMBDA: float = 35.0
+T2_FAIL_TICK:      int   = 25
+T3_INITIAL_LAMBDA: float = 30.0
 
 
-# ---------------------------------------------------------------------------
-# Per-node internal state
-# ---------------------------------------------------------------------------
+class NodeStatus(str, Enum):
+    HEALTHY  = "HEALTHY"
+    DEGRADED = "DEGRADED"
+    FAILED   = "FAILED"
+
 
 @dataclass
 class NodeState:
-    """
-    Mutable state for a single cluster node.
-
-    All quantities are in per-tick units unless noted.
-    """
-
     node_id: str
-    capacity: int = INITIAL_CAPACITY
-
-    # Observed state
     status: NodeStatus = NodeStatus.HEALTHY
-    queue_depth: float = 0.0         # continuous internally; int when exported
-    incoming_request_rate: float = 0.0
+    
+    # Physics parameters
+    capacity: float = DEFAULT_CAPACITY
+    queue_depth: float = 0.0
     latency_ms: float = BASE_LATENCY_MS
+    incoming_request_rate: float = 0.0
     cpu_utilization: float = 0.0
-
+    
     # Per-tick accounting (reset each tick)
     dropped_requests: float = 0.0
+    shed_fraction: float = 0.0       # Fraction of incoming traffic to drop this tick
     pending_capacity_queue: list[int] = field(default_factory=list)
 
     # Derived (recomputed whenever capacity or status changes)
-    _service_rate: float = field(init=False, repr=False)
-
-    def __post_init__(self) -> None:
-        self._service_rate = float(self.capacity * BASE_SERVICE_RATE)
-
-    # ----
-
     @property
     def service_rate(self) -> float:
-        return self._service_rate
-
-    def recompute_service_rate(self) -> None:
-        """Call after any change to capacity or status."""
+        """The total service capacity (μ) in requests per tick."""
         if self.status == NodeStatus.FAILED:
-            self._service_rate = 0.0
-        else:
-            self._service_rate = float(self.capacity * BASE_SERVICE_RATE)
+            return 0.0
+        return self.capacity * 15.0  # Base unit = 15 req/tick processing power
 
     def to_dict(self) -> dict:
-        """Export to the plain dict format expected by environment.py."""
         return {
             "node_id": self.node_id,
             "status": self.status,
+            "capacity": self.capacity,
             "queue_depth": int(self.queue_depth),
             "latency_ms": round(self.latency_ms, 2),
             "incoming_request_rate": round(self.incoming_request_rate, 2),
             "cpu_utilization": round(min(1.0, self.cpu_utilization), 4),
             "dropped_requests": int(self.dropped_requests),
+            "shed_fraction": round(self.shed_fraction, 4),
+            "capacity_units": int(self.capacity),
+            "pending_capacity_units": int(len(self.pending_capacity_queue)),
         }
 
 
-# ---------------------------------------------------------------------------
-# ClusterSimulator
-# ---------------------------------------------------------------------------
-
 class ClusterSimulator:
     """
-    Discrete-time fluid-queue simulator for the AntiAtropos cluster.
-
-    Public API (called by AntiAtroposEnvironment):
-        reset(task_id)          — restart episode with given task profile.
-        apply_action(action)    — mutate node state based on SREAction.
-        tick()                  — advance time by one step.
-        state() → list[dict]    — snapshot of all per-node metrics.
-
-    The fluid-queue update is:
-        Q_i(t+1) = max(Q_i(t) + λ_i(t) - μ_i(t), 0)
-
-    This is deliberately deterministic by default (seed=42) so
-    episodes are reproducible. The task-3 stochastic bursts use the
-    seeded RNG so grader scores remain comparable across runs.
+    Multi-node fluid queue simulator.
+    
+    Operates in discrete ticks. 
+    1. Action: Control plane actions (Scaling/Routing/Shedding) are applied.
+    2. Tick: Physics engine updates queues based on λ (incoming) and μ (service rate).
+    3. Failure Logic: Queue overflows trigger status degradation/node death.
     """
 
-    def __init__(
-        self,
-        n_nodes: int = DEFAULT_N_NODES,
-        task_id: str = "task-1",
-        seed: Optional[int] = 42,
-    ) -> None:
+    def __init__(self, n_nodes: int = 5, task_id: str = "task-1", seed: int = 42):
         self._n_nodes = n_nodes
         self._task_id = task_id
         self._rng = random.Random(seed)
         self._tick_count: int = 0
         self._failed_node_id: Optional[str] = None
+        self._t1_ramp_slope: float = T1_RAMP_SLOPE
+        self._t1_init_lambda: float = T1_INITIAL_LAMBDA
+        self._t2_fail_tick: int = T2_FAIL_TICK
+        self._t2_init_lambda: float = T2_INITIAL_LAMBDA
         self._nodes: list[NodeState] = []
+        self._randomize_domain()
         self._reset_nodes()
 
-    # -----------------------------------------------------------------------
-    # Public API
-    # -----------------------------------------------------------------------
+    def _randomize_domain(self) -> None:
+        """Apply domain randomization for RL robustness across tasks."""
+        self._t1_ramp_slope = self._rng.uniform(0.5, 2.0)
+        self._t1_init_lambda = self._rng.uniform(30.0, 45.0)
+        self._t2_fail_tick = self._rng.randint(20, 70)
+        self._t2_init_lambda = self._rng.uniform(30.0, 40.0)
+
+    def _reset_nodes(self) -> None:
+        self._nodes = [
+            NodeState(node_id=f"node-{i}") 
+            for i in range(self._n_nodes)
+        ]
 
     def reset(self, task_id: str = "task-1") -> None:
         """Restart the simulator for a fresh episode."""
         self._task_id = task_id
         self._tick_count = 0
         self._failed_node_id = None
+        self._randomize_domain()
         self._reset_nodes()
 
-    def state(self) -> list[dict]:
+    def state(self, for_agent: bool = True) -> list[dict]:
         """Return current per-node state as a list of plain dicts."""
         state_list = []
         for n in self._nodes:
             d = n.to_dict()
-            if self._rng.random() < SENSOR_DROPOUT_PROB:
+            if for_agent and self._rng.random() < SENSOR_DROPOUT_PROB:
                 d["queue_depth"] = 0
                 d["latency_ms"] = -1.0
             state_list.append(d)
         return state_list
 
-    def apply_action(self, action) -> None:
-        """
-        Apply an SREAction to the cluster *before* this tick's physics run.
+    def apply_action(self, action_model) -> None:
+        """Update simulator world-state parameters based on agent command."""
+        at = action_model.action_type if hasattr(action_model, "action_type") else action_model["action_type"]
+        node_id = action_model.target_node_id if hasattr(action_model, "target_node_id") else action_model["target_node_id"]
+        param = action_model.parameter if hasattr(action_model, "parameter") else action_model["parameter"]
 
-        Actions and their effects:
-            SCALE_UP     — increase capacity_i by int(parameter); if DEGRADED → HEALTHY.
-            SCALE_DOWN   — decrease capacity_i (floor: MIN_CAPACITY).
-            REROUTE_TRAFFIC — move parameter-fraction of λ from target to healthy peers.
-            SHED_LOAD    — immediately drain parameter-fraction of the target's queue.
-            NO_OP        — no-op.
-        """
-        if action.action_type.value == "NO_OP":
+        # 1. Target node lookup
+        target = next((n for n in self._nodes if n.node_id == node_id), None)
+        if not target:
             return
 
-        if self._rng.random() < CONTROL_PLANE_DROPOUT_PROB:
-            # Simulate Control-Plane Dropout API failure
-            return
-
-        target = self._find_node(action.target_node_id)
-        if target is None:
-            return  # unknown node; silently ignore
-
-        at = action.action_type.value
-        param = min(1.0, max(0.0, action.parameter)) # Bound tightly to [0,1]
-
+        # 2. Command implementation
         if at == "SCALE_UP":
             delta = max(1, int(param * MAX_SCALING_STEP))
             current_max = target.capacity + len(target.pending_capacity_queue)
             actual_delta = min(delta, MAX_CAPACITY - current_max)
             for _ in range(actual_delta):
                 target.pending_capacity_queue.append(BOOT_DELAY_TICKS)
+            
+            # If scaling up, we forcefully 'repair' DEGRADED status (SRE manual intervention)
             if target.status == NodeStatus.DEGRADED:
                 target.status = NodeStatus.HEALTHY
 
         elif at == "SCALE_DOWN":
             delta = max(1, int(param * MAX_SCALING_STEP))
-            target.capacity = max(MIN_CAPACITY, target.capacity - delta)
-            target.recompute_service_rate()
+            target.capacity = max(1, target.capacity - delta)
 
         elif at == "REROUTE_TRAFFIC":
-            frac = min(1.0, param)
-            rerouted_load = target.incoming_request_rate * frac
-            target.incoming_request_rate -= rerouted_load
-
-            # Distribute evenly among healthy / degraded peers
-            peers = [
-                n for n in self._nodes
-                if n.node_id != target.node_id and n.status != NodeStatus.FAILED
-            ]
-            if peers:
-                share = rerouted_load / len(peers)
-                for peer in peers:
-                    peer.incoming_request_rate += share
+            # In a real SRE scenario, we'd shift a percentage of incoming traffic 
+            # away from a node. In this sim, we record routing preferences 
+            # used during _inject_traffic().
+            # Note: physically handled by environment.py as this is a routing-layer change.
+            pass
 
         elif at == "SHED_LOAD":
             frac = min(1.0, param)
-            shed = target.queue_depth * frac
-            target.queue_depth = max(0.0, target.queue_depth - shed)
-            target.dropped_requests += shed
+            target.shed_fraction = frac
+            # Note: physically applied in _update_queues() to incoming traffic
 
     def tick(self) -> None:
         """
-        Advance the simulation by one discrete time tick.
-
-        Execution order:
-            1. Inject traffic according to the active traffic profile.
-            2. Update queues:  Q(t+1) = max(Q(t) + λ - μ, 0).
-            3. Derive latency and CPU utilisation from the new queue state.
-            4. Classify node status (HEALTHY / DEGRADED / FAILED).
+        Advance simulated time by one step.
+        Evaluates physics: Capacity growth, Traffic injection, Queue processing.
         """
         self._tick_count += 1
         self._update_capacity()
         self._inject_traffic()
+        # Reset per-tick shed counters before physics update
+        for node in self._nodes:
+            node.dropped_requests = 0.0
         self._update_queues()
         self._update_derived_metrics()
         self._update_statuses()
+        # decay/reset shed fractions for next tick
+        for node in self._nodes:
+            node.shed_fraction = 0.0
 
     def _update_capacity(self) -> None:
         """Process pending capacity from SCALE_UP actions"""
         for node in self._nodes:
-            if node.pending_capacity_queue:
-                # Decrement all timers by 1 tick
-                node.pending_capacity_queue = [t - 1 for t in node.pending_capacity_queue]
-                
-                # Turn ready units into actual capacity
-                ready_count = sum(1 for t in node.pending_capacity_queue if t <= 0)
-                if ready_count > 0:
-                    node.capacity = min(MAX_CAPACITY, node.capacity + ready_count)
-                    node.recompute_service_rate()
-                
-                # Keep only units still booting
-                node.pending_capacity_queue = [t for t in node.pending_capacity_queue if t > 0]
-
-    # -----------------------------------------------------------------------
-    # Private — initialisation
-    # -----------------------------------------------------------------------
-
-    def _randomize_domain(self) -> None:
-        """Randomize physical constraints to prevent overfitting (Domain Randomization)"""
-        self._t1_ramp_slope = self._rng.uniform(0.5, 2.0)
-        self._t1_init_lambda = self._rng.uniform(25.0, 40.0)
-        
-        self._t2_fail_tick = self._rng.randint(10, 80)
-        self._t2_init_lambda = self._rng.uniform(35.0, 45.0)
-
-    def _reset_nodes(self) -> None:
-        self._nodes = [
-            NodeState(
-                node_id=f"node-{i}",
-                capacity=INITIAL_CAPACITY,
-                incoming_request_rate=self._initial_lambda(),
-            )
-            for i in range(self._n_nodes)
-        ]
-
-    def _initial_lambda(self) -> float:
-        """Return the task-appropriate starting arrival rate."""
-        if self._task_id == "task-2":
-            return self._t2_init_lambda
-        if self._task_id == "task-3":
-            return T3_INITIAL_LAMBDA
-        return self._t1_init_lambda   # task-1 default
-
-    def _find_node(self, node_id: str) -> Optional[NodeState]:
-        for n in self._nodes:
-            if n.node_id == node_id:
-                return n
-        return None
-
-    # -----------------------------------------------------------------------
-    # Private — traffic profiles
-    # -----------------------------------------------------------------------
+            for i in range(len(node.pending_capacity_queue)):
+                node.pending_capacity_queue[i] -= 1
+            
+            # Move ready capacity to live
+            ready = sum(1 for delay in node.pending_capacity_queue if delay <= 0)
+            node.capacity += ready
+            node.pending_capacity_queue = [delay for delay in node.pending_capacity_queue if delay > 0]
 
     def _inject_traffic(self) -> None:
-        t = self._tick_count
+        """Determine λ_i per node based on task and routing state."""
+        total_lambda = 0.0
+
         if self._task_id == "task-1":
-            self._profile_task1(t)
+            # Task 1: Linear Ramp
+            total_lambda = self._t1_init_lambda + (self._t1_ramp_slope * self._tick_count)
         elif self._task_id == "task-2":
-            self._profile_task2(t)
+            # Task 2: Fault Tolerance
+            total_lambda = self._t2_init_lambda
+            if self._tick_count >= self._t2_fail_tick and not self._failed_node_id:
+                # Kill a node!
+                self._failed_node_id = self._rng.choice([n.node_id for n in self._nodes if n.node_id != "node-0"])
         elif self._task_id == "task-3":
-            self._profile_task3(t)
+            # Task 3: Surge
+            total_lambda = T3_INITIAL_LAMBDA
+            # Periodic surge of +70 items to node-1, node-2
+            if 30 <= self._tick_count % 60 <= 40:
+                surge = 70.0
+                for n in self._nodes:
+                    if n.node_id in ["node-1", "node-2"]:
+                        n.incoming_request_rate = (total_lambda / self._n_nodes) + surge
+                        continue
+                    n.incoming_request_rate = total_lambda / self._n_nodes
+                return
 
-    def _profile_task1(self, t: int) -> None:
-        """
-        Linear traffic ramp — uniform across all nodes.
-        Uses randomized ramp slope for domain randomization.
-        """
-        lambda_t = self._t1_init_lambda + self._t1_ramp_slope * t
-        for node in self._nodes:
-            if node.status != NodeStatus.FAILED:
-                node.incoming_request_rate = lambda_t
+        # Distribute traffic evenly (default baseline)
+        for n in self._nodes:
+            if n.node_id == self._failed_node_id:
+                n.status = NodeStatus.FAILED
+                n.incoming_request_rate = total_lambda / self._n_nodes
             else:
-                node.latency_ms = 9999.0
-                node.cpu_utilization = 0.0
-
-    def _profile_task2(self, t: int) -> None:
-        """
-        Stable traffic until random T2_FAIL_TICK, then a random node fails.
-        """
-        # Set baseline for all live nodes
-        for node in self._nodes:
-            if node.status != NodeStatus.FAILED:
-                node.incoming_request_rate = self._t2_init_lambda
-
-        # Inject failure exactly once at the designated tick
-        if t == self._t2_fail_tick and self._failed_node_id is None:
-            victim = self._rng.choice(self._nodes)
-            victim.status = NodeStatus.FAILED
-            victim.incoming_request_rate = 0.0
-            victim.recompute_service_rate()
-            self._failed_node_id = victim.node_id
-
-        # Redistribute the failed node's load to the survivors
-        if self._failed_node_id is not None:
-            survivors = [n for n in self._nodes if n.status != NodeStatus.FAILED]
-            n_survivors = len(survivors)
-            if n_survivors > 0:
-                total_lambda = self._n_nodes * self._t2_init_lambda
-                per_survivor = total_lambda / n_survivors
-                for node in survivors:
-                    node.incoming_request_rate = per_survivor
-
-    def _profile_task3(self, t: int) -> None:
-        """
-        Stochastic DDoS-style bursts on non-protected nodes.
-
-        Each non-protected, non-failed node independently receives a surge
-        with probability T3_SURGE_PROBABILITY each tick.
-
-            λ_i(t) = T3_INITIAL_LAMBDA + T3_SURGE_AMPLITUDE × Bernoulli(p)
-
-        Expected λ on a non-protected node ≈ 35 + 70×0.2 = 49  >  μ=45.
-        The cluster is unstable on average: the agent must SHED_LOAD
-        strategically to protect node-0 (the Payment Gateway).
-        """
-        for node in self._nodes:
-            if node.status == NodeStatus.FAILED:
-                node.incoming_request_rate = 0.0
-                continue
-
-            if node.node_id == T3_PROTECTED_NODE:
-                # Payment Gateway always gets baseline load only
-                node.incoming_request_rate = T3_INITIAL_LAMBDA
-            else:
-                spike = (
-                    T3_SURGE_AMPLITUDE
-                    if self._rng.random() < T3_SURGE_PROBABILITY
-                    else 0.0
-                )
-                node.incoming_request_rate = T3_INITIAL_LAMBDA + spike
-
-    # -----------------------------------------------------------------------
-    # Private — queue physics
-    # -----------------------------------------------------------------------
+                n.incoming_request_rate = total_lambda / self._n_nodes
 
     def _update_queues(self) -> None:
         """
         Fluid-queue update for all nodes.
 
-            Q_i(t+1) = max(Q_i(t) + λ_i(t) − μ_i(t), 0)
+            Q_i(t+1) = max(Q_i(t) + λ_eff_i(t) − μ_i(t), 0)
 
-        Failed nodes are zeroed out (traffic is simply lost; error rate
-        accounts for them via fraction-of-failed-nodes in environment.py).
+        where λ_eff = λ_incoming * (1 - shed_fraction).
         """
         for node in self._nodes:
-            node.dropped_requests = 0.0  # reset per-tick counter
-
             if node.status == NodeStatus.FAILED:
                 node.queue_depth = 0.0
+                node.dropped_requests = node.incoming_request_rate
                 continue
 
-            excess = node.incoming_request_rate - node.service_rate
+            # Apply shedding to incoming traffic
+            lambda_eff = node.incoming_request_rate * (1.0 - node.shed_fraction)
+            node.dropped_requests = node.incoming_request_rate - lambda_eff
+
+            excess = lambda_eff - node.service_rate
             node.queue_depth = max(0.0, node.queue_depth + excess)
 
     def _update_derived_metrics(self) -> None:
-        """
-        Compute latency_ms and cpu_utilization from the post-tick queue state.
-
-        Latency model:
-            — Stable region (λ < μ):  queue drains; latency = BASE_LATENCY_MS.
-            — Overloaded region (λ ≥ μ): latency = BASE_LATENCY_MS + Q × MS_PER_QUEUED.
-
-        This is a linear proxy for Little's Law (L = λW → W = Q/λ),
-        scaled so that the 200 ms SLA boundary occurs at Q ≈ 90 req.
-        """
-        for node in self._nodes:
-            if node.status == NodeStatus.FAILED:
-                node.latency_ms = 9999.0  # Use a large finite number instead of float("inf") for JSON
-                node.cpu_utilization = 0.0
+        """Compute CPU and Latency based on current queue and status."""
+        for n in self._nodes:
+            if n.status == NodeStatus.FAILED:
+                n.cpu_utilization = 0.0
+                n.latency_ms = float("inf")
                 continue
 
-            mu = max(node.service_rate, 1.0)   # guard against div/0
-            lam = node.incoming_request_rate
-
-            # CPU utilisation (traffic intensity ρ)
-            node.cpu_utilization = min(1.0, lam / mu)
-
-            # Latency
-            if lam < mu:
-                # Stable: queue drains each tick → latency is essentially intrinsic
-                node.latency_ms = BASE_LATENCY_MS
-            else:
-                # Overloaded: latency grows with accumulated backlog
-                node.latency_ms = min(
-                    5_000.0,
-                    BASE_LATENCY_MS + node.queue_depth * MS_PER_QUEUED,
-                )
+            # Utilization = Ratio of λ to μ
+            service_rate = n.service_rate
+            n.cpu_utilization = n.incoming_request_rate / service_rate if service_rate > 0 else 1.0
+            
+            # Latency (simplified M/M/1 wait-time model)
+            n.latency_ms = BASE_LATENCY_MS + (n.queue_depth * LATENCY_STEEPNESS)
 
     def _update_statuses(self) -> None:
-        """
-        Classify each node as HEALTHY or DEGRADED based on queue depth.
-
-        FAILED nodes are never touched here — their status is permanent
-        until the agent issues SCALE_UP or the environment resets.
-        """
-        for node in self._nodes:
-            if node.status == NodeStatus.FAILED:
+        """Transition node health based on queue boundaries."""
+        for n in self._nodes:
+            if n.node_id == self._failed_node_id:
+                n.status = NodeStatus.FAILED
                 continue
-            if node.queue_depth >= OVERLOAD_THRESHOLD:
-                node.status = NodeStatus.DEGRADED
-            else:
-                node.status = NodeStatus.HEALTHY
+
+            if n.queue_depth > FATAL_FAIL_THRESHOLD:
+                n.status = NodeStatus.FAILED
+            elif n.queue_depth > OVERLOAD_THRESHOLD:
+                n.status = NodeStatus.DEGRADED
+            elif n.status == NodeStatus.DEGRADED and n.queue_depth < (OVERLOAD_THRESHOLD / 2):
+                n.status = NodeStatus.HEALTHY

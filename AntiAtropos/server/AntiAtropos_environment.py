@@ -24,11 +24,11 @@ from openenv.core.env_server.types import State
 
 try:
     from ..models import SREAction, ClusterObservation, NodeObservation, NodeStatus
-    from ..simulator import ClusterSimulator
+    from ..simulator import ClusterSimulator, COST_PER_CAPACITY_UNIT_PER_HOUR
     from ..stability import compute_lyapunov, compute_reward
 except ImportError:
     from models import SREAction, ClusterObservation, NodeObservation, NodeStatus  # type: ignore[no-redef]
-    from simulator import ClusterSimulator  # type: ignore[no-redef]
+    from simulator import ClusterSimulator, COST_PER_CAPACITY_UNIT_PER_HOUR  # type: ignore[no-redef]
     from stability import compute_lyapunov, compute_reward  # type: ignore[no-redef]
 
 
@@ -46,7 +46,6 @@ MAX_REQUEST_RATE_NORM = 100.0
 
 MAX_STEPS: int = 100      # Episode length
 N_NODES:   int = 5        # Cluster size
-COST_PER_NODE_PER_HOUR: float = 0.10  # Baseline USD/hr per active node
 
 
 class AntiAtroposEnvironment(Environment):
@@ -57,20 +56,6 @@ class AntiAtroposEnvironment(Environment):
     (SCALE_UP, SCALE_DOWN, REROUTE_TRAFFIC, SHED_LOAD, NO_OP) each step.
     The environment advances one discrete time-tick per step, computes the
     Lyapunov reward, and returns the updated ClusterObservation.
-
-    Reward formula:
-        R_t = -(α·ΔV(s)  +  β·Cost  +  γ·SLA_Violations)
-
-    where:
-        V(s) = Σ Q_i²  (sum of squared queue depths — Lyapunov energy)
-
-    Stability is the primary objective (α term). Cost optimisation and SLA
-    compliance are secondary regularisers (β, γ terms).
-
-    Tasks (set via reset(task_id=...)):
-        task-1  Predictive Scaling  — linearly rising traffic, keep latency <200ms.
-        task-2  Fault Tolerance     — random node failure, reroute before queues explode.
-        task-3  Stability Under Surge — stochastic DDoS burst, shed load on non-critical nodes.
     """
 
     SUPPORTS_CONCURRENT_SESSIONS: bool = True
@@ -80,7 +65,8 @@ class AntiAtroposEnvironment(Environment):
         self._state = State(episode_id=str(uuid4()), step_count=0)
         self._task_id: str = "task-1"
         self._sim: ClusterSimulator = ClusterSimulator(n_nodes=N_NODES, task_id="task-1")
-        self._nodes: list[dict] = []
+        self._nodes_true: list[dict] = []
+        self._nodes_obs: list[dict] = []
         self._prev_lyapunov: float = 0.0
         self._sla_violations: int = 0
 
@@ -93,9 +79,10 @@ class AntiAtroposEnvironment(Environment):
         self._sla_violations = 0
 
         # Initialize the production simulator
-        self._sim = ClusterSimulator(n_nodes=N_NODES, task_id=task_id)
-        self._nodes = self._sim.state()
-        self._prev_lyapunov = compute_lyapunov(self._nodes)
+        self._sim.reset(task_id=task_id)
+        self._nodes_true = self._sim.state(for_agent=False)
+        self._nodes_obs  = self._sim.state(for_agent=True)
+        self._prev_lyapunov = compute_lyapunov(self._nodes_true)
 
         return self._build_observation()
 
@@ -105,16 +92,25 @@ class AntiAtroposEnvironment(Environment):
         """
         self._state.step_count += 1
 
-        # 1 & 2: Apply management action and advance physics
+        # 1. Apply management action and advance physics
         self._sim.apply_action(action)
         self._sim.tick()
-        self._nodes = self._sim.state()
-
-        # 3: Compute Lyapunov stability metrics
-        current_lyapunov = compute_lyapunov(self._nodes)
         
-        # 4: Compute scalar reward using the stability layer logic
-        cost = self._compute_cost(self._nodes)
+        # 2. Extract states (Ground Truth for reward; Observation for agent)
+        self._nodes_true = self._sim.state(for_agent=False)
+        self._nodes_obs  = self._sim.state(for_agent=True)
+
+        # 3. SLA Check (must happen BEFORE reward so it is synchronized)
+        avg_latency = self._avg_latency(self._nodes_true)
+        error_rate  = self._error_rate(self._nodes_true)
+        if avg_latency > 200.0 or error_rate > 0.05:
+            self._sla_violations += 1
+
+        # 4. Compute Lyapunov stability metrics from Ground Truth
+        current_lyapunov = compute_lyapunov(self._nodes_true)
+        
+        # 5. Compute scalar reward using updated counters
+        cost = self._compute_cost(self._nodes_true)
         reward = compute_reward(
             v_prev=self._prev_lyapunov,
             v_curr=current_lyapunov,
@@ -127,19 +123,13 @@ class AntiAtroposEnvironment(Environment):
         
         self._prev_lyapunov = current_lyapunov
 
-        # 5: SLA Check
-        avg_latency = self._avg_latency(self._nodes)
-        error_rate  = self._error_rate(self._nodes)
-        if avg_latency > 200.0 or error_rate > 0.05:
-            self._sla_violations += 1
-
-        # 6: Termination check
+        # 6. Termination check
         done = (
             self._state.step_count >= MAX_STEPS
-            or all(n["status"] == NodeStatus.FAILED for n in self._nodes)
+            or all(n["status"] == NodeStatus.FAILED for n in self._nodes_true)
         )
 
-        # 7: Package Observation
+        # 7. Package Observation (from OBSERVED state)
         obs = self._build_observation()
         obs.done   = done
         obs.reward = reward
@@ -153,10 +143,16 @@ class AntiAtroposEnvironment(Environment):
     # Logic Helpers
     # -----------------------------------------------------------------------
 
-    def _compute_cost(self, nodes: list[dict]) -> float:
-        """Calculates current running cost based on active nodes."""
-        active = sum(1 for n in nodes if n["status"] != NodeStatus.FAILED)
-        return active * COST_PER_NODE_PER_HOUR
+    def _compute_cost(self, nodes_true: list[dict]) -> float:
+        """Calculates current running infra cost using provisioned capacity units."""
+        total_capacity_units = 0
+        for node in nodes_true:
+            if node["status"] == NodeStatus.FAILED:
+                continue
+            # Both live and pending units are billed as infrastructure is provisioned.
+            total_capacity_units += int(node.get("capacity_units", 0))
+            total_capacity_units += int(node.get("pending_capacity_units", 0))
+        return total_capacity_units * COST_PER_CAPACITY_UNIT_PER_HOUR
 
     def _avg_latency(self, nodes: list[dict]) -> float:
         """Computes mean latency across all non-failed nodes."""
@@ -181,7 +177,7 @@ class AntiAtroposEnvironment(Environment):
         return min(1.0, (shed_drops + failed_drops) / total_incoming)
 
     def _build_observation(self) -> ClusterObservation:
-        """Assembles the ClusterObservation from the current simulator state."""
+        """Assembles the ClusterObservation from the current observed simulator state."""
         node_obs = [
             NodeObservation(
                 node_id=n["node_id"],
@@ -193,17 +189,19 @@ class AntiAtroposEnvironment(Environment):
                 done=False,
                 reward=0.0,
             )
-            for n in self._nodes
+            for n in self._nodes_obs
         ]
 
+        # Aggregate metrics for the cluster-level dashboard
+        # Use true state for objective metrics like costs, but observed nodes for some drill-downs
         return ClusterObservation(
             cluster_id=self._state.episode_id,
             task_id=self._task_id,
-            active_nodes=sum(1 for n in self._nodes if n["status"] != NodeStatus.FAILED),
-            average_latency_ms=self._avg_latency(self._nodes),
-            error_rate=self._error_rate(self._nodes),
-            total_queue_backlog=sum(min(1.0, max(0.0, float(n["queue_depth"]) / MAX_QUEUE_NORM)) for n in self._nodes),
-            current_cost_per_hour=self._compute_cost(self._nodes),
+            active_nodes=sum(1 for n in self._nodes_true if n["status"] != NodeStatus.FAILED),
+            average_latency_ms=min(1.0, max(0.0, self._avg_latency(self._nodes_obs) / MAX_LATENCY_NORM)),
+            error_rate=self._error_rate(self._nodes_obs),
+            total_queue_backlog=min(1.0, max(0.0, sum(float(n["queue_depth"]) for n in self._nodes_obs) / (N_NODES * MAX_QUEUE_NORM))),
+            current_cost_per_hour=self._compute_cost(self._nodes_true),
             lyapunov_energy=self._prev_lyapunov,
             nodes=node_obs,
             step=self._state.step_count,
