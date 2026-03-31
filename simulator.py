@@ -129,6 +129,7 @@ class NodeState:
 
     # Per-tick accounting (reset each tick)
     dropped_requests: float = 0.0
+    shed_fraction: float = 0.0       # Fraction of incoming traffic to drop this tick
     pending_capacity_queue: list[int] = field(default_factory=list)
 
     # Derived (recomputed whenever capacity or status changes)
@@ -155,11 +156,13 @@ class NodeState:
         return {
             "node_id": self.node_id,
             "status": self.status,
+            "capacity": self.capacity,
             "queue_depth": int(self.queue_depth),
             "latency_ms": round(self.latency_ms, 2),
             "incoming_request_rate": round(self.incoming_request_rate, 2),
             "cpu_utilization": round(min(1.0, self.cpu_utilization), 4),
             "dropped_requests": int(self.dropped_requests),
+            "shed_fraction": round(self.shed_fraction, 4),
         }
 
 
@@ -197,6 +200,7 @@ class ClusterSimulator:
         self._tick_count: int = 0
         self._failed_node_id: Optional[str] = None
         self._nodes: list[NodeState] = []
+        self._randomize_domain()
         self._reset_nodes()
 
     # -----------------------------------------------------------------------
@@ -208,14 +212,15 @@ class ClusterSimulator:
         self._task_id = task_id
         self._tick_count = 0
         self._failed_node_id = None
+        self._randomize_domain()
         self._reset_nodes()
 
-    def state(self) -> list[dict]:
+    def state(self, for_agent: bool = True) -> list[dict]:
         """Return current per-node state as a list of plain dicts."""
         state_list = []
         for n in self._nodes:
             d = n.to_dict()
-            if self._rng.random() < SENSOR_DROPOUT_PROB:
+            if for_agent and self._rng.random() < SENSOR_DROPOUT_PROB:
                 d["queue_depth"] = 0
                 d["latency_ms"] = -1.0
             state_list.append(d)
@@ -277,9 +282,8 @@ class ClusterSimulator:
 
         elif at == "SHED_LOAD":
             frac = min(1.0, param)
-            shed = target.queue_depth * frac
-            target.queue_depth = max(0.0, target.queue_depth - shed)
-            target.dropped_requests += shed
+            target.shed_fraction = frac
+            # Note: physically applied in _update_queues() to incoming traffic
 
     def tick(self) -> None:
         """
@@ -294,9 +298,15 @@ class ClusterSimulator:
         self._tick_count += 1
         self._update_capacity()
         self._inject_traffic()
+        # Reset per-tick shed counters before physics update
+        for node in self._nodes:
+            node.dropped_requests = 0.0
         self._update_queues()
         self._update_derived_metrics()
         self._update_statuses()
+        # decay/reset shed fractions for next tick
+        for node in self._nodes:
+            node.shed_fraction = 0.0
 
     def _update_capacity(self) -> None:
         """Process pending capacity from SCALE_UP actions"""
@@ -440,19 +450,21 @@ class ClusterSimulator:
         """
         Fluid-queue update for all nodes.
 
-            Q_i(t+1) = max(Q_i(t) + λ_i(t) − μ_i(t), 0)
+            Q_i(t+1) = max(Q_i(t) + λ_eff_i(t) − μ_i(t), 0)
 
-        Failed nodes are zeroed out (traffic is simply lost; error rate
-        accounts for them via fraction-of-failed-nodes in environment.py).
+        where λ_eff = λ_incoming * (1 - shed_fraction).
         """
         for node in self._nodes:
-            node.dropped_requests = 0.0  # reset per-tick counter
-
             if node.status == NodeStatus.FAILED:
                 node.queue_depth = 0.0
+                node.dropped_requests = node.incoming_request_rate
                 continue
 
-            excess = node.incoming_request_rate - node.service_rate
+            # Apply shedding to incoming traffic
+            lambda_eff = node.incoming_request_rate * (1.0 - node.shed_fraction)
+            node.dropped_requests = node.incoming_request_rate - lambda_eff
+
+            excess = lambda_eff - node.service_rate
             node.queue_depth = max(0.0, node.queue_depth + excess)
 
     def _update_derived_metrics(self) -> None:
