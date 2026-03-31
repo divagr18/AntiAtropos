@@ -55,7 +55,7 @@ except ImportError:
 # SLA thresholds (must match environment.py)
 # ---------------------------------------------------------------------------
 
-SLA_LATENCY_MS: float = 200.0
+SLA_LATENCY_MS: float = 0.20  # Normalized (200ms / 1000ms)
 SLA_ERROR_RATE: float = 0.05
 
 # ---------------------------------------------------------------------------
@@ -65,9 +65,9 @@ SLA_ERROR_RATE: float = 0.05
 # Baseline cost = all N nodes active at initial capacity, no scaling.
 # environment.py: cost = active_nodes × $0.10 / hr.
 # With N=5 nodes and none failed:  $0.50 / hr is the neutral baseline.
-BASELINE_COST_PER_HOUR: float = 0.50
-MIN_COST_PER_HOUR: float = 0.10   # 1 node surviving
-MAX_COST_PER_HOUR: float = 2.00   # all 5 nodes healthy (no capacity scaling in cost model)
+BASELINE_COST_PER_HOUR: float = 0.75
+MIN_COST_PER_HOUR: float = 0.05   # 1 node, 1 unit
+MAX_COST_PER_HOUR: float = 2.50   # 5 nodes, 10 units each
 
 # ---------------------------------------------------------------------------
 # Stability normalisation
@@ -211,12 +211,16 @@ class EpisodeGrader:
         n = len(self._records)
 
         # ── 1. Uptime score ────────────────────────────────────────────────
+        # Note: We exclude the t=0 state from uptime if n > 1.
+        records_to_count = self._records[1:] if len(self._records) > 1 else self._records
+        n_steps = len(records_to_count)
+
         sla_ok_steps = sum(
-            1 for r in self._records
-            if r.get("average_latency_ms", 0.0) < SLA_LATENCY_MS
-            and r.get("error_rate", 0.0) < SLA_ERROR_RATE
+            1 for r in records_to_count
+            if r.get("average_latency_ms", 0.0) <= SLA_LATENCY_MS
+            and r.get("error_rate", 0.0) <= SLA_ERROR_RATE
         )
-        uptime_score = sla_ok_steps / n
+        uptime_score = sla_ok_steps / n_steps
 
         # Total cumulative SLA violations (use the last record's counter
         # since environment.py tracks this cumulatively)

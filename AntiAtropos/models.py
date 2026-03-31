@@ -193,8 +193,9 @@ class ClusterObservation(Observation):
     total_queue_backlog: float = Field(
         default=0.0,
         ge=0.0,
+        le=1.0,
         description=(
-            "Normalized sum of queue_depth across all nodes."
+            "Normalized sum of queue_depth across all nodes [0.0, 1.0]."
         ),
     )
 

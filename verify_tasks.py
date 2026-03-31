@@ -22,11 +22,11 @@ def run_diagnostic(task_id, steps=30):
         if task_id == "task-2" and i == 25:
             note = "<< FAILURE TRIGGERED >>"
         elif task_id == "task-3":
-            if n1.incoming_request_rate > 100:
+            if n1.incoming_request_rate >= 1.0:
                 note = "<< SURGE DETECTED >>"
 
-        print(f"{i:<5} | {n0.incoming_request_rate:<12.1f} | {n1.incoming_request_rate:<12.1f} | "
-              f"{obs.total_queue_backlog:<12} | {note}")
+        print(f"{i:<5} | {n0.incoming_request_rate:<12.3f} | {n1.incoming_request_rate:<12.3f} | "
+              f"{obs.total_queue_backlog:<12.3f} | {note}")
 
 if __name__ == "__main__":
     # Test Task 1: Linear Ramp
