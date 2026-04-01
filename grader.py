@@ -40,8 +40,12 @@ COST_PENALTY_K: float = 3.0
 # Stability normalisation
 # ---------------------------------------------------------------------------
 
-# Estimated 'perfect' energy for a stable system (Task 1 baseline)
+# Energy reference point for stability scoring (Task 1 baseline).
+# This is a calibration midpoint, not a hard "full score" cutoff.
 TARGET_ENERGY: float = 2000.0
+# Curvature for stability scoring:
+# score = 1 / (1 + (avg_energy / TARGET_ENERGY)^STABILITY_CURVE_POWER)
+STABILITY_CURVE_POWER: float = 2.0
 
 
 class Grade:
@@ -122,9 +126,14 @@ class EpisodeGrader:
         cost_score = max(0.0, min(1.0, math.exp(-COST_PENALTY_K * over_ratio)))
 
         # ── 3. Stability score ─────────────────────────────────────────────
-        # Normalized inverse of average Lyapunov energy.
+        # Smooth inverse-energy score with no early saturation.
+        # Avoids flattening diverse "good" policies into a perfect 1.0 bucket.
         avg_energy = sum(r.get("lyapunov_energy", 0.0) for r in self._records) / n
-        stability_score = max(0.0, min(1.0, TARGET_ENERGY / avg_energy if avg_energy > 0 else 1.0))
+        if avg_energy <= 0:
+            stability_score = 1.0
+        else:
+            ratio = avg_energy / TARGET_ENERGY
+            stability_score = 1.0 / (1.0 + (ratio ** STABILITY_CURVE_POWER))
 
         return Grade(self.task_id, {
             "uptime": uptime_score,

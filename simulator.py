@@ -113,9 +113,12 @@ class ClusterSimulator:
     3. Failure Logic: Queue overflows trigger status degradation/node death.
     """
 
-    def __init__(self, n_nodes: int = 5, task_id: str = "task-1", seed: int = 42):
+    def __init__(self, n_nodes: int = 5, task_id: str = "task-1", seed: Optional[int] = None):
         self._n_nodes = n_nodes
         self._task_id = task_id
+        # Default to non-deterministic RNG seeding so fresh simulator instances
+        # do not replay identical domain-randomization sequences.
+        # Pass an explicit seed for reproducible experiments.
         self._rng = random.Random(seed)
         self._tick_count: int = 0
         self._failed_node_id: Optional[str] = None
@@ -305,39 +308,45 @@ class ClusterSimulator:
         Apply REROUTE_TRAFFIC adjustments.
 
         For each node with a reroute weight w, reduce its incoming_request_rate
-        by (w × its current rate) and distribute that shed load equally across
-        all healthy peer nodes.  Decays the weight by 50 % each tick so the
-        effect must be re-issued to be maintained (forces the agent to act).
+        by (w × its current rate) and distribute that offloaded load equally
+        across healthy peer nodes.
+
+        Important: rerouting must still work when the target is FAILED (Task 2).
+        We therefore allow offload FROM failed targets. Only absorber nodes are
+        constrained to non-failed nodes.
+
+        Decays each reroute weight by 50% per tick so the effect must be
+        re-issued to be maintained (forces the agent to act).
         """
         if not self._reroute_weights:
             return
 
-        healthy_peers_map: dict[str, list] = {}
-        for rerouted_id in list(self._reroute_weights.keys()):
-            peers = [
-                n for n in self._nodes
-                if n.node_id != rerouted_id and n.status != NodeStatus.FAILED
-            ]
-            healthy_peers_map[rerouted_id] = peers
-
         total_overflow: float = 0.0
-        rerouted_nodes: list = []
+        rerouted_ids = set(self._reroute_weights.keys())
 
         for n in self._nodes:
             w = self._reroute_weights.get(n.node_id, 0.0)
-            if w > 0.0 and n.status != NodeStatus.FAILED:
-                offload = n.incoming_request_rate * w
-                n.incoming_request_rate -= offload
-                total_overflow += offload
-                rerouted_nodes.append(n)
+            if w <= 0.0:
+                continue
+
+            # Offload from the target regardless of node status.
+            offload = n.incoming_request_rate * w
+            if offload <= 0.0:
+                continue
+            n.incoming_request_rate -= offload
+            total_overflow += offload
 
         # Spread overflow across all non-rerouted healthy nodes
         if total_overflow > 0:
             absorbers = [
                 n for n in self._nodes
-                if n.node_id not in self._reroute_weights
+                if n.node_id not in rerouted_ids
                 and n.status != NodeStatus.FAILED
             ]
+            # If every healthy node is rerouted this tick, fall back to all
+            # healthy nodes to conserve total incoming traffic.
+            if not absorbers:
+                absorbers = [n for n in self._nodes if n.status != NodeStatus.FAILED]
             if absorbers:
                 share = total_overflow / len(absorbers)
                 for n in absorbers:
