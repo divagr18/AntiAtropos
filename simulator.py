@@ -23,12 +23,12 @@ from typing import Optional
 # ---------------------------------------------------------------------------
 
 DEFAULT_CAPACITY:     float = 3.0     # Baseline service rate (μ) per node
-MAX_CAPACITY:         float = 10.0    # Maximum SCALE_UP limit
-MAX_SCALING_STEP:     int   = 5       # Largest allowed SCALE_UP param
+MAX_CAPACITY:         float = 5.0     # Maximum SCALE_UP limit (halved to close brute-force headroom)
+MAX_SCALING_STEP:     int   = 3       # Largest allowed SCALE_UP param (was 5)
 BOOT_DELAY_TICKS:     int   = 5       # Time it takes to bring up infrastructure
 BASE_LATENCY_MS:      float = 20.0    # Minimum processing time
 OVERLOAD_THRESHOLD:   int   = 80      # Request count where node begins to "fail" (DEGRADED)
-LATENCY_STEEPNESS:    float = 0.5     # M/M/1-like queue-to-latency scaling factor
+LATENCY_STEEPNESS:    float = 2.0     # Increased to ensure SLA violations before death
 FATAL_FAIL_THRESHOLD: int   = 200     # Hard cap on queue depth (catastrophic failure boundary)
 
 SENSOR_DROPOUT_PROB:  float = 0.05    # P(node.queue, latency reports 0 or -1.0)
@@ -38,11 +38,22 @@ NODE_FAILURE_PROB:    float = 0.00    # P(node fails naturally) — largely driv
 COST_PER_CAPACITY_UNIT_PER_HOUR: float = 0.05
 
 # Task Profiles (Domain Randomization)
-T1_INITIAL_LAMBDA: float = 35.0
-T1_RAMP_SLOPE:     float = 1.0  # +1 req per tick globally
-T2_INITIAL_LAMBDA: float = 35.0
-T2_FAIL_TICK:      int   = 25
+# Task 1: Start near capacity so idle over-provisioning is expensive.
+# Default μ_total = 5 nodes × 3 capacity × 15 = 225 req/tick.
+# λ_initial = 195 → utilisation ≈ 87 %, no slack without intelligence.
+T1_INITIAL_LAMBDA: float = 195.0
+T1_RAMP_SLOPE:     float = 1.0   # +1 req per tick globally
+# Task 2: lambda ≈ 205 means 41/node (91% util), 51/survivor on failure (113% overload).
+T2_INITIAL_LAMBDA: float = 205.0
+T2_FAIL_TICK:      int   = 20
 T3_INITIAL_LAMBDA: float = 30.0
+
+# Task 3 surge parameters — base window, jitter applied per episode
+T3_SURGE_CYCLE:        int   = 60   # Cycle length (ticks)
+T3_SURGE_BASE_START:   int   = 30   # Nominal start of surge within cycle
+T3_SURGE_BASE_END:     int   = 40   # Nominal end of surge within cycle
+T3_SURGE_JITTER:       int   = 10   # ±jitter applied to start/end each episode
+T3_SURGE_MAGNITUDE:    float = 70.0 # Extra req/tick added to node-1 and node-2
 
 
 class NodeStatus(str, Enum):
@@ -112,16 +123,33 @@ class ClusterSimulator:
         self._t1_init_lambda: float = T1_INITIAL_LAMBDA
         self._t2_fail_tick: int = T2_FAIL_TICK
         self._t2_init_lambda: float = T2_INITIAL_LAMBDA
+        # Task-3 surge window — randomised per episode in _randomize_domain()
+        self._t3_surge_start: int = T3_SURGE_BASE_START
+        self._t3_surge_end:   int = T3_SURGE_BASE_END
+        # Per-node reroute weights for REROUTE_TRAFFIC (node_id → fraction)
+        self._reroute_weights: dict[str, float] = {}
         self._nodes: list[NodeState] = []
         self._randomize_domain()
         self._reset_nodes()
 
     def _randomize_domain(self) -> None:
         """Apply domain randomization for RL robustness across tasks."""
-        self._t1_ramp_slope = self._rng.uniform(0.5, 2.0)
-        self._t1_init_lambda = self._rng.uniform(30.0, 45.0)
-        self._t2_fail_tick = self._rng.randint(20, 70)
-        self._t2_init_lambda = self._rng.uniform(30.0, 40.0)
+        self._t1_ramp_slope = self._rng.uniform(0.8, 2.0)
+        # Task 1: start between 85–95 % of default cluster capacity so
+        # blind over-provisioning is expensive but not trivially free.
+        default_mu_total = self._n_nodes * DEFAULT_CAPACITY * 15.0  # 225
+        self._t1_init_lambda = self._rng.uniform(
+            default_mu_total * 0.85, default_mu_total * 0.95
+        )
+        self._t2_fail_tick = self._rng.randint(10, 40)
+        # Task 2: guarantee immediate overload on failure
+        self._t2_init_lambda = self._rng.uniform(200.0, 220.0)
+        # Task 3: jitter the surge window so the LLM can't memorise it.
+        jitter = self._rng.randint(-T3_SURGE_JITTER, T3_SURGE_JITTER)
+        self._t3_surge_start = T3_SURGE_BASE_START + jitter
+        self._t3_surge_end   = T3_SURGE_BASE_END   + jitter
+        # Reset reroute weights to uniform on each new episode
+        self._reroute_weights = {}
 
     def _reset_nodes(self) -> None:
         self._nodes = [
@@ -134,6 +162,7 @@ class ClusterSimulator:
         self._task_id = task_id
         self._tick_count = 0
         self._failed_node_id = None
+        self._reroute_weights = {}
         self._randomize_domain()
         self._reset_nodes()
 
@@ -163,7 +192,7 @@ class ClusterSimulator:
         if at == "SCALE_UP":
             delta = max(1, int(param * MAX_SCALING_STEP))
             current_max = target.capacity + len(target.pending_capacity_queue)
-            actual_delta = min(delta, MAX_CAPACITY - current_max)
+            actual_delta = int(min(delta, MAX_CAPACITY - current_max))
             for _ in range(actual_delta):
                 target.pending_capacity_queue.append(BOOT_DELAY_TICKS)
             
@@ -176,11 +205,13 @@ class ClusterSimulator:
             target.capacity = max(1, target.capacity - delta)
 
         elif at == "REROUTE_TRAFFIC":
-            # In a real SRE scenario, we'd shift a percentage of incoming traffic 
-            # away from a node. In this sim, we record routing preferences 
-            # used during _inject_traffic().
-            # Note: physically handled by environment.py as this is a routing-layer change.
-            pass
+            # Physically offload traffic FROM the target node by proportion `param`.
+            # `param` ∈ [0, 1]: fraction of target node's share to redistribute.
+            # The shed amount is split evenly across healthy peer nodes.
+            frac = min(1.0, max(0.0, float(param)))
+            # Record a reroute weight for the target so _inject_traffic() can
+            # reduce its lambda and bump peers accordingly.
+            self._reroute_weights[node_id] = frac
 
         elif at == "SHED_LOAD":
             frac = min(1.0, param)
@@ -221,34 +252,102 @@ class ClusterSimulator:
         total_lambda = 0.0
 
         if self._task_id == "task-1":
-            # Task 1: Linear Ramp
+            # Task 1: Linear Ramp — starts near cluster capacity
             total_lambda = self._t1_init_lambda + (self._t1_ramp_slope * self._tick_count)
+
         elif self._task_id == "task-2":
             # Task 2: Fault Tolerance
             total_lambda = self._t2_init_lambda
             if self._tick_count >= self._t2_fail_tick and not self._failed_node_id:
-                # Kill a node!
-                self._failed_node_id = self._rng.choice([n.node_id for n in self._nodes if n.node_id != "node-0"])
+                self._failed_node_id = self._rng.choice(
+                    [n.node_id for n in self._nodes if n.node_id != "node-0"]
+                )
+
+            # Physics change: In Task 2, we do NOT redistribute dead node traffic 
+            # automatically. The infrastructure keeps sending λ/N to the failed node
+            # (causing errors) until the agent chooses REROUTE_TRAFFIC or SCALE_UP.
+            base_share = total_lambda / self._n_nodes
+            for n in self._nodes:
+                if n.node_id == self._failed_node_id:
+                    n.status = NodeStatus.FAILED
+                    # If the agent hasn't rerouted traffic away, it still hits the failed node
+                    n.incoming_request_rate = base_share
+                else:
+                    n.incoming_request_rate = base_share
+
+            # This is where the agent's actions (REROUTE_TRAFFIC) physically 
+            # move the share from the failed node to the survivors.
+            self._apply_reroute_weights()
+            return
+
         elif self._task_id == "task-3":
-            # Task 3: Surge
+            # Task 3: Periodic surge — window is jittered per episode
             total_lambda = T3_INITIAL_LAMBDA
-            # Periodic surge of +70 items to node-1, node-2
-            if 30 <= self._tick_count % 60 <= 40:
-                surge = 70.0
+            phase = self._tick_count % T3_SURGE_CYCLE
+            if self._t3_surge_start <= phase <= self._t3_surge_end:
+                surge = T3_SURGE_MAGNITUDE
                 for n in self._nodes:
                     if n.node_id in ["node-1", "node-2"]:
                         n.incoming_request_rate = (total_lambda / self._n_nodes) + surge
-                        continue
-                    n.incoming_request_rate = total_lambda / self._n_nodes
+                    else:
+                        n.incoming_request_rate = total_lambda / self._n_nodes
                 return
 
-        # Distribute traffic evenly (default baseline)
+        # --- Default: distribute traffic evenly, then apply rerouting ---
+        base_share = total_lambda / self._n_nodes
         for n in self._nodes:
-            if n.node_id == self._failed_node_id:
-                n.status = NodeStatus.FAILED
-                n.incoming_request_rate = total_lambda / self._n_nodes
-            else:
-                n.incoming_request_rate = total_lambda / self._n_nodes
+            n.incoming_request_rate = base_share
+
+        self._apply_reroute_weights()
+
+    def _apply_reroute_weights(self) -> None:
+        """
+        Apply REROUTE_TRAFFIC adjustments.
+
+        For each node with a reroute weight w, reduce its incoming_request_rate
+        by (w × its current rate) and distribute that shed load equally across
+        all healthy peer nodes.  Decays the weight by 50 % each tick so the
+        effect must be re-issued to be maintained (forces the agent to act).
+        """
+        if not self._reroute_weights:
+            return
+
+        healthy_peers_map: dict[str, list] = {}
+        for rerouted_id in list(self._reroute_weights.keys()):
+            peers = [
+                n for n in self._nodes
+                if n.node_id != rerouted_id and n.status != NodeStatus.FAILED
+            ]
+            healthy_peers_map[rerouted_id] = peers
+
+        total_overflow: float = 0.0
+        rerouted_nodes: list = []
+
+        for n in self._nodes:
+            w = self._reroute_weights.get(n.node_id, 0.0)
+            if w > 0.0 and n.status != NodeStatus.FAILED:
+                offload = n.incoming_request_rate * w
+                n.incoming_request_rate -= offload
+                total_overflow += offload
+                rerouted_nodes.append(n)
+
+        # Spread overflow across all non-rerouted healthy nodes
+        if total_overflow > 0:
+            absorbers = [
+                n for n in self._nodes
+                if n.node_id not in self._reroute_weights
+                and n.status != NodeStatus.FAILED
+            ]
+            if absorbers:
+                share = total_overflow / len(absorbers)
+                for n in absorbers:
+                    n.incoming_request_rate += share
+
+        # Decay weights — agent must keep re-issuing to maintain effect
+        for nid in list(self._reroute_weights.keys()):
+            self._reroute_weights[nid] *= 0.5
+            if self._reroute_weights[nid] < 0.01:
+                del self._reroute_weights[nid]
 
     def _update_queues(self) -> None:
         """

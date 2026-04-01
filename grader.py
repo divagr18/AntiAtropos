@@ -13,6 +13,7 @@ Provides standard scoring for hackathon submissions across three dimensions:
 3. Stability: Mean Lyapunov energy normalized to a target baseline.
 """
 
+import math
 from typing import Dict, Any, List
 from .models import ClusterObservation
 
@@ -27,11 +28,13 @@ SLA_ERROR_RATE: float = 0.05
 # Cost calibration
 # ---------------------------------------------------------------------------
 
-# Baseline cost = all 5 nodes at initial capacity 3 with $0.05 / capacity-unit.
-# 5 * 3 * 0.05 = $0.75 / hr.
+# Baseline cost = all 5 nodes at default capacity 3 with $0.05 / capacity-unit.
+# 5 * 3 * 0.05 = $0.75 / hr.  This is what a perfectly provisioned agent pays.
 BASELINE_COST_PER_HOUR: float = 0.75
-MIN_COST_PER_HOUR: float = 0.05   # 1 active node at min capacity 1
-MAX_COST_PER_HOUR: float = 2.50   # 5 nodes at max capacity 10
+MIN_COST_PER_HOUR: float = 0.05    # 1 active node at min capacity 1
+MAX_COST_PER_HOUR: float = 1.25    # 5 nodes at capacity 5 (MAX_CAPACITY)
+# Exponential cost penalty harshness — higher = steeper curve
+COST_PENALTY_K: float = 3.0
 
 # ---------------------------------------------------------------------------
 # Stability normalisation
@@ -48,11 +51,19 @@ class Grade:
 
     @property
     def composite(self) -> float:
-        """Weighted average of performance metrics."""
+        """
+        Weighted composite score.
+
+        Weights deliberately penalise cost heavily so that brute-force
+        SCALE_UP spam cannot achieve a high composite even with perfect uptime.
+        A purely reactive agent that always SCALE_UPs is bounded by:
+            0.4 * 1.0 + 0.2 * 1.0 + 0.4 * ~0.0  ≈ 0.60 (worst-case)
+        An intelligent agent that right-sizes capacity can reach 0.9+.
+        """
         return (
-            0.5 * self.scores["uptime"] +
-            0.3 * self.scores["stability"] +
-            0.2 * self.scores["cost"]
+            0.4 * self.scores["uptime"] +
+            0.2 * self.scores["stability"] +
+            0.4 * self.scores["cost"]
         )
 
     def summary(self) -> str:
@@ -101,12 +112,14 @@ class EpisodeGrader:
         # ── 2. Cost score ──────────────────────────────────────────────────
         # Computes efficiency relative to a 'perfectly provisioned' system.
         avg_cost = sum(r.get("current_cost_per_hour", 0.0) for r in self._records) / n
-        
-        # normalized cost [0, 1] - Higher is better efficiency (closer to minimum)
-        if avg_cost <= MIN_COST_PER_HOUR:
-            cost_score = 1.0
-        else:
-            cost_score = max(0.0, 1.0 - (avg_cost - MIN_COST_PER_HOUR) / (MAX_COST_PER_HOUR - MIN_COST_PER_HOUR))
+
+        # Exponential cost penalty: cost_score = exp(-k * over_provisioning_ratio)
+        # over_provisioning_ratio = (avg_cost - BASELINE) / BASELINE
+        # A perfectly provisioned agent (avg_cost == BASELINE) scores exp(0) = 1.0.
+        # An agent that doubles the baseline (massive SCALE_UP spam) scores
+        # exp(-3.0) ≈ 0.05 — nearly zero cost contribution.
+        over_ratio = max(0.0, (avg_cost - BASELINE_COST_PER_HOUR) / BASELINE_COST_PER_HOUR)
+        cost_score = max(0.0, min(1.0, math.exp(-COST_PENALTY_K * over_ratio)))
 
         # ── 3. Stability score ─────────────────────────────────────────────
         # Normalized inverse of average Lyapunov energy.
