@@ -75,7 +75,7 @@ A Pydantic model representing the commands an agent can run:
 * `parameter`: Float (e.g., number of nodes to add or % of traffic to shed)
 
 ### **4.3 The Lyapunov Reward Function**
-$$R_t = -(\alpha \cdot \Delta V(s) + \beta \cdot \text{Cost} + \gamma \cdot \text{SLA_Violations})$$
+$$R_t = -(\alpha \cdot \Delta V(s) + \beta \cdot \text{Cost} + \gamma \cdot \text{SLA\_violation\_step})$$
 * Ensures the agent prioritizes **stability** ($\Delta V$) before **cost saving**.
 
 ---

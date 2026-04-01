@@ -38,7 +38,7 @@ except ImportError:
 
 ALPHA: float = 1e-5   # Massively scaled down Weight on Lyapunov energy drift ΔV(s)
 BETA:  float = 1.0    # Weight on infrastructure cost
-GAMMA: float = 1.0    # Weight on SLA violations
+GAMMA: float = 1.0    # Weight on per-step SLA violation indicator
 
 MAX_QUEUE_NORM = 200.0
 MAX_LATENCY_NORM = 1000.0
@@ -103,19 +103,20 @@ class AntiAtroposEnvironment(Environment):
         # 3. SLA Check (must happen BEFORE reward so it is synchronized)
         avg_latency = self._avg_latency(self._nodes_true)
         error_rate  = self._error_rate(self._nodes_true)
-        if avg_latency > 200.0 or error_rate > 0.05:
+        sla_violation_step = 1 if (avg_latency > 200.0 or error_rate > 0.05) else 0
+        if sla_violation_step:
             self._sla_violations += 1
 
         # 4. Compute Lyapunov stability metrics from Ground Truth
         current_lyapunov = compute_lyapunov(self._nodes_true)
         
-        # 5. Compute scalar reward using updated counters
+        # 5. Compute scalar reward using per-step SLA penalty for clean credit assignment
         cost = self._compute_cost(self._nodes_true)
         reward = compute_reward(
             v_prev=self._prev_lyapunov,
             v_curr=current_lyapunov,
             cost=cost,
-            sla_violations=self._sla_violations,
+            sla_violation_step=sla_violation_step,
             alpha=ALPHA,
             beta=BETA,
             gamma=GAMMA
@@ -167,14 +168,11 @@ class AntiAtroposEnvironment(Environment):
         if total_incoming <= 0:
             return 0.0
 
-        # Sum explicit drops (SHED_LOAD) and traffic lost to failed nodes
-        shed_drops = sum(n.get("dropped_requests", 0) for n in nodes)
-        failed_drops = sum(
-            n.get("incoming_request_rate", 0.0)
-            for n in nodes if n["status"] == NodeStatus.FAILED
-        )
-
-        return min(1.0, (shed_drops + failed_drops) / total_incoming)
+        # dropped_requests already includes both:
+        # - explicit shedding (SHED_LOAD)
+        # - traffic sent to FAILED nodes in simulator._update_queues
+        total_drops = sum(n.get("dropped_requests", 0.0) for n in nodes)
+        return min(1.0, total_drops / total_incoming)
 
     def _build_observation(self) -> ClusterObservation:
         """Assembles the ClusterObservation from the current observed simulator state."""

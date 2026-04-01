@@ -2,7 +2,10 @@ import os
 import json
 import textwrap
 import asyncio
+import argparse
+from contextlib import asynccontextmanager
 from typing import Dict, Any
+from urllib.parse import urlparse
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from AntiAtropos.client import AntiAtroposEnv
@@ -17,7 +20,8 @@ API_KEY = os.getenv("GROQ_API_KEY")
 MODEL_NAME = "llama-3.1-8b-instant" 
 
 MAX_STEPS = 100
-REMOTE_SPACE_URL = "https://pranavkk-antiatropos.hf.space"
+DEFAULT_ENV_URL = os.getenv("ANTIATROPOS_ENV_URL", "http://127.0.0.1:8000")
+DEFAULT_MESSAGE_TIMEOUT_S = 300
 
 SYSTEM_PROMPT = textwrap.dedent(
     """
@@ -53,6 +57,46 @@ def extract_json_action(response_text: str) -> SREAction:
     except Exception as e:
         print(f"  [!] Failed to parse LLM JSON ({e}). Text was: {response_text[:50]}... Falling back to NO_OP.")
         return SREAction(action_type=ActionType.NO_OP, target_node_id="node-0", parameter=0.0)
+
+
+def _hf_web_fallback_url(base_url: str) -> str:
+    parsed = urlparse(base_url)
+    host = parsed.netloc.lower()
+    path = parsed.path.rstrip("/")
+    if host.endswith(".hf.space") and path == "":
+        return base_url.rstrip("/") + "/web"
+    return base_url
+
+
+@asynccontextmanager
+async def open_env_with_ws_fallback(base_url: str, message_timeout_s: int = 300):
+    try:
+        async with AntiAtroposEnv(base_url, message_timeout_s=message_timeout_s) as env:
+            yield env
+            return
+    except ConnectionError as e:
+        fallback_url = _hf_web_fallback_url(base_url)
+        if fallback_url == base_url or "404" not in str(e):
+            raise
+        print(f"[connect] ws 404 on {base_url}; retrying with {fallback_url}")
+        async with AntiAtroposEnv(fallback_url, message_timeout_s=message_timeout_s) as env:
+            yield env
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run Task-3 LLM agent against an AntiAtropos environment.")
+    parser.add_argument(
+        "--env-url",
+        default=DEFAULT_ENV_URL,
+        help="Environment base URL (example: http://127.0.0.1:8000)",
+    )
+    parser.add_argument(
+        "--message-timeout-s",
+        type=int,
+        default=DEFAULT_MESSAGE_TIMEOUT_S,
+        help="WebSocket message timeout in seconds.",
+    )
+    return parser.parse_args()
 
 async def run_task_3(client: AsyncOpenAI, env: AntiAtroposEnv):
     task_id = "task-3"
@@ -106,10 +150,13 @@ if __name__ == "__main__":
     if not API_KEY:
         print("ERROR: GROQ_API_KEY environment variable not found in .env!")
         exit(1)
-        
+
+    args = parse_args()
+
     async def main():
         llm_client = AsyncOpenAI(base_url=API_BASE_URL, api_key=API_KEY)
-        async with AntiAtroposEnv(REMOTE_SPACE_URL, message_timeout_s=300) as sre_env:
+        print(f"[connect] using env url: {args.env_url}")
+        async with open_env_with_ws_fallback(args.env_url, message_timeout_s=args.message_timeout_s) as sre_env:
             await run_task_3(llm_client, sre_env)
         await llm_client.close()
 

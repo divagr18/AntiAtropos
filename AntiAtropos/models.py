@@ -19,7 +19,8 @@ class SREAction(BaseModel):
     
     * SCALE_UP: Increment capacity on target_node_id by parameter (1-5 units).
     * SCALE_DOWN: Decrement capacity on target_node_id by parameter (1-5 units).
-    * REROUTE_TRAFFIC: Shift 'parameter' [0, 1] of global traffic TO target_node_id.
+    * REROUTE_TRAFFIC: Shift 'parameter' [0, 1] of incoming traffic AWAY from
+      target_node_id and redistribute across healthy peers.
     * SHED_LOAD: Drop 'parameter' [0, 1] of incoming traffic targeting target_node_id for 1 tick.
     """
     action_type: ActionType
