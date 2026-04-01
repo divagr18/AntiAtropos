@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import Annotated, Literal, Optional
 from pydantic import BaseModel, Field
 
@@ -5,7 +6,7 @@ from pydantic import BaseModel, Field
 # SRE Action Schema (Control Plane)
 # ---------------------------------------------------------------------------
 
-class ActionType(Literal):
+class ActionType(str, Enum):
     NO_OP = "NO_OP"
     SCALE_UP = "SCALE_UP"
     SCALE_DOWN = "SCALE_DOWN" 
@@ -29,7 +30,7 @@ class SREAction(BaseModel):
 # Observation Schema (Data Plane)
 # ---------------------------------------------------------------------------
 
-class NodeStatus(Literal):
+class NodeStatus(str, Enum):
     HEALTHY = "HEALTHY"
     DEGRADED = "DEGRADED"
     FAILED = "FAILED"

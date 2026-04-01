@@ -193,13 +193,14 @@ class AntiAtroposEnvironment(Environment):
         ]
 
         # Aggregate metrics for the cluster-level dashboard
-        # Use true state for objective metrics like costs, but observed nodes for some drill-downs
+        # CRITICAL: We use TRUE state for the objective metrics (grader-facing) 
+        # so that sensor dropout (-1.0 latency) doesn't fake a 'good' score.
         return ClusterObservation(
             cluster_id=self._state.episode_id,
             task_id=self._task_id,
             active_nodes=sum(1 for n in self._nodes_true if n["status"] != NodeStatus.FAILED),
-            average_latency_ms=min(1.0, max(0.0, self._avg_latency(self._nodes_obs) / MAX_LATENCY_NORM)),
-            error_rate=self._error_rate(self._nodes_obs),
+            average_latency_ms=min(1.0, max(0.0, self._avg_latency(self._nodes_true) / MAX_LATENCY_NORM)),
+            error_rate=self._error_rate(self._nodes_true),
             total_queue_backlog=min(1.0, max(0.0, sum(float(n["queue_depth"]) for n in self._nodes_obs) / (N_NODES * MAX_QUEUE_NORM))),
             current_cost_per_hour=self._compute_cost(self._nodes_true),
             lyapunov_energy=self._prev_lyapunov,
