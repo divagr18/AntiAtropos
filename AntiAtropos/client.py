@@ -79,10 +79,12 @@ class AntiAtroposEnv(
             NodeObservation(
                 node_id=n.get("node_id", ""),
                 status=NodeStatus(n.get("status", NodeStatus.HEALTHY)),
+                is_vip=n.get("is_vip", False),
                 queue_depth=n.get("queue_depth", 0),
                 latency_ms=n.get("latency_ms", 0.0),
                 incoming_request_rate=n.get("incoming_request_rate", 0.0),
                 cpu_utilization=n.get("cpu_utilization", 0.0),
+                importance_weight=n.get("importance_weight", 1.0),
                 done=n.get("done", False),
                 reward=n.get("reward", 0.0),
             )
@@ -102,6 +104,8 @@ class AntiAtroposEnv(
             step=obs_data.get("step", 0),
             max_steps=obs_data.get("max_steps", 100),
             sla_violations=obs_data.get("sla_violations", 0),
+            invalid_action_count=obs_data.get("invalid_action_count", 0),
+            vip_failure_count=obs_data.get("vip_failure_count", 0),
             done=payload.get("done", False),
             reward=payload.get("reward", 0.0),
         )

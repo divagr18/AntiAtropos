@@ -75,7 +75,12 @@ def compute_lyapunov(nodes: list[dict]) -> float:
     Returns:
         Scalar Lyapunov energy  ≥ 0.
     """
-    return float(sum(n["queue_depth"] ** 2 for n in nodes))
+    return float(
+        sum(
+            float(n.get("importance_weight", 1.0)) * (n["queue_depth"] ** 2)
+            for n in nodes
+        )
+    )
 
 
 def compute_drift(v_prev: float, v_curr: float) -> float:

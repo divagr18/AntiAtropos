@@ -90,7 +90,7 @@ $$R_t = -(\alpha \cdot \Delta V(s) + \beta \cdot \text{Cost} + \gamma \cdot \tex
     * *Objective:* Detect failure and reroute traffic using `REROUTE_TRAFFIC` before queues explode.
 3.  **Task 3: Stability Under Surge (Hard)**
     * *Scenario:* A massive, stochastic DDoS-style burst.
-    * *Objective:* Use `SHED_LOAD` on non-critical endpoints to maintain Lyapunov stability for the "Payment Gateway."
+    * *Objective:* Use `SHED_LOAD` on non-critical endpoints to maintain Lyapunov stability for the VIP "Payment Gateway" (`node-0`), which carries higher business impact than the rest of the cluster.
 
 ---
 
