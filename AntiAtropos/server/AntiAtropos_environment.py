@@ -206,6 +206,7 @@ class AntiAtroposEnvironment(Environment):
             step=self._state.step_count,
             max_steps=MAX_STEPS,
             sla_violations=self._sla_violations,
+            invalid_action_count=self._sim.invalid_action_count,
             done=False,
             reward=0.0,
         )

@@ -124,6 +124,11 @@ class ClusterObservation(BaseModel):
         description="Cumulative count of SLA violations this episode.",
     )
 
+    invalid_action_count: int = Field(
+        default=0,
+        description="Number of forbidden actions (e.g. SHED_LOAD on critical nodes).",
+    )
+
     nodes: list[NodeObservation]
 
     # Episode interaction fields (handled by framework)

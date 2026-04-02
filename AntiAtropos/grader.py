@@ -60,23 +60,36 @@ class Grade:
 
         Weights deliberately penalise cost heavily so that brute-force
         SCALE_UP spam cannot achieve a high composite even with perfect uptime.
-        A purely reactive agent that always SCALE_UPs is bounded by:
-            0.4 * 1.0 + 0.2 * 1.0 + 0.4 * ~0.0  ≈ 0.60 (worst-case)
-        An intelligent agent that right-sizes capacity can reach 0.9+.
+        
+        Hardening:
+        - Task 3 coupling: Cost only rewards if Uptime is >= 50%. Stops 'Cheap-but-Dead'.
+        - Invalid Action Penalty: -0.05 per forbidden command (SHED_LOAD on critical).
         """
-        return (
-            0.4 * self.scores["uptime"] +
-            0.2 * self.scores["stability"] +
-            0.4 * self.scores["cost"]
-        )
+        uptime = self.scores["uptime"]
+        stability = self.scores["stability"]
+        cost = self.scores["cost"]
+        invalid_penalty = self.scores.get("invalid_actions", 0) * 0.05
+
+        if self.task_id == "task-3":
+            # Coupling: If uptime < 0.5, the cost benefit is zeroed out.
+            # Mirroring real-world priority: Budget doesn't matter if the site is down.
+            cost_weight = 1.0 if uptime >= 0.5 else 0.0
+            score = (0.4 * uptime + 0.2 * stability + 0.4 * (cost * cost_weight))
+        else:
+            score = (0.4 * uptime + 0.2 * stability + 0.4 * cost)
+            
+        return max(0.0, score - invalid_penalty)
 
     def summary(self) -> str:
         s = self.scores
-        return (
+        summary = (
             f"[{self.task_id}] composite={self.composite:.3f} | "
             f"uptime={s['uptime']:.3f} | cost={s['cost']:.3f} | "
             f"stability={s['stability']:.3f} | SLA violations={int(s['violations'])}/101"
         )
+        if s.get("invalid_actions", 0) > 0:
+            summary += f" | INVALID ACTIONS={int(s['invalid_actions'])}"
+        return summary
 
 
 class EpisodeGrader:
@@ -135,11 +148,15 @@ class EpisodeGrader:
             ratio = avg_energy / TARGET_ENERGY
             stability_score = 1.0 / (1.0 + (ratio ** STABILITY_CURVE_POWER))
 
+        # ── 4. Invalid Action tracking ──────────────────────────────────────
+        total_invalid = self._records[-1].get("invalid_action_count", 0)
+
         return Grade(self.task_id, {
             "uptime": uptime_score,
             "cost": cost_score,
             "stability": stability_score,
-            "violations": total_violations
+            "violations": total_violations,
+            "invalid_actions": total_invalid
         })
 
 

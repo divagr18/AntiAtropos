@@ -1,0 +1,15 @@
+# AntiAtropos Experiment Results
+Date: 2026-04-02
+
+## Task-1: Predictive Scaling
+Result: [task-1] composite=0.685 | uptime=1.000 | cost=0.217 | stability=0.993 | SLA violations=0/101
+Notes: 
+- Perfect uptime but very low cost score due to over-provisioning.
+- Agent scaled at steps 20, 40, 60, 80 regardless of actual slope headroom.
+
+## Task-2: Fault Tolerance
+Result: [task-2] composite=0.557 | uptime=0.600 | cost=0.391 | stability=0.801 | SLA violations=40/101
+Notes:
+- High SLA violations (~40%) despite rerouting actions.
+- Reroute decay (50% per tick) likely caused traffic to leak back to the failed node.
+- Agent might have targeted the wrong node due to default fallback ID.
