@@ -55,6 +55,10 @@ T3_SURGE_BASE_END:     int   = 40   # Nominal end of surge within cycle
 T3_SURGE_JITTER:       int   = 10   # ±jitter applied to start/end each episode
 T3_SURGE_MAGNITUDE:    float = 70.0 # Extra req/tick added to node-1 and node-2
 
+# Hardening: Critical infrastructure that CANNOT be shed
+# In Task 3, these receive the surge. Forcing the agent to SCALE.
+CRITICAL_NODES: list[str] = ["node-0", "node-1", "node-2"]
+
 
 class NodeStatus(str, Enum):
     HEALTHY  = "HEALTHY"
@@ -132,6 +136,7 @@ class ClusterSimulator:
         # Per-node reroute weights for REROUTE_TRAFFIC (node_id → fraction)
         self._reroute_weights: dict[str, float] = {}
         self._nodes: list[NodeState] = []
+        self.invalid_action_count: int = 0
         self._randomize_domain()
         self._reset_nodes()
 
@@ -166,6 +171,7 @@ class ClusterSimulator:
         self._tick_count = 0
         self._failed_node_id = None
         self._reroute_weights = {}
+        self.invalid_action_count = 0
         self._randomize_domain()
         self._reset_nodes()
 
@@ -217,6 +223,12 @@ class ClusterSimulator:
             self._reroute_weights[node_id] = frac
 
         elif at == "SHED_LOAD":
+            # Rule: Cannot shed critical nodes (database/control plane).
+            # This forces the agent to handle Task-3 surge via Scaling/Rerouting.
+            if node_id in CRITICAL_NODES:
+                self.invalid_action_count += 1
+                return 
+
             frac = min(1.0, param)
             target.shed_fraction = frac
             # Note: physically applied in _update_queues() to incoming traffic
