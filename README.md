@@ -44,7 +44,7 @@ The agent must **minimize drift** (keep $\Delta V \leq 0$) while optimizing for 
 
 ### Task 3 — Stability Under Surge *(Hard)*
 - **Scenario:** Stochastic DDoS-style bursts hit the cluster at random intervals.
-- **Goal:** Use `SHED_LOAD` on non-critical endpoints while maintaining the Lyapunov stability of the **Payment Gateway** (`node-0`).
+- **Goal:** Use `SHED_LOAD` on non-critical endpoints while maintaining the Lyapunov stability of the VIP **Payment Gateway** (`node-0`), which carries extra business impact.
 - **Key Metric:** Lyapunov Energy Variance.
 
 ---

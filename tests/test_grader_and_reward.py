@@ -75,3 +75,20 @@ def test_compute_reward_penalizes_only_step_violation():
     r_bad = stability_mod.compute_reward(sla_violation_step=1, **params)
 
     assert math.isclose(r_bad, r_ok - 2.5, rel_tol=0.0, abs_tol=1e-12)
+
+
+def test_weighted_lyapunov_penalizes_vip_more():
+    vip_energy = stability_mod.compute_lyapunov(
+        [
+            {"queue_depth": 0.5, "importance_weight": 4.0},
+            {"queue_depth": 0.5, "importance_weight": 1.0},
+        ]
+    )
+    normal_energy = stability_mod.compute_lyapunov(
+        [
+            {"queue_depth": 0.5, "importance_weight": 1.0},
+            {"queue_depth": 0.5, "importance_weight": 1.0},
+        ]
+    )
+
+    assert vip_energy > normal_energy

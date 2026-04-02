@@ -55,6 +55,16 @@ T3_SURGE_BASE_END:     int   = 40   # Nominal end of surge within cycle
 T3_SURGE_JITTER:       int   = 10   # ±jitter applied to start/end each episode
 T3_SURGE_MAGNITUDE:    float = 70.0 # Extra req/tick added to node-1 and node-2
 
+# Hardening: Critical infrastructure that CANNOT be shed
+# In Task 3, these receive the surge. Forcing the agent to SCALE.
+CRITICAL_NODES: list[str] = ["node-0", "node-1", "node-2"]
+
+# VIP / business-critical node weights.
+# node-0 is the payment portal, so its queue growth or failure matters more.
+VIP_NODE_WEIGHTS: dict[str, float] = {
+    "node-0": 4.0,
+}
+
 
 class NodeStatus(str, Enum):
     HEALTHY  = "HEALTHY"
@@ -66,9 +76,11 @@ class NodeStatus(str, Enum):
 class NodeState:
     node_id: str
     status: NodeStatus = NodeStatus.HEALTHY
+    is_vip: bool = False
     
     # Physics parameters
     capacity: float = DEFAULT_CAPACITY
+    importance_weight: float = 1.0
     queue_depth: float = 0.0
     latency_ms: float = BASE_LATENCY_MS
     incoming_request_rate: float = 0.0
@@ -91,7 +103,9 @@ class NodeState:
         return {
             "node_id": self.node_id,
             "status": self.status,
+            "is_vip": self.is_vip,
             "capacity": self.capacity,
+            "importance_weight": self.importance_weight,
             "queue_depth": int(self.queue_depth),
             "latency_ms": round(self.latency_ms, 2),
             "incoming_request_rate": round(self.incoming_request_rate, 2),
@@ -132,6 +146,7 @@ class ClusterSimulator:
         # Per-node reroute weights for REROUTE_TRAFFIC (node_id → fraction)
         self._reroute_weights: dict[str, float] = {}
         self._nodes: list[NodeState] = []
+        self.invalid_action_count: int = 0
         self._randomize_domain()
         self._reset_nodes()
 
@@ -156,7 +171,11 @@ class ClusterSimulator:
 
     def _reset_nodes(self) -> None:
         self._nodes = [
-            NodeState(node_id=f"node-{i}") 
+            NodeState(
+                node_id=f"node-{i}",
+                is_vip=f"node-{i}" in VIP_NODE_WEIGHTS,
+                importance_weight=VIP_NODE_WEIGHTS.get(f"node-{i}", 1.0),
+            )
             for i in range(self._n_nodes)
         ]
 
@@ -166,6 +185,7 @@ class ClusterSimulator:
         self._tick_count = 0
         self._failed_node_id = None
         self._reroute_weights = {}
+        self.invalid_action_count = 0
         self._randomize_domain()
         self._reset_nodes()
 
@@ -217,6 +237,12 @@ class ClusterSimulator:
             self._reroute_weights[node_id] = frac
 
         elif at == "SHED_LOAD":
+            # Rule: Cannot shed critical nodes (database/control plane).
+            # This forces the agent to handle Task-3 surge via Scaling/Rerouting.
+            if node_id in CRITICAL_NODES:
+                self.invalid_action_count += 1
+                return 
+
             frac = min(1.0, param)
             target.shed_fraction = frac
             # Note: physically applied in _update_queues() to incoming traffic

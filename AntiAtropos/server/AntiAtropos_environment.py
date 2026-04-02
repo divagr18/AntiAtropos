@@ -156,23 +156,37 @@ class AntiAtroposEnvironment(Environment):
         return total_capacity_units * COST_PER_CAPACITY_UNIT_PER_HOUR
 
     def _avg_latency(self, nodes: list[dict]) -> float:
-        """Computes mean latency across all non-failed nodes."""
-        active = [n for n in nodes if n["status"] != NodeStatus.FAILED]
-        if not active:
+        """Computes importance-weighted mean latency across the cluster."""
+        if not nodes:
             return float("inf")
-        return sum(n["latency_ms"] for n in active) / len(active)
+
+        weighted_latency = 0.0
+        total_weight = 0.0
+        for n in nodes:
+            weight = float(n.get("importance_weight", 1.0))
+            latency = MAX_LATENCY_NORM if n["status"] == NodeStatus.FAILED else float(n["latency_ms"])
+            weighted_latency += weight * latency
+            total_weight += weight
+
+        if total_weight <= 0:
+            return float("inf")
+        return weighted_latency / total_weight
 
     def _error_rate(self, nodes: list[dict]) -> float:
-        """Calculates the cluster-wide fraction of dropped or lost requests."""
-        total_incoming = sum(n.get("incoming_request_rate", 0.0) for n in nodes)
+        """Calculates an importance-weighted fraction of dropped or lost requests."""
+        total_incoming = sum(float(n.get("incoming_request_rate", 0.0)) * float(n.get("importance_weight", 1.0)) for n in nodes)
         if total_incoming <= 0:
             return 0.0
 
         # dropped_requests already includes both:
         # - explicit shedding (SHED_LOAD)
         # - traffic sent to FAILED nodes in simulator._update_queues
-        total_drops = sum(n.get("dropped_requests", 0.0) for n in nodes)
+        total_drops = sum(float(n.get("dropped_requests", 0.0)) * float(n.get("importance_weight", 1.0)) for n in nodes)
         return min(1.0, total_drops / total_incoming)
+
+    def _vip_failure_count(self, nodes: list[dict]) -> int:
+        """Counts failed VIP nodes for reporting and diagnostics."""
+        return sum(1 for n in nodes if n.get("is_vip") and n["status"] == NodeStatus.FAILED)
 
     def _build_observation(self) -> ClusterObservation:
         """Assembles the ClusterObservation from the current observed simulator state."""
@@ -184,6 +198,8 @@ class AntiAtroposEnvironment(Environment):
                 latency_ms=min(1.0, max(0.0, float(n["latency_ms"]) / MAX_LATENCY_NORM)),
                 incoming_request_rate=min(1.0, max(0.0, float(n["incoming_request_rate"]) / MAX_REQUEST_RATE_NORM)),
                 cpu_utilization=min(1.0, max(0.0, float(n["cpu_utilization"]))),
+                is_vip=bool(n.get("is_vip", False)),
+                importance_weight=float(n.get("importance_weight", 1.0)),
                 done=False,
                 reward=0.0,
             )
@@ -206,6 +222,8 @@ class AntiAtroposEnvironment(Environment):
             step=self._state.step_count,
             max_steps=MAX_STEPS,
             sla_violations=self._sla_violations,
+            invalid_action_count=self._sim.invalid_action_count,
+            vip_failure_count=self._vip_failure_count(self._nodes_true),
             done=False,
             reward=0.0,
         )

@@ -40,6 +40,7 @@ class NodeObservation(BaseModel):
     """Telemetry for a single service instance (node)."""
     node_id: str
     status: NodeStatus
+    is_vip: bool = False
     
     # All numerical telemetry is normalized to [0, 1] for RL stability.
     queue_depth: float = Field(
@@ -70,6 +71,12 @@ class NodeObservation(BaseModel):
         ge=0.0,
         le=1.0,
         description="Estimated CPU load [0.0, 1.0].",
+    )
+
+    importance_weight: float = Field(
+        default=1.0,
+        ge=0.0,
+        description="Business criticality weight. VIP nodes have higher impact on scoring.",
     )
 
     # Episode interaction fields (handled by framework)
@@ -122,6 +129,16 @@ class ClusterObservation(BaseModel):
     sla_violations: int = Field(
         default=0,
         description="Cumulative count of SLA violations this episode.",
+    )
+
+    invalid_action_count: int = Field(
+        default=0,
+        description="Number of forbidden actions (e.g. SHED_LOAD on critical nodes).",
+    )
+
+    vip_failure_count: int = Field(
+        default=0,
+        description="Number of failed VIP nodes in the current observation.",
     )
 
     nodes: list[NodeObservation]

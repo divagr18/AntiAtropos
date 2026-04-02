@@ -29,7 +29,8 @@ SYSTEM_PROMPT = textwrap.dedent(
     You will receive a JSON state containing normalized [0.0, 1.0] queue depths (per-node and total), latencies, and traffic rates.
     
     TASK: Task-3 (Stability Under Surge)
-    A Payment Gateway (node-0) must be protected during major traffic surges on other nodes. 
+    node-0 is the VIP Payment Gateway and carries extra business impact.
+    Protect it during major traffic surges on other nodes.
     Use SHED_LOAD (admission control) on non-critical nodes to keep the total system stable.
     
     You must intelligently balance the Lyapunov Energy (stability) against infrastructure cost and SLAs.
