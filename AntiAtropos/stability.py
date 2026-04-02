@@ -219,7 +219,7 @@ def drift_plus_penalty(
 
     Returns:
         Scalar DPP value.  The reward should negate this:
-        R_t = −DPP(t) − γ·SLA_violations
+        R_t = −DPP(t) − γ·SLA_violation_step
     """
     delta_v = compute_drift(v_prev, v_curr)
     return delta_v + V_weight * penalty_cost
@@ -233,13 +233,13 @@ def compute_reward(
     v_prev: float,
     v_curr: float,
     cost: float,
-    sla_violations: int,
+    sla_violation_step: int,
     alpha: float = 1.0,
     beta: float = 0.05,
     gamma: float = 2.0,
 ) -> float:
     """
-    R_t = −(α·ΔV(s)  +  β·Cost  +  γ·SLA_Violations)
+    R_t = −(α·ΔV(s)  +  β·Cost  +  γ·SLA_violation_step)
 
     Convenience wrapper that mirrors the reward formula in environment.py.
     Can be used by the baseline agent to simulate rewards without calling
@@ -249,7 +249,7 @@ def compute_reward(
         v_prev:         Lyapunov energy at previous tick.
         v_curr:         Lyapunov energy at current tick.
         cost:           Infrastructure cost this tick (USD/hr).
-        sla_violations: Cumulative SLA violation count.
+        sla_violation_step: 1 if this step violated SLA, else 0.
         alpha:          Weight on Lyapunov drift.
         beta:           Weight on cost.
         gamma:          Weight on SLA violations.
@@ -258,4 +258,4 @@ def compute_reward(
         Scalar reward (higher is better, always ≤ 0 in a stable episode).
     """
     delta_v = compute_drift(v_prev, v_curr)
-    return -(alpha * delta_v + beta * cost + gamma * sla_violations)
+    return -(alpha * delta_v + beta * cost + gamma * sla_violation_step)
