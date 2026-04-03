@@ -433,3 +433,53 @@ class ClusterSimulator:
                 n.status = NodeStatus.DEGRADED
             elif n.status == NodeStatus.DEGRADED and n.queue_depth < (OVERLOAD_THRESHOLD / 2):
                 n.status = NodeStatus.HEALTHY
+
+    def reconcile_state(self, telemetry_map: dict) -> None:
+        """
+        Reconcile internal simulator state with external telemetry signals.
+        Used in 'hybrid' or 'live' modes to align the physics engine with reality.
+        
+        telemetry_map: node_id -> TelemetryRecord (or dict)
+        """
+        for node in self._nodes:
+            if node.node_id in telemetry_map:
+                record = telemetry_map[node.node_id]
+                # If record is an object (TelemetryRecord), access fields; otherwise treat as dict
+                if hasattr(record, "queue_depth"):
+                    q_ext = float(record.queue_depth)
+                    r_ext = float(record.request_rate)
+                    c_ext = float(record.cpu_utilization)
+                    e_ext = float(record.error_rate)
+                    l_ext = float(record.latency_ms)
+                else:
+                    q_ext = float(record.get("queue_depth", node.queue_depth))
+                    r_ext = float(record.get("request_rate", node.incoming_request_rate))
+                    c_ext = float(record.get("cpu_utilization", node.cpu_utilization))
+                    e_ext = float(record.get("error_rate", 0.0))
+                    l_ext = float(record.get("latency_ms", node.latency_ms))
+
+                # Smoothly blend the external state into physics to prevent step jumps
+                # trust: 0.7 (reality) / 0.3 (simulation prediction)
+                node.queue_depth = (node.queue_depth * 0.3) + (q_ext * 0.7)
+                node.incoming_request_rate = (node.incoming_request_rate * 0.3) + (r_ext * 0.7)
+                node.cpu_utilization = (node.cpu_utilization * 0.3) + (c_ext * 0.7)
+                node.latency_ms = (node.latency_ms * 0.3) + (l_ext * 0.7)
+
+                # Status reconciliation: Fail the node if error rate is high
+                if e_ext > 0.5:
+                    node.status = NodeStatus.FAILED
+                elif e_ext > 0.1 and node.status == NodeStatus.HEALTHY:
+                    node.status = NodeStatus.DEGRADED
+                elif e_ext <= 0.05 and node.status == NodeStatus.DEGRADED:
+                    # Allow recovery if telemetry says it's clean (physics will still check queue)
+                    node.status = NodeStatus.HEALTHY
+
+        # Crucial: re-derive metrics so latency/cpu are consistent (except for the blended values)
+        # Note: We blend latency/cpu above, but _update_derived_metrics might overwrite them.
+        # So we update them after blending if we want physics to win, or before if telemetry wins.
+        # Usually, for SRE dashboard, we want the blended 'reality'.
+        # However, _update_derived_metrics is used to compute 'current' state in pure sim.
+        # We'll skip it if we just reconciled to keep the blended values, OR refine it.
+        # For now, let's just make sure statuses are updated based on new queue depths.
+        self._update_statuses()
+

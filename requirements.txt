@@ -13,3 +13,15 @@ uvicorn>=0.22.0
 # --- Agent Baseline ---
 # Using standard OpenAI client as requested (LiteLLM excluded)
 openai>=1.10.0
+
+# --- Infrastructure & External Integrations ---
+kubernetes>=28.0.0      # For live Kubernetes action execution
+prometheus-api-client>=0.5.0 # For telemetry ingestion
+requests>=2.31.0        # General purpose API communication
+
+# --- Local Cluster Tooling (non-pip/system dependencies) ---
+# minikube (required for local Kubernetes path if not using Docker Desktop Kubernetes)
+# Install separately, e.g. on Windows:
+#   winget install Kubernetes.minikube
+
+

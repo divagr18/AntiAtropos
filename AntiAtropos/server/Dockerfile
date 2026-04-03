@@ -59,6 +59,11 @@ FROM ${BASE_IMAGE}
 
 WORKDIR /app
 
+# Ensure runtime has curl for health checks and diagnostics
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
+
 # Copy the virtual environment from builder
 COPY --from=builder /app/env/.venv /app/.venv
 
@@ -70,6 +75,19 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 # Set PYTHONPATH so imports work correctly
 ENV PYTHONPATH="/app/env:$PYTHONPATH"
+
+# Default integration config (safe local fallback)
+# Override these at runtime for real Hybrid/Live deployments.
+ENV ANTIATROPOS_ENV_MODE="simulated"
+ENV ANTIATROPOS_STRICT_REAL="false"
+ENV PROMETHEUS_URL="mock"
+ENV KUBECONFIG="mock"
+ENV ANTIATROPOS_K8S_NAMESPACE="default"
+ENV ANTIATROPOS_DEPLOYMENT_PREFIX=""
+ENV ANTIATROPOS_MIN_REPLICAS="1"
+ENV ANTIATROPOS_MAX_REPLICAS="20"
+ENV ANTIATROPOS_SCALE_STEP="3"
+ENV ANTIATROPOS_NODE_DEPLOYMENT_MAP="{}"
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
