@@ -94,6 +94,7 @@ class AntiAtroposEnv(
         observation = ClusterObservation(
             cluster_id=obs_data.get("cluster_id", ""),
             task_id=obs_data.get("task_id", "task-1"),
+            mode=obs_data.get("mode", "simulated"),
             active_nodes=obs_data.get("active_nodes", 0),
             average_latency_ms=obs_data.get("average_latency_ms", 0.0),
             error_rate=obs_data.get("error_rate", 0.0),
@@ -106,6 +107,10 @@ class AntiAtroposEnv(
             sla_violations=obs_data.get("sla_violations", 0),
             invalid_action_count=obs_data.get("invalid_action_count", 0),
             vip_failure_count=obs_data.get("vip_failure_count", 0),
+            metric_timestamp=obs_data.get("metric_timestamp", 0.0),
+            data_freshness_ms=obs_data.get("data_freshness_ms", 0),
+            action_ack_status=obs_data.get("action_ack_status", "success"),
+            choke_level=obs_data.get("choke_level", 0.0),
             done=payload.get("done", False),
             reward=payload.get("reward", 0.0),
         )

@@ -26,6 +26,9 @@ dependencies = [
     # "gymnasium>=0.29.0",
     # "openspiel>=1.0.0",
     # "smolagents>=1.22.0,<2",
+    "kubernetes>=28.0.0",
+    "prometheus-api-client>=0.5.0",
+    "requests>=2.31.0",
 ]
 
 [project.optional-dependencies]
@@ -41,5 +44,5 @@ server = "AntiAtropos.server.app:main"
 
 [tool.setuptools]
 include-package-data = true
-packages = ["AntiAtropos", "AntiAtropos.server"]
-package-dir = { "AntiAtropos" = ".", "AntiAtropos.server" = "server" }
+packages = ["AntiAtropos", "AntiAtropos.server", "AntiAtropos.control", "AntiAtropos.telemetry"]
+package-dir = { "AntiAtropos" = ".", "AntiAtropos.server" = "server", "AntiAtropos.control" = "control", "AntiAtropos.telemetry" = "telemetry" }

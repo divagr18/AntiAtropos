@@ -2,6 +2,11 @@ from enum import Enum
 from typing import Annotated, Literal, Optional
 from pydantic import BaseModel, Field
 
+class EnvironmentMode(str, Enum):
+    SIMULATED = "simulated"
+    HYBRID = "hybrid"
+    LIVE = "live"
+
 # ---------------------------------------------------------------------------
 # SRE Action Schema (Control Plane)
 # ---------------------------------------------------------------------------
@@ -90,6 +95,8 @@ class ClusterObservation(BaseModel):
     step: int
     max_steps: int
     
+    mode: EnvironmentMode = EnvironmentMode.SIMULATED
+    
     active_nodes: int = Field(ge=0, le=5)
     
     average_latency_ms: float = Field(
@@ -141,8 +148,15 @@ class ClusterObservation(BaseModel):
         description="Number of failed VIP nodes in the current observation.",
     )
 
+    # New fields for Prometheus/Kubernetes integration
+    metric_timestamp: float = 0.0
+    data_freshness_ms: int = 0
+    action_ack_status: str = "success"
+    choke_level: float = 0.0
+
     nodes: list[NodeObservation]
 
     # Episode interaction fields (handled by framework)
     done: bool = False
     reward: float = 0.0
+

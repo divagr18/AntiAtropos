@@ -1,35 +1,21 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-#
-# This source code is licensed under the BSD-style license found in the
-# LICENSE file in the root directory of this source tree.
-
-"""
-AntiAtropos Environment — Server-Side Implementation.
-
-This module is the central orchestration layer. It:
-  1. Receives a typed SREAction from the OpenEnv framework.
-  2. Feeds it into the simulator (simulator.py) to advance time by one tick.
-  3. Queries stability.py to compute Lyapunov energy and the scalar reward.
-  4. Packages the resulting cluster state into a ClusterObservation and returns it.
-
-The environment implements a discrete-time fluid-queue model where stability 
-is governed by Lyapunov Drift-Plus-Penalty theory.
-"""
-
+import time
 from uuid import uuid4
 
 from openenv.core.env_server.interfaces import Environment
 from openenv.core.env_server.types import State
 
 try:
-    from ..models import SREAction, ClusterObservation, NodeObservation, NodeStatus
+    from ..models import SREAction, ClusterObservation, NodeObservation, NodeStatus, EnvironmentMode
     from ..simulator import ClusterSimulator, COST_PER_CAPACITY_UNIT_PER_HOUR
     from ..stability import compute_lyapunov, compute_reward
+    from ..telemetry import PrometheusClient
+    from ..control import KubernetesExecutor, ActionValidator
 except ImportError:
-    from models import SREAction, ClusterObservation, NodeObservation, NodeStatus  # type: ignore[no-redef]
+    from models import SREAction, ClusterObservation, NodeObservation, NodeStatus, EnvironmentMode  # type: ignore[no-redef]
     from simulator import ClusterSimulator, COST_PER_CAPACITY_UNIT_PER_HOUR  # type: ignore[no-redef]
     from stability import compute_lyapunov, compute_reward  # type: ignore[no-redef]
+    from telemetry import PrometheusClient  # type: ignore[no-redef]
+    from control import KubernetesExecutor, ActionValidator  # type: ignore[no-redef]
 
 
 # ---------------------------------------------------------------------------
@@ -64,22 +50,55 @@ class AntiAtroposEnvironment(Environment):
         """Initialise environment metadata and the simulation core."""
         self._state = State(episode_id=str(uuid4()), step_count=0)
         self._task_id: str = "task-1"
+        self._mode: EnvironmentMode = EnvironmentMode.SIMULATED
+        
+        # Core components
         self._sim: ClusterSimulator = ClusterSimulator(n_nodes=N_NODES, task_id="task-1")
+        self._telemetry = PrometheusClient()
+        self._executor = KubernetesExecutor()
+        self._validator = ActionValidator()
+        
         self._nodes_true: list[dict] = []
         self._nodes_obs: list[dict] = []
         self._prev_lyapunov: float = 0.0
         self._sla_violations: int = 0
+        self._action_ack_status: str = "success"
+        self._last_metric_time: float = 0.0
 
-    def reset(self, task_id: str = "task-1") -> ClusterObservation:
+    def reset(self, task_id: str = "task-1", mode: str = "simulated") -> ClusterObservation:
         """
-        Start a fresh episode with a specific task profile.
+        Start a fresh episode with a specific task profile and mode.
         """
         self._state = State(episode_id=str(uuid4()), step_count=0)
         self._task_id = task_id
+        try:
+            self._mode = EnvironmentMode(mode)
+        except ValueError:
+            self._mode = EnvironmentMode.SIMULATED
+            
         self._sla_violations = 0
+        self._action_ack_status = "success"
+        
+        # Only set baseline metric time for hybrid/live to prevent misleading freshness in SIM
+        if self._mode in [EnvironmentMode.HYBRID, EnvironmentMode.LIVE]:
+            self._last_metric_time = time.time()
+        else:
+            self._last_metric_time = 0.0
 
-        # Initialize the production simulator
+        # Initialize core components based on mode
+        if self._mode != EnvironmentMode.SIMULATED:
+            # In Hybrid/Live mode, we might want to connect to real endpoints
+            # self._telemetry = PrometheusClient(url=os.getenv("PROMETHEUS_URL"))
+            pass
+
         self._sim.reset(task_id=task_id)
+        
+        # If in hybrid mode, immediately pull a baseline
+        if self._mode in [EnvironmentMode.HYBRID, EnvironmentMode.LIVE]:
+            node_ids = [n["node_id"] for n in self._sim.state(for_agent=False)]
+            metrics = self._telemetry.fetch_latest_metrics(node_ids)
+            self._sim.reconcile_state(metrics)
+
         self._nodes_true = self._sim.state(for_agent=False)
         self._nodes_obs  = self._sim.state(for_agent=True)
         self._prev_lyapunov = compute_lyapunov(self._nodes_true)
@@ -91,26 +110,56 @@ class AntiAtroposEnvironment(Environment):
         Advance the simulation by one discrete time tick.
         """
         self._state.step_count += 1
+        
+        # 1. Action Validation & Execution
+        valid_targets = [n["node_id"] for n in self._nodes_true]
+        is_valid, error = self._validator.validate(
+            action.action_type, 
+            action.target_node_id, 
+            action.parameter,
+            valid_targets=valid_targets
+        )
+        
+        if not is_valid:
+            self._action_ack_status = f"Rejected: {error}"
+            # Increment invalid action count on the simulator so it's consistent
+            self._sim.invalid_action_count += 1
+            # Still advance time but the action didn't happen
+        else:
+            if self._mode == EnvironmentMode.LIVE:
+                # In LIVE mode, we actually hit the cluster
+                self._action_ack_status = self._executor.execute(action.action_type, action.target_node_id, action.parameter)
+            else:
+                self._action_ack_status = "success (simulated)"
+            
+            # Always update the physics engine to keep tracking expectations
+            self._sim.apply_action(action)
 
-        # 1. Apply management action and advance physics
-        self._sim.apply_action(action)
+        # 2. Advance Physics
         self._sim.tick()
         
-        # 2. Extract states (Ground Truth for reward; Observation for agent)
+        # 3. Telemetry Ingestion (Hybrid / Live)
+        if self._mode in [EnvironmentMode.HYBRID, EnvironmentMode.LIVE]:
+            node_ids = [n["node_id"] for n in self._nodes_true]
+            metrics = self._telemetry.fetch_latest_metrics(node_ids)
+            self._sim.reconcile_state(metrics)
+            self._last_metric_time = time.time()
+        
+        # 4. Extract states (Ground Truth for reward; Observation for agent)
         self._nodes_true = self._sim.state(for_agent=False)
         self._nodes_obs  = self._sim.state(for_agent=True)
 
-        # 3. SLA Check (must happen BEFORE reward so it is synchronized)
+        # 5. SLA Check
         avg_latency = self._avg_latency(self._nodes_true)
         error_rate  = self._error_rate(self._nodes_true)
         sla_violation_step = 1 if (avg_latency > 200.0 or error_rate > 0.05) else 0
         if sla_violation_step:
             self._sla_violations += 1
 
-        # 4. Compute Lyapunov stability metrics from Ground Truth
+        # 6. Compute Lyapunov stability metrics from Ground Truth
         current_lyapunov = compute_lyapunov(self._nodes_true)
         
-        # 5. Compute scalar reward using per-step SLA penalty for clean credit assignment
+        # 7. Compute scalar reward
         cost = self._compute_cost(self._nodes_true)
         reward = compute_reward(
             v_prev=self._prev_lyapunov,
@@ -124,13 +173,13 @@ class AntiAtroposEnvironment(Environment):
         
         self._prev_lyapunov = current_lyapunov
 
-        # 6. Termination check
+        # 8. Termination check
         done = (
             self._state.step_count >= MAX_STEPS
             or all(n["status"] == NodeStatus.FAILED for n in self._nodes_true)
         )
 
-        # 7. Package Observation (from OBSERVED state)
+        # 9. Package Observation
         obs = self._build_observation()
         obs.done   = done
         obs.reward = reward
@@ -150,7 +199,6 @@ class AntiAtroposEnvironment(Environment):
         for node in nodes_true:
             if node["status"] == NodeStatus.FAILED:
                 continue
-            # Both live and pending units are billed as infrastructure is provisioned.
             total_capacity_units += int(node.get("capacity_units", 0))
             total_capacity_units += int(node.get("pending_capacity_units", 0))
         return total_capacity_units * COST_PER_CAPACITY_UNIT_PER_HOUR
@@ -177,10 +225,6 @@ class AntiAtroposEnvironment(Environment):
         total_incoming = sum(float(n.get("incoming_request_rate", 0.0)) * float(n.get("importance_weight", 1.0)) for n in nodes)
         if total_incoming <= 0:
             return 0.0
-
-        # dropped_requests already includes both:
-        # - explicit shedding (SHED_LOAD)
-        # - traffic sent to FAILED nodes in simulator._update_queues
         total_drops = sum(float(n.get("dropped_requests", 0.0)) * float(n.get("importance_weight", 1.0)) for n in nodes)
         return min(1.0, total_drops / total_incoming)
 
@@ -206,12 +250,12 @@ class AntiAtroposEnvironment(Environment):
             for n in self._nodes_obs
         ]
 
-        # Aggregate metrics for the cluster-level dashboard
-        # CRITICAL: We use TRUE state for the objective metrics (grader-facing) 
-        # so that sensor dropout (-1.0 latency) doesn't fake a 'good' score.
+        freshness = int((time.time() - self._last_metric_time) * 1000) if self._last_metric_time > 0 else 0
+
         return ClusterObservation(
             cluster_id=self._state.episode_id,
             task_id=self._task_id,
+            mode=self._mode,
             active_nodes=sum(1 for n in self._nodes_true if n["status"] != NodeStatus.FAILED),
             average_latency_ms=min(1.0, max(0.0, self._avg_latency(self._nodes_true) / MAX_LATENCY_NORM)),
             error_rate=self._error_rate(self._nodes_true),
@@ -224,6 +268,12 @@ class AntiAtroposEnvironment(Environment):
             sla_violations=self._sla_violations,
             invalid_action_count=self._sim.invalid_action_count,
             vip_failure_count=self._vip_failure_count(self._nodes_true),
+            metric_timestamp=self._last_metric_time,
+            data_freshness_ms=freshness,
+            action_ack_status=self._action_ack_status,
+            choke_level=0.0,
             done=False,
             reward=0.0,
         )
+
+
