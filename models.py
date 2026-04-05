@@ -152,6 +152,9 @@ class ClusterObservation(BaseModel):
     metric_timestamp: float = 0.0
     data_freshness_ms: int = 0
     action_ack_status: str = "success"
+    action_id: str = ""
+    executor_latency_ms: float = Field(default=0.0, ge=0.0)
+    executor_error_code: str = ""
     choke_level: float = 0.0
 
     nodes: list[NodeObservation]

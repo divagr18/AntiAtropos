@@ -1,5 +1,4 @@
 from typing import List, Optional
-from pydantic import BaseModel
 
 class ActionValidator:
     """
@@ -13,13 +12,27 @@ class ActionValidator:
         """
         Returns (is_valid, error_message).
         """
+        if hasattr(action_type, "value"):
+            action = str(action_type.value)
+        else:
+            action = str(action_type)
+
         if valid_targets is not None and target not in valid_targets:
             return False, f"Unknown target node: {target}"
 
-        if action_type == "SHED_LOAD" and target in self.critical_nodes:
+        if action == "SHED_LOAD" and target in self.critical_nodes:
             return False, f"Forbidden: Load shedding on critical node {target}."
-        
-        if action_type in ["SCALE_UP", "SCALE_DOWN"] and parameter < 0.0:
-            return False, "Negative scaling parameters are not allowed."
+
+        if action in ["SCALE_UP", "SCALE_DOWN"]:
+            if parameter < 0.0:
+                return False, "Negative scaling parameters are not allowed."
+            if parameter > 10.0:
+                return False, "Scaling parameter must be <= 10.0."
+
+        if action in ["REROUTE_TRAFFIC", "SHED_LOAD"] and not (0.0 <= parameter <= 1.0):
+            return False, f"{action} parameter must be in [0.0, 1.0]."
+
+        if action == "NO_OP" and parameter != 0.0:
+            return False, "NO_OP requires parameter=0.0."
             
         return True, "Success"

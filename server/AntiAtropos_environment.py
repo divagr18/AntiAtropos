@@ -1,4 +1,6 @@
 import time
+import json
+import logging
 from uuid import uuid4
 
 from openenv.core.env_server.interfaces import Environment
@@ -8,13 +10,13 @@ try:
     from ..models import SREAction, ClusterObservation, NodeObservation, NodeStatus, EnvironmentMode
     from ..simulator import ClusterSimulator, COST_PER_CAPACITY_UNIT_PER_HOUR
     from ..stability import compute_lyapunov, compute_reward
-    from ..telemetry import PrometheusClient
+    from ..telemetry import PrometheusClient, get_observability_tracker
     from ..control import KubernetesExecutor, ActionValidator
 except ImportError:
     from models import SREAction, ClusterObservation, NodeObservation, NodeStatus, EnvironmentMode  # type: ignore[no-redef]
     from simulator import ClusterSimulator, COST_PER_CAPACITY_UNIT_PER_HOUR  # type: ignore[no-redef]
     from stability import compute_lyapunov, compute_reward  # type: ignore[no-redef]
-    from telemetry import PrometheusClient  # type: ignore[no-redef]
+    from telemetry import PrometheusClient, get_observability_tracker  # type: ignore[no-redef]
     from control import KubernetesExecutor, ActionValidator  # type: ignore[no-redef]
 
 
@@ -57,12 +59,17 @@ class AntiAtroposEnvironment(Environment):
         self._telemetry = PrometheusClient()
         self._executor = KubernetesExecutor()
         self._validator = ActionValidator()
+        self._observability = get_observability_tracker()
+        self._logger = logging.getLogger("antiatropos.env")
         
         self._nodes_true: list[dict] = []
         self._nodes_obs: list[dict] = []
         self._prev_lyapunov: float = 0.0
         self._sla_violations: int = 0
         self._action_ack_status: str = "success"
+        self._last_action_id: str = ""
+        self._last_executor_latency_ms: float = 0.0
+        self._last_executor_error_code: str = ""
         self._last_metric_time: float = 0.0
 
     def reset(self, task_id: str = "task-1", mode: str = "simulated") -> ClusterObservation:
@@ -78,6 +85,9 @@ class AntiAtroposEnvironment(Environment):
             
         self._sla_violations = 0
         self._action_ack_status = "success"
+        self._last_action_id = ""
+        self._last_executor_latency_ms = 0.0
+        self._last_executor_error_code = ""
         
         # Only set baseline metric time for hybrid/live to prevent misleading freshness in SIM
         if self._mode in [EnvironmentMode.HYBRID, EnvironmentMode.LIVE]:
@@ -110,29 +120,54 @@ class AntiAtroposEnvironment(Environment):
         Advance the simulation by one discrete time tick.
         """
         self._state.step_count += 1
+        self._last_action_id = str(uuid4())
+        self._last_executor_latency_ms = 0.0
+        self._last_executor_error_code = ""
         
         # 1. Action Validation & Execution
         valid_targets = [n["node_id"] for n in self._nodes_true]
-        is_valid, error = self._validator.validate(
+        is_enabled, mode_error = self._is_action_enabled_for_mode(action.action_type)
+        if not is_enabled:
+            self._action_ack_status = f"Rejected: {mode_error}"
+            self._last_executor_error_code = "MODE_UNSUPPORTED"
+            is_valid = False
+            error = mode_error
+        else:
+            is_valid, error = self._validator.validate(
             action.action_type, 
             action.target_node_id, 
             action.parameter,
             valid_targets=valid_targets
-        )
+            )
         
+        apply_to_simulator = False
+
         if not is_valid:
             self._action_ack_status = f"Rejected: {error}"
+            if not self._last_executor_error_code:
+                self._last_executor_error_code = "VALIDATION_FAILED"
             # Increment invalid action count on the simulator so it's consistent
             self._sim.invalid_action_count += 1
             # Still advance time but the action didn't happen
         else:
             if self._mode == EnvironmentMode.LIVE:
                 # In LIVE mode, we actually hit the cluster
-                self._action_ack_status = self._executor.execute(action.action_type, action.target_node_id, action.parameter)
+                exec_result = self._executor.execute_with_metadata(
+                    action.action_type,
+                    action.target_node_id,
+                    action.parameter,
+                )
+                self._last_action_id = exec_result.get("action_id", self._last_action_id)
+                self._action_ack_status = exec_result.get("ack_status", "Error: missing ack status")
+                self._last_executor_latency_ms = float(exec_result.get("executor_latency_ms", 0.0))
+                self._last_executor_error_code = str(exec_result.get("executor_error_code", ""))
+                apply_to_simulator = self._action_ack_status.startswith("Ack:")
             else:
                 self._action_ack_status = "success (simulated)"
-            
-            # Always update the physics engine to keep tracking expectations
+                apply_to_simulator = True
+
+        # Keep simulator aligned with control-plane ack semantics.
+        if apply_to_simulator:
             self._sim.apply_action(action)
 
         # 2. Advance Physics
@@ -183,6 +218,46 @@ class AntiAtroposEnvironment(Environment):
         obs = self._build_observation()
         obs.done   = done
         obs.reward = reward
+
+        self._observability.record_step(
+            task_id=self._task_id,
+            mode=str(self._mode.value),
+            action_type=str(action.action_type.value),
+            target_node_id=str(action.target_node_id),
+            ack_status=self._action_ack_status,
+            reward=reward,
+            lyapunov_energy=obs.lyapunov_energy,
+            total_queue_backlog=obs.total_queue_backlog,
+            average_latency_ms=obs.average_latency_ms,
+            executor_latency_ms=self._last_executor_latency_ms,
+            executor_error_code=self._last_executor_error_code,
+        )
+
+        self._logger.info(
+            json.dumps(
+                {
+                    "event": "antiatropos_step",
+                    "episode_id": self._state.episode_id,
+                    "task_id": self._task_id,
+                    "mode": self._mode.value,
+                    "step": self._state.step_count,
+                    "action_type": action.action_type.value,
+                    "target_node_id": action.target_node_id,
+                    "parameter": float(action.parameter),
+                    "action_id": self._last_action_id,
+                    "action_ack_status": self._action_ack_status,
+                    "executor_latency_ms": self._last_executor_latency_ms,
+                    "executor_error_code": self._last_executor_error_code,
+                    "reward": reward,
+                    "lyapunov_energy": obs.lyapunov_energy,
+                    "average_latency_ms_norm": obs.average_latency_ms,
+                    "total_queue_backlog_norm": obs.total_queue_backlog,
+                    "error_rate": obs.error_rate,
+                    "done": done,
+                }
+            )
+        )
+
         return obs
 
     @property
@@ -192,6 +267,21 @@ class AntiAtroposEnvironment(Environment):
     # -----------------------------------------------------------------------
     # Logic Helpers
     # -----------------------------------------------------------------------
+    def _is_action_enabled_for_mode(self, action_type: str) -> tuple[bool, str]:
+        if hasattr(action_type, "value"):
+            action = str(action_type.value)
+        else:
+            action = str(action_type)
+        if self._mode in [EnvironmentMode.SIMULATED, EnvironmentMode.HYBRID]:
+            return True, "Enabled"
+
+        if self._mode == EnvironmentMode.LIVE:
+            capability_error = self._executor.live_capability_error(action)
+            if capability_error:
+                return False, capability_error
+            return True, "Enabled"
+
+        return False, f"Unsupported environment mode: {self._mode}"
 
     def _compute_cost(self, nodes_true: list[dict]) -> float:
         """Calculates current running infra cost using provisioned capacity units."""
@@ -271,6 +361,9 @@ class AntiAtroposEnvironment(Environment):
             metric_timestamp=self._last_metric_time,
             data_freshness_ms=freshness,
             action_ack_status=self._action_ack_status,
+            action_id=self._last_action_id,
+            executor_latency_ms=self._last_executor_latency_ms,
+            executor_error_code=self._last_executor_error_code,
             choke_level=0.0,
             done=False,
             reward=0.0,

@@ -39,10 +39,12 @@ try:
     # Change these names to match models.py
     from ..models import SREAction, ClusterObservation
     from .AntiAtropos_environment import AntiAtroposEnvironment
+    from ..telemetry import render_prometheus_metrics
 except (ModuleNotFoundError, ImportError):
     # And here as well
     from models import SREAction, ClusterObservation
     from server.AntiAtropos_environment import AntiAtroposEnvironment
+    from telemetry import render_prometheus_metrics
 
 
 # Create the app with web interface and README integration
@@ -54,6 +56,14 @@ app = create_app(
     env_name="AntiAtropos",
     max_concurrent_envs=100,
 )
+
+
+@app.get("/metrics")
+def metrics():
+    from fastapi import Response
+
+    payload = render_prometheus_metrics()
+    return Response(content=payload, media_type="text/plain; version=0.0.4; charset=utf-8")
 
 
 def main(host: str = "0.0.0.0", port: int = 8000):
