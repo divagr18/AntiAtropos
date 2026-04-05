@@ -101,7 +101,7 @@ async def run_task_1(client: AsyncOpenAI, env: AntiAtroposEnv):
     task_id = "task-1"
     print(f"\n--- Running Llama-8B on {task_id} ---")
     
-    result = await env.reset(task_id=task_id)
+    result = await env.reset(task_id=task_id, mode="live")
     obs = result.observation
     
     grader = EpisodeGrader(task_id=task_id)
