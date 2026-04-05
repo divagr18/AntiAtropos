@@ -11,8 +11,9 @@ services:
     restart: unless-stopped
 
   grafana:
-    image: grafana/grafana-oss:latest
+    image: grafana/grafana:latest
     container_name: antiatropos-grafana
+    platform: linux/amd64
     ports:
       - "3000:3000"
     environment:

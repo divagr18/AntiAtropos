@@ -22,7 +22,7 @@ STDOUT FORMAT
 
     [START] task=<task_name> env=<benchmark> model=<model_name>
     [STEP]  step=<n> action=<action_str> reward=<0.00> done=<true|false> error=<msg|null>
-    [END]   success=<true|false> steps=<n> rewards=<r1,r2,...,rn>
+    [END]   success=<true|false> steps=<n> score=<score> rewards=<r1,r2,...,rn>
 
   Rules:
     - One [START] line at episode begin.
@@ -32,13 +32,14 @@ STDOUT FORMAT
     - done and success are lowercase booleans: true or false.
     - error is the raw last_action_error string, or null if none.
     - All fields on a single line with no newlines within a line.
+    - Each tasks should return score in [0, 1]
 
   Example:
     [START] task=click-test env=miniwob model=Qwen3-VL-30B
     [STEP] step=1 action=click('123') reward=0.00 done=false error=null
     [STEP] step=2 action=fill('456','text') reward=0.00 done=false error=null
     [STEP] step=3 action=click('789') reward=1.00 done=true error=null
-    [END] success=true steps=3 rewards=0.00,0.00,1.00
+    [END] success=true steps=3 score=1.00 rewards=0.00,0.00,1.00
 """
 
 import asyncio
@@ -181,6 +182,7 @@ async def main() -> None:
         except Exception as e:
             print(f"[DEBUG] env.close() error (container cleanup): {e}", flush=True)
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
-        
+
+
 if __name__ == "__main__":
     asyncio.run(main())
