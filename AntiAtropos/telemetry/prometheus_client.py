@@ -1,8 +1,9 @@
 import os
 import random
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 import requests
 from pydantic import BaseModel
+from .mapping import MetricMapper
 
 class TelemetryRecord(BaseModel):
     node_id: str
@@ -23,26 +24,29 @@ class PrometheusClient:
         self.is_mock = not self.url or self.url.lower() == "mock"
         self.timeout_s = float(os.getenv("ANTIATROPOS_PROM_TIMEOUT_S", "2.5"))
         self.strict_real = os.getenv("ANTIATROPOS_STRICT_REAL", "false").lower() == "true"
+        self.metric_mapper = MetricMapper(
+            mapping_strategy=os.getenv("ANTIATROPOS_METRIC_AGGREGATION", "sum")
+        )
 
         self.request_rate_query = os.getenv(
             "ANTIATROPOS_PROM_QUERY_REQUEST_RATE",
-            'sum(rate(http_requests_total{node_id="{node_id}"}[1m]))'
+            'sum(rate(http_requests_total[1m])) by (pod)'
         )
         self.latency_ms_query = os.getenv(
             "ANTIATROPOS_PROM_QUERY_LATENCY_MS",
-            'histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{node_id="{node_id}"}[5m])) by (le)) * 1000'
+            'histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (pod, le)) * 1000'
         )
         self.error_rate_query = os.getenv(
             "ANTIATROPOS_PROM_QUERY_ERROR_RATE",
-            'sum(rate(http_requests_total{node_id="{node_id}",status=~"5.."}[1m])) / clamp_min(sum(rate(http_requests_total{node_id="{node_id}"}[1m])), 1)'
+            'sum(rate(http_requests_total{status=~"5.."}[1m])) by (pod) / clamp_min(sum(rate(http_requests_total[1m])) by (pod), 1)'
         )
         self.cpu_query = os.getenv(
             "ANTIATROPOS_PROM_QUERY_CPU",
-            'avg(rate(container_cpu_usage_seconds_total{pod=~".*{node_id}.*"}[1m]))'
+            'avg(rate(container_cpu_usage_seconds_total[1m])) by (pod)'
         )
         self.queue_depth_query = os.getenv(
             "ANTIATROPOS_PROM_QUERY_QUEUE_DEPTH",
-            'sum(queue_depth{node_id="{node_id}"})'
+            'sum(queue_depth) by (pod)'
         )
         
     def fetch_latest_metrics(self, node_ids: List[str]) -> Dict[str, TelemetryRecord]:
@@ -66,14 +70,20 @@ class PrometheusClient:
         metrics: Dict[str, TelemetryRecord] = {}
         saw_any_real_signal = False
 
-        for node_id in node_ids:
-            req_rate = self._query_scalar(self.request_rate_query.format(node_id=node_id))
-            lat_ms = self._query_scalar(self.latency_ms_query.format(node_id=node_id))
-            err_rate = self._query_scalar(self.error_rate_query.format(node_id=node_id))
-            cpu = self._query_scalar(self.cpu_query.format(node_id=node_id))
-            q_depth = self._query_scalar(self.queue_depth_query.format(node_id=node_id))
+        req_by_node = self._collect_metric_values("request_rate", self.request_rate_query, node_ids)
+        lat_by_node = self._collect_metric_values("latency_ms", self.latency_ms_query, node_ids)
+        err_by_node = self._collect_metric_values("error_rate", self.error_rate_query, node_ids)
+        cpu_by_node = self._collect_metric_values("cpu_utilization", self.cpu_query, node_ids)
+        q_by_node = self._collect_metric_values("queue_depth", self.queue_depth_query, node_ids)
 
-            if any(v is not None for v in [req_rate, lat_ms, err_rate, cpu, q_depth]):
+        for node_id in node_ids:
+            req_rate = req_by_node.get(node_id)
+            lat_ms = lat_by_node.get(node_id)
+            err_rate = err_by_node.get(node_id)
+            cpu = cpu_by_node.get(node_id)
+            q_depth = q_by_node.get(node_id)
+
+            if any(v is not None for v in (req_rate, lat_ms, err_rate, cpu, q_depth)):
                 saw_any_real_signal = True
 
             metrics[node_id] = TelemetryRecord(
@@ -89,6 +99,50 @@ class PrometheusClient:
             raise RuntimeError("Prometheus returned no usable real telemetry for requested node IDs.")
 
         return metrics
+
+    def _collect_metric_values(
+        self,
+        metric_name: str,
+        query: str,
+        node_ids: List[str],
+    ) -> Dict[str, Optional[float]]:
+        """
+        Collect node values for one logical metric.
+
+        If query contains "{node_id}", execute per-node scalar queries.
+        Otherwise run one vector query and aggregate labels via MetricMapper.
+        """
+        out: Dict[str, Optional[float]] = {node_id: None for node_id in node_ids}
+
+        if "{node_id}" in query:
+            for node_id in node_ids:
+                out[node_id] = self._query_scalar(query.format(node_id=node_id))
+            return out
+
+        samples = self._query_vector(query)
+        raw_metrics: List[Dict[str, Any]] = []
+        for sample in samples:
+            labels = sample.get("metric")
+            value = sample.get("value")
+            if not isinstance(labels, dict):
+                continue
+            if not value or len(value) < 2:
+                continue
+            raw_metrics.append(
+                {
+                    "metric_name": metric_name,
+                    "labels": labels,
+                    "value": value[1],
+                }
+            )
+
+        by_node = self.metric_mapper.aggregate_node_metrics(raw_metrics)
+        for node_id in node_ids:
+            metric_map = by_node.get(node_id, {})
+            value = metric_map.get(metric_name)
+            out[node_id] = value if value is not None else None
+
+        return out
 
     def _query_scalar(self, promql: str) -> Optional[float]:
         """Runs a scalar/vector Prometheus instant query and returns the first value."""
@@ -118,6 +172,23 @@ class PrometheusClient:
             return float(value[1])
         except (TypeError, ValueError):
             return None
+
+    def _query_vector(self, promql: str) -> List[Dict[str, Any]]:
+        """Runs a Prometheus instant query and returns the full vector result list."""
+        if not self.url:
+            return []
+
+        response = requests.get(
+            f"{self.url.rstrip('/')}/api/v1/query",
+            params={"query": promql},
+            timeout=self.timeout_s,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if payload.get("status") != "success":
+            return []
+        result = payload.get("data", {}).get("result", [])
+        return result if isinstance(result, list) else []
 
     def _generate_mock_metrics(self, node_ids: List[str]) -> Dict[str, TelemetryRecord]:
         """Generates realistic-looking mock telemetry."""

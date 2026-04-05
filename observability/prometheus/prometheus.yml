@@ -1,0 +1,16 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: "antiatropos"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:8000"]
+
+  # Expects kube-state-metrics to be port-forwarded locally:
+  # kubectl -n kube-system port-forward svc/kube-state-metrics 8081:8080
+  - job_name: "kube-state-metrics"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:8081"]

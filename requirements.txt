@@ -17,6 +17,7 @@ openai>=1.10.0
 # --- Infrastructure & External Integrations ---
 kubernetes>=28.0.0      # For live Kubernetes action execution
 prometheus-api-client>=0.5.0 # For telemetry ingestion
+prometheus-client>=0.20.0    # For /metrics exporter endpoint
 requests>=2.31.0        # General purpose API communication
 
 # --- Local Cluster Tooling (non-pip/system dependencies) ---
