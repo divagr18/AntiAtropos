@@ -24,9 +24,9 @@ except ImportError:
 # Reward hyper-parameters (synchronized with stability.py constants)
 # ---------------------------------------------------------------------------
 
-ALPHA: float = 1e-5   # Massively scaled down Weight on Lyapunov energy drift ΔV(s)
-BETA:  float = 1.0    # Weight on infrastructure cost
-GAMMA: float = 1.0    # Weight on per-step SLA violation indicator
+ALPHA: float = 0.002   # Weight on Lyapunov energy drift ΔV(s) (Increased for faster feedback)
+BETA:  float = 0.01    # Weight on infrastructure cost (Reduced to prevent cheap-but-dead strategies)
+GAMMA: float = 10.0    # Weight on per-step SLA violation indicator (Increased to force reactive scaling)
 
 MAX_QUEUE_NORM = 200.0
 MAX_LATENCY_NORM = 1000.0
