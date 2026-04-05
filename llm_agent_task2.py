@@ -29,16 +29,20 @@ SYSTEM_PROMPT = textwrap.dedent(
     You will receive a JSON state containing normalized [0.0, 1.0] queue depths (per-node and total), latencies, and traffic rates.
     
     TASK: Task-2 (Fault Tolerance)
-    A node fails randomly. Detect the failure and reroute traffic proactively using REROUTE_TRAFFIC or scale up others.
+    A node fails randomly. Detect the failure and reroute traffic proactively or scale up others.
     
-    You must intelligently balance the Lyapunov Energy (stability) against infrastructure cost and SLAs.
-    Note: Booting infrastructure (SCALE_UP) takes exactly 5 ticks. Act proactively.
+    SYSTEM DYNAMICS:
+    - Boot Delay: SCALE_UP actions take exactly 5 ticks to complete. Act proactively.
+    - Capacity Limits: Units must be in [1.0, 5.0]. Scaling beyond limits is ignored.
+    - Reroute Decay: REROUTE_TRAFFIC effect decays by 50% every tick. Keep re-issuing if needed.
+    - Sensor Noise: 5% of reports have dropout (0 or -1 values). Average across nodes.
+    - VIP Node: node-0 is critical (weight=4). High latency here is heavily penalized.
     
-    Reply ONLY with a strictly formatted JSON object matching this schema. No markdown, no explanations, no text before or after.
+    Reply ONLY with a strictly formatted JSON object. No markdown.
     {
       "action_type": "SCALE_UP" | "SCALE_DOWN" | "REROUTE_TRAFFIC" | "SHED_LOAD" | "NO_OP",
-      "target_node_id": "node-1",
-      "parameter": 1.0
+      "target_node_id": "node-0",
+      "parameter": 0.5
     }
     """
 ).strip()

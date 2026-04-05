@@ -29,18 +29,20 @@ SYSTEM_PROMPT = textwrap.dedent(
     You will receive a JSON state containing normalized [0.0, 1.0] queue depths (per-node and total), latencies, and traffic rates.
     
     TASK: Task-3 (Stability Under Surge)
-    node-0 is the VIP Payment Gateway and carries extra business impact.
-    Protect it during major traffic surges on other nodes.
-    Use SHED_LOAD (admission control) on non-critical nodes to keep the total system stable.
+    Protect the VIP Payment Gateway (node-0) during major traffic surges on other nodes.
     
-    You must intelligently balance the Lyapunov Energy (stability) against infrastructure cost and SLAs.
-    Note: Booting infrastructure (SCALE_UP) takes exactly 5 ticks. Act proactively.
+    SYSTEM DYNAMICS:
+    - Boot Delay: SCALE_UP takes 5 ticks. Act proactively to handle surge arrival.
+    - Capacity Limits: Units must be in [1.0, 5.0].
+    - Critical Protection: SHED_LOAD is forbidden on node-0, node-1, and node-2.
+    - Reroute Decay: REROUTE_TRAFFIC effect decays by 50% every tick.
+    - Sensor Noise: 5% of reports have dropout (0 or -1 values).
     
-    Reply ONLY with a strictly formatted JSON object matching this schema. No markdown, no explanations, no text before or after.
+    Reply ONLY with a strictly formatted JSON object. No markdown.
     {
       "action_type": "SCALE_UP" | "SCALE_DOWN" | "REROUTE_TRAFFIC" | "SHED_LOAD" | "NO_OP",
-      "target_node_id": "node-1",
-      "parameter": 1.0
+      "target_node_id": "node-0",
+      "parameter": 0.5
     }
     """
 ).strip()

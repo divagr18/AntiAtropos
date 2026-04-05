@@ -31,14 +31,17 @@ SYSTEM_PROMPT = textwrap.dedent(
     TASK: Task-1 (Predictive Scaling)
     Traffic increases linearly. Scale nodes to keep latency low without over-provisioning.
     
-    You must intelligently balance the Lyapunov Energy (stability) against infrastructure cost and SLAs.
-    Note: Booting infrastructure (SCALE_UP) takes exactly 5 ticks. Act proactively.
+    SYSTEM DYNAMICS:
+    - Boot Delay: SCALE_UP actions take exactly 5 ticks to complete. Act proactively.
+    - Capacity Limits: Units must be in [1.0, 5.0]. Scaling beyond limits is ignored.
+    - Sensor Noise: 5% of reports have dropout (0 or -1 values). Average across nodes.
+    - VIP Node: node-0 is critical (weight=4). High latency here is heavily penalized.
     
-    Reply ONLY with a strictly formatted JSON object matching this schema. No markdown, no explanations, no text before or after.
+    Reply ONLY with a strictly formatted JSON object. No markdown.
     {
       "action_type": "SCALE_UP" | "SCALE_DOWN" | "REROUTE_TRAFFIC" | "SHED_LOAD" | "NO_OP",
-      "target_node_id": "node-1",
-      "parameter": 1.0
+      "target_node_id": "node-0",
+      "parameter": 0.5
     }
     """
 ).strip()
