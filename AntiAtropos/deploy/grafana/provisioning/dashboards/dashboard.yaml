@@ -1,0 +1,12 @@
+apiVersion: 1
+
+providers:
+  - name: AntiAtropos Dashboards
+    orgId: 1
+    folder: AntiAtropos
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards/json

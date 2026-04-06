@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AntiAtropos Control Console</title>
+    <style>
+        :root {
+            --bg: #0b1220;
+            --bg-soft: #101a2d;
+            --panel: #111d33;
+            --line: #2b3d5d;
+            --text: #e6edf8;
+            --muted: #9bb0cf;
+            --accent: #ff5a3d;
+            --accent-strong: #e14830;
+            --ok: #3dcf8e;
+            --bad: #ff6f7f;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 24px;
+            background:
+                radial-gradient(circle at top right, rgba(255, 90, 61, 0.18), transparent 40%),
+                radial-gradient(circle at top left, rgba(74, 140, 255, 0.18), transparent 35%),
+                var(--bg);
+            color: var(--text);
+            font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+        }
+
+        .shell {
+            max-width: 1440px;
+            margin: 0 auto;
+            display: grid;
+            gap: 18px;
+        }
+
+        .card {
+            background: linear-gradient(180deg, rgba(17, 29, 51, 0.88), rgba(15, 25, 44, 0.92));
+            border: 1px solid var(--line);
+            border-radius: 16px;
+        }
+
+        .header {
+            padding: 20px 22px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .title h1 {
+            margin: 0;
+            font-size: 1.5rem;
+            letter-spacing: 0.01em;
+        }
+
+        .title p {
+            margin: 4px 0 0;
+            color: var(--muted);
+            font-size: 0.95rem;
+        }
+
+        .links {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .link-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            height: 38px;
+            padding: 0 14px;
+            border-radius: 10px;
+            border: 1px solid var(--line);
+            color: var(--text);
+            text-decoration: none;
+            background: var(--bg-soft);
+            font-size: 0.9rem;
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 18px;
+        }
+
+        .controls {
+            padding: 16px;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 14px;
+        }
+
+        .controls-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+            align-items: end;
+        }
+
+        .field label {
+            display: block;
+            color: var(--muted);
+            font-size: 0.78rem;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+        }
+
+        .field select,
+        .field input {
+            width: 100%;
+            height: 44px;
+            border-radius: 10px;
+            border: 1px solid var(--line);
+            background: #0c162a;
+            color: var(--text);
+            padding: 0 12px;
+            font-size: 0.95rem;
+        }
+
+        .actions {
+            display: grid;
+            grid-template-columns: 180px 1fr;
+            gap: 10px;
+        }
+
+        .btn {
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            height: 44px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.95rem;
+            color: var(--text);
+            background: var(--bg-soft);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+            border-color: transparent;
+            color: #fff;
+        }
+
+        .metrics {
+            padding: 16px;
+            display: grid;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .metric {
+            background: #0d172a;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 12px;
+            min-height: 86px;
+        }
+
+        .metric .name {
+            color: var(--muted);
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 8px;
+        }
+
+        .metric .value {
+            font-family: Consolas, "SFMono-Regular", Menlo, monospace;
+            font-size: 1.18rem;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        .metric .value.good {
+            color: var(--ok);
+        }
+
+        .metric .value.bad {
+            color: var(--bad);
+        }
+
+        .monitor {
+            padding: 16px;
+            display: grid;
+            gap: 10px;
+        }
+
+        .monitor-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .monitor-head h2 {
+            margin: 0;
+            font-size: 1.05rem;
+            font-weight: 700;
+        }
+
+        .monitor-head p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 0.85rem;
+        }
+
+        .graph-wrap {
+            height: 920px;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            overflow: hidden;
+            background: #0a1324;
+        }
+
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: 0;
+        }
+
+        .logs {
+            padding: 16px;
+        }
+
+        .logs h3 {
+            margin: 0 0 10px;
+            font-size: 0.9rem;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        #terminal {
+            background: #091121;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            height: 160px;
+            overflow-y: auto;
+            padding: 10px;
+            font-family: Consolas, "SFMono-Regular", Menlo, monospace;
+            font-size: 0.83rem;
+            color: #c9d6ed;
+        }
+
+        .log-line {
+            padding: 2px 0;
+            border-bottom: 1px solid rgba(155, 176, 207, 0.08);
+        }
+
+        .log-time {
+            color: #7084a8;
+            margin-right: 8px;
+            font-size: 0.72rem;
+        }
+
+        @media (max-width: 1120px) {
+            .controls-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .actions {
+                grid-template-columns: 1fr;
+            }
+
+            .metrics {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        @media (max-width: 680px) {
+            body {
+                padding: 12px;
+            }
+
+            .controls-grid,
+            .metrics {
+                grid-template-columns: 1fr;
+            }
+
+            .graph-wrap {
+                height: 760px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="shell">
+        <header class="card header">
+            <div class="title">
+                <h1>AntiAtropos SRE Control Console</h1>
+                <p>Simulated environment with direct observability through Prometheus and Grafana</p>
+            </div>
+            <div class="links">
+                <a class="link-btn" href="/docs" target="_blank">API Docs</a>
+                <a class="link-btn" href="/prometheus/" target="_blank">Open Prometheus</a>
+                <a class="link-btn" href="/grafana/" target="_blank">Open Grafana</a>
+            </div>
+        </header>
+
+        <main class="layout">
+            <section class="card controls">
+                <div class="controls-grid">
+                    <div class="field">
+                        <label for="action-type">Action Type</label>
+                        <select id="action-type">
+                            <option value="NO_OP">NO_OP</option>
+                            <option value="SCALE_UP">SCALE_UP</option>
+                            <option value="SCALE_DOWN">SCALE_DOWN</option>
+                            <option value="REROUTE_TRAFFIC">REROUTE_TRAFFIC</option>
+                            <option value="SHED_LOAD">SHED_LOAD</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="node-id">Target Node</label>
+                        <select id="node-id">
+                            <option value="node-0">node-0 (VIP)</option>
+                            <option value="node-1">node-1</option>
+                            <option value="node-2">node-2</option>
+                            <option value="node-3">node-3</option>
+                            <option value="node-4">node-4</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="parameter">Parameter</label>
+                        <input id="parameter" type="number" step="0.1" value="0.0">
+                    </div>
+                    <div class="actions">
+                        <button class="btn btn-primary" onclick="resetEnv()">Reset Episode</button>
+                        <button class="btn" onclick="stepEnv()">Execute Step</button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="card metrics">
+                <div class="metric">
+                    <div class="name">Cluster ID</div>
+                    <div id="cluster-id" class="value">---</div>
+                </div>
+                <div class="metric">
+                    <div class="name">Reward</div>
+                    <div id="last-reward" class="value">0.0000</div>
+                </div>
+                <div class="metric">
+                    <div class="name">Lyapunov Energy</div>
+                    <div id="lyapunov-val" class="value">0.0000</div>
+                </div>
+                <div class="metric">
+                    <div class="name">Mode</div>
+                    <div id="mode-val" class="value">simulated</div>
+                </div>
+                <div class="metric">
+                    <div class="name">Step</div>
+                    <div id="step-val" class="value">0</div>
+                </div>
+            </section>
+
+            <section class="card monitor">
+                <div class="monitor-head">
+                    <h2>Required Graphs</h2>
+                    <p>Raw metrics source: Prometheus. Curated dashboard: Grafana.</p>
+                </div>
+                <div class="graph-wrap">
+                    <iframe
+                        id="grafana-iframe"
+                        src="/grafana/d/antiatropos-overview/antiatropos-overview?kiosk&theme=dark&refresh=5s&from=now-30m&to=now">
+                    </iframe>
+                </div>
+            </section>
+
+            <section class="card logs">
+                <h3>System Logs</h3>
+                <div id="terminal">
+                    <div class="log-line"><span class="log-time">[init]</span>Waiting for interaction.</div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        const terminal = document.getElementById("terminal");
+
+        function log(message, type = "info") {
+            const time = new Date().toLocaleTimeString([], {
+                hour12: false,
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit"
+            });
+            const row = document.createElement("div");
+            row.className = "log-line";
+            const color = type === "error" ? "#ff6f7f" : type === "success" ? "#3dcf8e" : "#c9d6ed";
+            row.innerHTML = '<span class="log-time">[' + time + "]</span><span style=\"color:" + color + "\">" + message + "</span>";
+            terminal.appendChild(row);
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        function updateUI(data) {
+            const observation = data.observation || {};
+            const rewardNode = document.getElementById("last-reward");
+            const reward = typeof data.reward === "number" ? data.reward : 0;
+
+            document.getElementById("cluster-id").innerText = (observation.cluster_id || "---").toString().slice(0, 12);
+            document.getElementById("lyapunov-val").innerText = Number(observation.lyapunov_energy || 0).toFixed(4);
+            document.getElementById("mode-val").innerText = (observation.mode || "simulated").toString();
+            document.getElementById("step-val").innerText = String(observation.step || 0);
+
+            rewardNode.innerText = reward.toFixed(4);
+            rewardNode.className = reward < 0 ? "value bad" : "value good";
+        }
+
+        async function resetEnv() {
+            log("Resetting environment...");
+            try {
+                const response = await fetch("/reset", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({})
+                });
+                const data = await response.json();
+                updateUI(data);
+                log("Environment reset complete.", "success");
+            } catch (err) {
+                log("Reset failed: " + err.message, "error");
+            }
+        }
+
+        async function stepEnv() {
+            const action = {
+                action_type: document.getElementById("action-type").value,
+                target_node_id: document.getElementById("node-id").value,
+                parameter: parseFloat(document.getElementById("parameter").value)
+            };
+
+            log("Dispatching " + action.action_type + " to " + action.target_node_id + " (" + action.parameter + ")");
+
+            try {
+                const response = await fetch("/step", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ action: action })
+                });
+                const data = await response.json();
+
+                if (data.detail) {
+                    log("Invalid payload: " + JSON.stringify(data.detail), "error");
+                    return;
+                }
+
+                updateUI(data);
+                log(
+                    "Step complete. Reward=" + Number(data.reward || 0).toFixed(3) +
+                    " Lyapunov=" + Number((data.observation || {}).lyapunov_energy || 0).toFixed(3),
+                    "success"
+                );
+            } catch (err) {
+                log("Execution failed: " + err.message, "error");
+            }
+        }
+    </script>
+</body>
+</html>

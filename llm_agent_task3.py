@@ -20,7 +20,7 @@ API_KEY = os.getenv("GROQ_API_KEY")
 MODEL_NAME = "llama-3.1-8b-instant" 
 
 MAX_STEPS = 100
-DEFAULT_ENV_URL = os.getenv("ANTIATROPOS_ENV_URL", "http://127.0.0.1:8000")
+DEFAULT_ENV_URL = os.getenv("ANTIATROPOS_ENV_URL", "https://pranavkk-antiatropos.hf.space")
 DEFAULT_MESSAGE_TIMEOUT_S = 300
 
 SYSTEM_PROMPT = textwrap.dedent(
