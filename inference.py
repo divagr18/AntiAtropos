@@ -4,6 +4,10 @@ import os
 import textwrap
 from typing import List, Optional
 
+from dotenv import load_dotenv
+
+load_dotenv()  # Load variables from .env file
+
 from openai import AsyncOpenAI
 
 from AntiAtropos.client import AntiAtroposEnv
@@ -233,7 +237,8 @@ async def run_episode() -> None:
 
         score = max(0.0, min(1.0, grader.score().composite))
         success = score >= SUCCESS_SCORE_THRESHOLD
-    except Exception:
+    except Exception as e:
+        print(f"[CRITICAL ERROR] Episode failed to initialize: {e}")
         success = False
     finally:
         if client is not None:
