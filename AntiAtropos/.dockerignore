@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+openenv_AntiAtropos.egg-info/
+.git/
+.venv/
+.DS_Store
