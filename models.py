@@ -155,6 +155,9 @@ class ClusterObservation(BaseModel):
     action_id: str = ""
     executor_latency_ms: float = Field(default=0.0, ge=0.0)
     executor_error_code: str = ""
+    raw_reward: float = 0.0
+    normalized_reward: float = Field(default=0.0, ge=0.0, le=1.0)
+    reward_scale_version: str = "sigmoid-v1"
     choke_level: float = 0.0
 
     nodes: list[NodeObservation]

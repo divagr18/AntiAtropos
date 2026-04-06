@@ -1,5 +1,6 @@
 import time
 import json
+import os
 import logging
 from uuid import uuid4
 
@@ -9,13 +10,13 @@ from openenv.core.env_server.types import State
 try:
     from ..models import SREAction, ClusterObservation, NodeObservation, NodeStatus, EnvironmentMode
     from ..simulator import ClusterSimulator, COST_PER_CAPACITY_UNIT_PER_HOUR
-    from ..stability import compute_lyapunov, compute_reward
+    from ..stability import compute_lyapunov, compute_reward, normalize_reward, REWARD_SCALE_VERSION
     from ..telemetry import PrometheusClient, get_observability_tracker
     from ..control import KubernetesExecutor, ActionValidator
 except ImportError:
     from models import SREAction, ClusterObservation, NodeObservation, NodeStatus, EnvironmentMode  # type: ignore[no-redef]
     from simulator import ClusterSimulator, COST_PER_CAPACITY_UNIT_PER_HOUR  # type: ignore[no-redef]
-    from stability import compute_lyapunov, compute_reward  # type: ignore[no-redef]
+    from stability import compute_lyapunov, compute_reward, normalize_reward, REWARD_SCALE_VERSION  # type: ignore[no-redef]
     from telemetry import PrometheusClient, get_observability_tracker  # type: ignore[no-redef]
     from control import KubernetesExecutor, ActionValidator  # type: ignore[no-redef]
 
@@ -34,6 +35,7 @@ MAX_REQUEST_RATE_NORM = 100.0
 
 MAX_STEPS: int = 100      # Episode length
 N_NODES:   int = 5        # Cluster size
+REWARD_OUTPUT_MODES = {"normalized", "raw"}
 
 
 class AntiAtroposEnvironment(Environment):
@@ -70,6 +72,11 @@ class AntiAtroposEnvironment(Environment):
         self._last_action_id: str = ""
         self._last_executor_latency_ms: float = 0.0
         self._last_executor_error_code: str = ""
+        self._last_raw_reward: float = 0.0
+        self._last_normalized_reward: float = 0.0
+        self._reward_output_mode: str = os.getenv("ANTIATROPOS_REWARD_OUTPUT_MODE", "normalized").strip().lower()
+        if self._reward_output_mode not in REWARD_OUTPUT_MODES:
+            self._reward_output_mode = "normalized"
         self._last_metric_time: float = 0.0
 
     def reset(self, task_id: str = "task-1", mode: str = "simulated") -> ClusterObservation:
@@ -88,6 +95,8 @@ class AntiAtroposEnvironment(Environment):
         self._last_action_id = ""
         self._last_executor_latency_ms = 0.0
         self._last_executor_error_code = ""
+        self._last_raw_reward = 0.0
+        self._last_normalized_reward = 0.0
         
         # Only set baseline metric time for hybrid/live to prevent misleading freshness in SIM
         if self._mode in [EnvironmentMode.HYBRID, EnvironmentMode.LIVE]:
@@ -123,6 +132,8 @@ class AntiAtroposEnvironment(Environment):
         self._last_action_id = str(uuid4())
         self._last_executor_latency_ms = 0.0
         self._last_executor_error_code = ""
+        self._last_raw_reward = 0.0
+        self._last_normalized_reward = 0.0
         
         # 1. Action Validation & Execution
         valid_targets = [n["node_id"] for n in self._nodes_true]
@@ -196,7 +207,7 @@ class AntiAtroposEnvironment(Environment):
         
         # 7. Compute scalar reward
         cost = self._compute_cost(self._nodes_true)
-        reward = compute_reward(
+        raw_reward = compute_reward(
             v_prev=self._prev_lyapunov,
             v_curr=current_lyapunov,
             cost=cost,
@@ -205,6 +216,10 @@ class AntiAtroposEnvironment(Environment):
             beta=BETA,
             gamma=GAMMA
         )
+        normalized_reward = normalize_reward(raw_reward)
+        reward = normalized_reward if self._reward_output_mode == "normalized" else raw_reward
+        self._last_raw_reward = raw_reward
+        self._last_normalized_reward = normalized_reward
         
         self._prev_lyapunov = current_lyapunov
 
@@ -225,7 +240,9 @@ class AntiAtroposEnvironment(Environment):
             action_type=str(action.action_type.value),
             target_node_id=str(action.target_node_id),
             ack_status=self._action_ack_status,
-            reward=reward,
+            reward_output=reward,
+            reward_raw=raw_reward,
+            reward_normalized=normalized_reward,
             lyapunov_energy=obs.lyapunov_energy,
             total_queue_backlog=obs.total_queue_backlog,
             average_latency_ms=obs.average_latency_ms,
@@ -248,7 +265,10 @@ class AntiAtroposEnvironment(Environment):
                     "action_ack_status": self._action_ack_status,
                     "executor_latency_ms": self._last_executor_latency_ms,
                     "executor_error_code": self._last_executor_error_code,
-                    "reward": reward,
+                    "reward_output": reward,
+                    "reward_raw": raw_reward,
+                    "reward_normalized": normalized_reward,
+                    "reward_output_mode": self._reward_output_mode,
                     "lyapunov_energy": obs.lyapunov_energy,
                     "average_latency_ms_norm": obs.average_latency_ms,
                     "total_queue_backlog_norm": obs.total_queue_backlog,
@@ -364,6 +384,9 @@ class AntiAtroposEnvironment(Environment):
             action_id=self._last_action_id,
             executor_latency_ms=self._last_executor_latency_ms,
             executor_error_code=self._last_executor_error_code,
+            raw_reward=self._last_raw_reward,
+            normalized_reward=self._last_normalized_reward,
+            reward_scale_version=REWARD_SCALE_VERSION,
             choke_level=0.0,
             done=False,
             reward=0.0,
