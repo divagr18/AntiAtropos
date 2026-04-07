@@ -79,7 +79,7 @@ class AntiAtroposEnvironment(Environment):
             self._reward_output_mode = "normalized"
         self._last_metric_time: float = 0.0
 
-    def reset(self, task_id: str = "task-1", mode: str = "simulated") -> ClusterObservation:
+    def reset(self, task_id: str = "task-1", mode: str = "simulated", seed: int | None = None) -> ClusterObservation:
         """
         Start a fresh episode with a specific task profile and mode.
         """
@@ -110,7 +110,7 @@ class AntiAtroposEnvironment(Environment):
             # self._telemetry = PrometheusClient(url=os.getenv("PROMETHEUS_URL"))
             pass
 
-        self._sim.reset(task_id=task_id)
+        self._sim.reset(task_id=task_id, seed=seed)
         
         # If in hybrid mode, immediately pull a baseline
         if self._mode in [EnvironmentMode.HYBRID, EnvironmentMode.LIVE]:
@@ -395,5 +395,4 @@ class AntiAtroposEnvironment(Environment):
             done=False,
             reward=0.0,
         )
-
 

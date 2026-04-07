@@ -18,23 +18,23 @@ from AntiAtropos.models import ActionType, SREAction
 load_dotenv()
 
 API_BASE_URL = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "llama-3.1-70b-versatile")
+MODEL_NAME = os.getenv("MODEL_NAME", "llama-3.1-8b-instant")
 API_KEY = (
-    os.getenv("HF_TOKEN")
+    os.getenv("GROQ_API_KEY")      # prioritize Groq key since we default to groq API
     or os.getenv("OPENAI_API_KEY")
     or os.getenv("API_KEY")
-    or os.getenv("GROQ_API_KEY")
+    or os.getenv("HF_TOKEN")
 )
 
-ENV_URL = os.getenv("ANTIATROPOS_ENV_URL", "http://127.0.0.1:8000")
+ENV_URL = os.getenv("ANTIATROPOS_ENV_URL", "https://pranavkk-antiatropos.hf.space")
 ENV_MODE = os.getenv("ANTIATROPOS_MODE", "simulated")
-TASKS = [task.strip() for task in os.getenv("ANTIATROPOS_TASKS", "task-1,task-2,task-3").split(",") if task.strip()]
+TASKS = ["task-1", "task-2", "task-3"]
 
-TOTAL_BUDGET_SECONDS = int(os.getenv("ANTIATROPOS_TOTAL_BUDGET_SECONDS", "900"))
-MIN_TASK_BUDGET_SECONDS = int(os.getenv("ANTIATROPOS_MIN_TASK_BUDGET_SECONDS", "60"))
-MAX_STEPS_PER_TASK = int(os.getenv("ANTIATROPOS_MAX_STEPS_PER_TASK", "100"))
-MESSAGE_TIMEOUT_S = int(os.getenv("ANTIATROPOS_MESSAGE_TIMEOUT_S", "300"))
-MODEL_TIMEOUT_S = int(os.getenv("ANTIATROPOS_MODEL_TIMEOUT_S", "25"))
+TOTAL_BUDGET_SECONDS = 1080  # 18-minute limit
+MIN_TASK_BUDGET_SECONDS = 60
+MAX_STEPS_PER_TASK = 60       # 60 steps = ~5 minutes at this rate
+MESSAGE_TIMEOUT_S = 300
+MODEL_TIMEOUT_S = 25
 
 TEMPERATURE = float(os.getenv("ANTIATROPOS_TEMPERATURE", "0.0"))
 MAX_TOKENS = int(os.getenv("ANTIATROPOS_MAX_TOKENS", "180"))
@@ -69,6 +69,11 @@ def _seed_everything(seed: int) -> None:
         np.random.seed(seed)
     except Exception:
         pass
+
+
+def _task_seed(base_seed: int, task_id: str) -> int:
+    offsets = {"task-1": 0, "task-2": 1, "task-3": 2}
+    return int(base_seed + offsets.get(task_id, 0))
 
 
 def _hf_web_fallback_url(base_url: str) -> str:
@@ -175,10 +180,12 @@ async def get_model_action(client: AsyncOpenAI, task_id: str, step: int, obs: di
             max_tokens=MAX_TOKENS,
             response_format={"type": "json_object"},
             timeout=MODEL_TIMEOUT_S,
+            seed=SEED,
         )
         content = completion.choices[0].message.content or ""
         return _parse_action(_extract_json_object(content))
-    except Exception:
+    except Exception as e:
+        print(f"[LLM_ERROR] task={task_id} step={step} error={type(e).__name__}: {e}", flush=True)
         return SREAction(action_type=ActionType.NO_OP, target_node_id="node-0", parameter=0.0)
 
 
@@ -193,7 +200,8 @@ def _compact_action(action: SREAction) -> str:
 
 async def run_single_task(env: AntiAtroposEnv, client: AsyncOpenAI, task_id: str, deadline: float) -> dict:
     start = time.monotonic()
-    result = await env.reset(task_id=task_id, mode=ENV_MODE)
+    task_seed = _task_seed(SEED, task_id)
+    result = await env.reset(task_id=task_id, mode=ENV_MODE, seed=task_seed)
 
     grader = EpisodeGrader(task_id=task_id)
     grader.record(result.observation)
@@ -223,11 +231,12 @@ async def run_single_task(env: AntiAtroposEnv, client: AsyncOpenAI, task_id: str
         rewards.append(reward)
         steps_taken = step
         ack = getattr(result.observation, "action_ack_status", "")
-        history.append(f"step={step} action={_compact_action(action)} reward={reward:.4f} ack={ack or 'null'}")
+        action_str = _compact_action(action)
+        history.append(f"step={step} action={action_str} reward={reward:.4f} ack={ack or 'null'}")
 
         error = ack if ack.startswith(("Rejected:", "Error:")) else None
         print(
-            f"[STEP] task={task_id} step={step} reward={reward:.4f} done={str(result.done).lower()} error={error or 'null'}",
+            f"[STEP] task={task_id} step={step} action={action_str} reward={reward:.4f} done={str(result.done).lower()} error={error or 'null'}",
             flush=True,
         )
 
@@ -237,7 +246,7 @@ async def run_single_task(env: AntiAtroposEnv, client: AsyncOpenAI, task_id: str
     success = score >= SUCCESS_SCORE_THRESHOLD and not timed_out
     print(
         f"[TASK_END] task={task_id} success={str(success).lower()} score={score:.4f} "
-        f"steps={steps_taken} elapsed_s={elapsed:.1f} timed_out={str(timed_out).lower()}",
+        f"steps={steps_taken} elapsed_s={elapsed:.1f} timed_out={str(timed_out).lower()} seed={task_seed}",
         flush=True,
     )
     return {
