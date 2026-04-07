@@ -3,9 +3,8 @@ import json
 import os
 import random
 import textwrap
-import time
 from contextlib import asynccontextmanager
-from typing import Dict, List
+from typing import Dict, List, Optional
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
@@ -17,22 +16,17 @@ from AntiAtropos.models import ActionType, SREAction
 
 load_dotenv()
 
-API_BASE_URL = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "llama-3.1-8b-instant")
-API_KEY = (
-    os.getenv("GROQ_API_KEY")      # prioritize Groq key since we default to groq API
-    or os.getenv("OPENAI_API_KEY")
-    or os.getenv("API_KEY")
-    or os.getenv("HF_TOKEN")
-)
+API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4.1-mini")
+API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 
 ENV_URL = os.getenv("ANTIATROPOS_ENV_URL", "https://pranavkk-antiatropos.hf.space")
 ENV_MODE = os.getenv("ANTIATROPOS_MODE", "simulated")
-TASKS = ["task-1", "task-2", "task-3"]
+TASK_NAME = os.getenv("ANTIATROPOS_TASK", "task-1")
+BENCHMARK = os.getenv("ANTIATROPOS_BENCHMARK", "antiatropos")
 
-TOTAL_BUDGET_SECONDS = 1080  # 18-minute limit
-MIN_TASK_BUDGET_SECONDS = 60
-MAX_STEPS_PER_TASK = 60       # 60 steps = ~5 minutes at this rate
+MAX_STEPS_PER_TASK = 60
 MESSAGE_TIMEOUT_S = 300
 MODEL_TIMEOUT_S = 25
 
@@ -59,6 +53,26 @@ SYSTEM_PROMPT = textwrap.dedent(
     }
     """
 ).strip()
+
+
+def log_start(task: str, env: str, model: str) -> None:
+    print(f"[START] task={task} env={env} model={model}", flush=True)
+
+
+def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
+    error_val = error if error else "null"
+    print(
+        f"[STEP] step={step} action={action} reward={reward:.2f} done={str(done).lower()} error={error_val}",
+        flush=True,
+    )
+
+
+def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    print(
+        f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}",
+        flush=True,
+    )
 
 
 def _seed_everything(seed: int) -> None:
@@ -95,7 +109,6 @@ async def open_env_with_ws_fallback(base_url: str, message_timeout_s: int):
         fallback_url = _hf_web_fallback_url(base_url)
         if fallback_url == base_url or "404" not in str(e):
             raise
-        print(f"[connect] ws 404 on {base_url}; retrying with {fallback_url}", flush=True)
         async with AntiAtroposEnv(fallback_url, message_timeout_s=message_timeout_s) as env:
             yield env
 
@@ -184,8 +197,7 @@ async def get_model_action(client: AsyncOpenAI, task_id: str, step: int, obs: di
         )
         content = completion.choices[0].message.content or ""
         return _parse_action(_extract_json_object(content))
-    except Exception as e:
-        print(f"[LLM_ERROR] task={task_id} step={step} error={type(e).__name__}: {e}", flush=True)
+    except Exception:
         return SREAction(action_type=ActionType.NO_OP, target_node_id="node-0", parameter=0.0)
 
 
@@ -198,8 +210,7 @@ def _compact_action(action: SREAction) -> str:
     return json.dumps(payload, separators=(",", ":"))
 
 
-async def run_single_task(env: AntiAtroposEnv, client: AsyncOpenAI, task_id: str, deadline: float) -> dict:
-    start = time.monotonic()
+async def run_single_task(env: AntiAtroposEnv, client: AsyncOpenAI, task_id: str) -> dict:
     task_seed = _task_seed(SEED, task_id)
     result = await env.reset(task_id=task_id, mode=ENV_MODE, seed=task_seed)
 
@@ -208,12 +219,7 @@ async def run_single_task(env: AntiAtroposEnv, client: AsyncOpenAI, task_id: str
     history: List[str] = []
     rewards: List[float] = []
     steps_taken = 0
-    timed_out = False
-
     for step in range(1, MAX_STEPS_PER_TASK + 1):
-        if time.monotonic() >= deadline:
-            timed_out = True
-            break
         if result.done:
             break
 
@@ -230,101 +236,48 @@ async def run_single_task(env: AntiAtroposEnv, client: AsyncOpenAI, task_id: str
         reward = float(result.reward or 0.0)
         rewards.append(reward)
         steps_taken = step
-        ack = getattr(result.observation, "action_ack_status", "")
         action_str = _compact_action(action)
-        history.append(f"step={step} action={action_str} reward={reward:.4f} ack={ack or 'null'}")
+        history.append(f"step={step} action={action_str} reward={reward:.2f}")
 
-        error = ack if ack.startswith(("Rejected:", "Error:")) else None
-        print(
-            f"[STEP] task={task_id} step={step} action={action_str} reward={reward:.4f} done={str(result.done).lower()} error={error or 'null'}",
-            flush=True,
-        )
+        error = getattr(result.observation, "last_action_error", None)
+        log_step(step=step, action=action_str, reward=reward, done=bool(result.done), error=error)
 
     grade = grader.score()
     score = max(0.0, min(1.0, float(grade.composite)))
-    elapsed = time.monotonic() - start
-    success = score >= SUCCESS_SCORE_THRESHOLD and not timed_out
-    print(
-        f"[TASK_END] task={task_id} success={str(success).lower()} score={score:.4f} "
-        f"steps={steps_taken} elapsed_s={elapsed:.1f} timed_out={str(timed_out).lower()} seed={task_seed}",
-        flush=True,
-    )
+    success = score >= SUCCESS_SCORE_THRESHOLD
     return {
         "task_id": task_id,
         "success": success,
         "score": score,
         "steps": steps_taken,
-        "elapsed_seconds": elapsed,
-        "timed_out": timed_out,
-        "grade_summary": grade.summary(),
         "rewards": rewards,
     }
 
 
 async def run_all_tasks() -> None:
     _seed_everything(SEED)
-    tasks = [task for task in TASKS if task in {"task-1", "task-2", "task-3"}]
-    if not tasks:
-        raise RuntimeError("ANTIATROPOS_TASKS must include at least one of: task-1,task-2,task-3")
+    task_id = TASK_NAME if TASK_NAME in {"task-1", "task-2", "task-3"} else "task-1"
     if not API_KEY:
-        raise RuntimeError("Missing API key (HF_TOKEN/OPENAI_API_KEY/API_KEY/GROQ_API_KEY).")
-
-    print(
-        f"[START] tasks={','.join(tasks)} env={ENV_URL} mode={ENV_MODE} model={MODEL_NAME} "
-        f"budget_s={TOTAL_BUDGET_SECONDS} seed={SEED}",
-        flush=True,
-    )
-
-    start = time.monotonic()
-    deadline = start + TOTAL_BUDGET_SECONDS
-    reports: List[dict] = []
+        raise RuntimeError("Missing API key (HF_TOKEN/API_KEY).")
 
     client = AsyncOpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+    success = False
+    steps = 0
+    score = 0.0
+    rewards: List[float] = []
+
+    log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
+
     try:
         async with open_env_with_ws_fallback(ENV_URL, MESSAGE_TIMEOUT_S) as env:
-            for idx, task_id in enumerate(tasks):
-                now = time.monotonic()
-                if now >= deadline:
-                    print(f"[BUDGET] stopping before {task_id}; time budget exhausted", flush=True)
-                    break
-
-                remaining_tasks = len(tasks) - idx
-                remaining_seconds = max(0.0, deadline - now)
-                allocated_seconds = max(
-                    float(MIN_TASK_BUDGET_SECONDS),
-                    remaining_seconds / float(remaining_tasks),
-                )
-                task_deadline = min(deadline, now + allocated_seconds)
-                print(
-                    f"[BUDGET] task={task_id} allocated_s={allocated_seconds:.1f} "
-                    f"remaining_s={remaining_seconds:.1f} remaining_tasks={remaining_tasks}",
-                    flush=True,
-                )
-
-                report = await run_single_task(
-                    env=env,
-                    client=client,
-                    task_id=task_id,
-                    deadline=task_deadline,
-                )
-                reports.append(report)
+            report = await run_single_task(env=env, client=client, task_id=task_id)
+            success = bool(report["success"])
+            steps = int(report["steps"])
+            score = float(report["score"])
+            rewards = list(report["rewards"])
     finally:
         await client.close()
-
-    total_elapsed = time.monotonic() - start
-    completed_scores = [r["score"] for r in reports]
-    aggregate_score = sum(completed_scores) / len(completed_scores) if completed_scores else 0.0
-    aggregate_score = max(0.0, min(1.0, aggregate_score))
-    all_success = len(reports) == len(tasks) and all(r["success"] for r in reports)
-
-    for report in reports:
-        print(f"[GRADE] {report['grade_summary']}", flush=True)
-
-    print(
-        f"[END] success={str(all_success).lower()} completed_tasks={len(reports)}/{len(tasks)} "
-        f"aggregate_score={aggregate_score:.4f} elapsed_s={total_elapsed:.1f}",
-        flush=True,
-    )
+        log_end(success=success, steps=steps, score=score, rewards=rewards)
 
 
 def main() -> None:
