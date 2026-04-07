@@ -133,6 +133,7 @@ class ClusterSimulator:
         # Default to non-deterministic RNG seeding so fresh simulator instances
         # do not replay identical domain-randomization sequences.
         # Pass an explicit seed for reproducible experiments.
+        self._seed: Optional[int] = seed
         self._rng = random.Random(seed)
         self._tick_count: int = 0
         self._failed_node_id: Optional[str] = None
@@ -179,8 +180,12 @@ class ClusterSimulator:
             for i in range(self._n_nodes)
         ]
 
-    def reset(self, task_id: str = "task-1") -> None:
+    def reset(self, task_id: str = "task-1", seed: Optional[int] = None) -> None:
         """Restart the simulator for a fresh episode."""
+        if seed is not None:
+            self._seed = seed
+            # Reinitialize RNG so episode generation is reproducible for a given seed.
+            self._rng = random.Random(seed)
         self._task_id = task_id
         self._tick_count = 0
         self._failed_node_id = None
@@ -482,4 +487,3 @@ class ClusterSimulator:
         # We'll skip it if we just reconciled to keep the blended values, OR refine it.
         # For now, let's just make sure statuses are updated based on new queue depths.
         self._update_statuses()
-
