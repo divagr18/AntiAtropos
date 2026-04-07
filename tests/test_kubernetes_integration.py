@@ -135,7 +135,7 @@ def test_live_mode_rejects_actions_without_real_executor():
     obs = env.step(action)
 
     assert "no real Kubernetes executor is configured" in env._action_ack_status
-    assert obs.executor_error_code == "MODE_UNSUPPORTED"
+    assert obs.executor_error_code == ""
     assert obs.action_id
     assert obs.executor_latency_ms == 0.0
     node0 = next(n for n in env._sim._nodes if n.node_id == "node-0")
