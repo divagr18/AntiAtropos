@@ -54,7 +54,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (action_type, ack_class) (rate(antiatropos_actions_total[1m]))",
+          "expr": "sum by (action_type, ack_class) (rate(antiatropos_actions_total{task_id=~\"$task\",mode=~\"$mode\"}[1m]))",
           "legendFormat": "{{action_type}} {{ack_class}}",
           "refId": "A"
         }
@@ -70,8 +70,10 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "thresholds"
-          }
+            "mode": "palette-classic"
+          },
+          "min": 0,
+          "max": 1
         },
         "overrides": []
       },
@@ -94,12 +96,12 @@
       },
       "targets": [
         {
-          "expr": "antiatropos_reward",
-          "legendFormat": "{{task_id}}/{{mode}}",
+          "expr": "antiatropos_reward_normalized{task_id=~\"$task\",mode=~\"$mode\"}",
+          "legendFormat": "{{task_id}}/{{mode}} normalized",
           "refId": "A"
         }
       ],
-      "title": "Latest Reward",
+      "title": "Normalized Reward [0,1]",
       "type": "timeseries"
     },
     {
@@ -134,12 +136,12 @@
       },
       "targets": [
         {
-          "expr": "antiatropos_lyapunov_energy",
-          "legendFormat": "{{task_id}}/{{mode}}",
+          "expr": "antiatropos_reward_raw{task_id=~\"$task\",mode=~\"$mode\"}",
+          "legendFormat": "{{task_id}}/{{mode}} raw",
           "refId": "A"
         }
       ],
-      "title": "Lyapunov Energy",
+      "title": "Raw Reward",
       "type": "timeseries"
     },
     {
@@ -174,12 +176,12 @@
       },
       "targets": [
         {
-          "expr": "antiatropos_total_queue_backlog",
-          "legendFormat": "{{task_id}}/{{mode}}",
+          "expr": "antiatropos_total_queue_backlog{task_id=~\"$task\",mode=~\"$mode\"}",
+          "legendFormat": "{{task_id}}/{{mode}} queue",
           "refId": "A"
         },
         {
-          "expr": "antiatropos_average_latency_norm",
+          "expr": "antiatropos_average_latency_norm{task_id=~\"$task\",mode=~\"$mode\"}",
           "legendFormat": "{{task_id}}/{{mode}} latency",
           "refId": "B"
         }
@@ -219,12 +221,12 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(antiatropos_executor_latency_ms_bucket[2m])) by (le, mode))",
-          "legendFormat": "p95 {{mode}}",
+          "expr": "antiatropos_lyapunov_energy{task_id=~\"$task\",mode=~\"$mode\"}",
+          "legendFormat": "{{task_id}}/{{mode}}",
           "refId": "A"
         }
       ],
-      "title": "Executor Latency p95 (ms)",
+      "title": "Lyapunov Energy",
       "type": "timeseries"
     },
     {
@@ -259,12 +261,17 @@
       },
       "targets": [
         {
-          "expr": "sum by (mode, error_code) (rate(antiatropos_executor_errors_total[5m]))",
-          "legendFormat": "{{mode}} {{error_code}}",
+          "expr": "histogram_quantile(0.95, sum(rate(antiatropos_executor_latency_ms_bucket{mode=~\"$mode\"}[2m])) by (le, mode))",
+          "legendFormat": "p95 {{mode}}",
           "refId": "A"
+        },
+        {
+          "expr": "sum by (mode, error_code) (rate(antiatropos_executor_errors_total{mode=~\"$mode\"}[5m]))",
+          "legendFormat": "{{mode}} {{error_code}}",
+          "refId": "B"
         }
       ],
-      "title": "Executor Errors / s",
+      "title": "Executor Latency p95 and Errors/s",
       "type": "timeseries"
     }
   ],
@@ -277,7 +284,42 @@
     "rl"
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(antiatropos_steps_total, task_id)",
+        "includeAll": true,
+        "multi": true,
+        "name": "task",
+        "query": {
+          "qryType": 1,
+          "query": "label_values(antiatropos_steps_total, task_id)",
+          "refId": "TaskVar"
+        },
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(antiatropos_steps_total, mode)",
+        "includeAll": true,
+        "multi": true,
+        "name": "mode",
+        "query": {
+          "qryType": 1,
+          "query": "label_values(antiatropos_steps_total, mode)",
+          "refId": "ModeVar"
+        },
+        "refresh": 2,
+        "type": "query"
+      }
+    ]
   },
   "time": {
     "from": "now-15m",
@@ -287,6 +329,6 @@
   "timezone": "",
   "title": "AntiAtropos Live Control Plane",
   "uid": "antiatropos-live",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }

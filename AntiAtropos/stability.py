@@ -38,6 +38,7 @@ Key concepts implemented
 
 from __future__ import annotations
 
+import os
 import math
 import statistics
 from typing import Sequence
@@ -55,6 +56,16 @@ before the barrier penalty kicks in."""
 STABILITY_WINDOW: int = 10
 """Number of ticks to look back when judging whether the system is
 trend-stable (V is on a decreasing trajectory)."""
+
+
+# ---------------------------------------------------------------------------
+# Reward normalisation defaults (env-overridable)
+# ---------------------------------------------------------------------------
+
+REWARD_NORM_MIDPOINT: float = float(os.getenv("ANTIATROPOS_REWARD_MIDPOINT", "0.0"))
+REWARD_NORM_TEMPERATURE: float = float(os.getenv("ANTIATROPOS_REWARD_TEMPERATURE", "5.0"))
+REWARD_NORM_EPS: float = float(os.getenv("ANTIATROPOS_REWARD_EPS", "1e-8"))
+REWARD_SCALE_VERSION: str = "sigmoid-v1"
 
 
 # ---------------------------------------------------------------------------
@@ -264,3 +275,25 @@ def compute_reward(
     """
     delta_v = compute_drift(v_prev, v_curr)
     return -(alpha * delta_v + beta * cost + gamma * sla_violation_step)
+
+
+def normalize_reward(
+    raw_reward: float,
+    midpoint: float = REWARD_NORM_MIDPOINT,
+    temperature: float = REWARD_NORM_TEMPERATURE,
+    eps: float = REWARD_NORM_EPS,
+) -> float:
+    """
+    Deterministically map raw reward to [0, 1] using a smooth sigmoid.
+
+    reward_01 = 1 / (1 + exp(-(raw_reward - midpoint) / temperature))
+    """
+    temp = max(float(eps), abs(float(temperature)))
+    z = (float(raw_reward) - float(midpoint)) / temp
+    if z >= 0:
+        exp_neg = math.exp(-z)
+        out = 1.0 / (1.0 + exp_neg)
+    else:
+        exp_pos = math.exp(z)
+        out = exp_pos / (1.0 + exp_pos)
+    return min(1.0, max(0.0, float(out)))

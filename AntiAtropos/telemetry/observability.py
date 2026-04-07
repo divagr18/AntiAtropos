@@ -47,7 +47,17 @@ class ObservabilityTracker:
 
         self.reward_gauge = Gauge(
             "antiatropos_reward",
-            "Latest reward value",
+            "Latest output reward value (depends on reward output mode)",
+            ["task_id", "mode"],
+        )
+        self.reward_raw_gauge = Gauge(
+            "antiatropos_reward_raw",
+            "Latest raw reward value before normalization",
+            ["task_id", "mode"],
+        )
+        self.reward_normalized_gauge = Gauge(
+            "antiatropos_reward_normalized",
+            "Latest normalized reward value in [0,1]",
             ["task_id", "mode"],
         )
         self.lyapunov_gauge = Gauge(
@@ -73,7 +83,9 @@ class ObservabilityTracker:
         action_type: str,
         target_node_id: str,
         ack_status: str,
-        reward: float,
+        reward_output: float,
+        reward_raw: float,
+        reward_normalized: float,
         lyapunov_energy: float,
         total_queue_backlog: float,
         average_latency_ms: float,
@@ -93,7 +105,9 @@ class ObservabilityTracker:
                 target_node_id=target_node_id,
                 ack_class=ack_class,
             ).inc()
-            self.reward_gauge.labels(task_id=task_id, mode=mode).set(float(reward))
+            self.reward_gauge.labels(task_id=task_id, mode=mode).set(float(reward_output))
+            self.reward_raw_gauge.labels(task_id=task_id, mode=mode).set(float(reward_raw))
+            self.reward_normalized_gauge.labels(task_id=task_id, mode=mode).set(float(reward_normalized))
             self.lyapunov_gauge.labels(task_id=task_id, mode=mode).set(float(lyapunov_energy))
             self.queue_gauge.labels(task_id=task_id, mode=mode).set(float(total_queue_backlog))
             self.latency_gauge.labels(task_id=task_id, mode=mode).set(float(average_latency_ms))

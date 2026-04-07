@@ -111,6 +111,9 @@ class AntiAtroposEnv(
             data_freshness_ms=obs_data.get("data_freshness_ms", 0),
             action_ack_status=obs_data.get("action_ack_status", "success"),
             choke_level=obs_data.get("choke_level", 0.0),
+            raw_reward=obs_data.get("raw_reward", 0.0),
+            normalized_reward=obs_data.get("normalized_reward", 0.0),
+            reward_scale_version=obs_data.get("reward_scale_version", "sigmoid-v1"),
             done=payload.get("done", False),
             reward=payload.get("reward", 0.0),
         )

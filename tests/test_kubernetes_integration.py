@@ -189,3 +189,32 @@ def test_live_capability_accepts_enum_action_type(monkeypatch):
     executor = kube_mod.KubernetesExecutor()
     err = executor.live_capability_error(models_mod.ActionType.SCALE_UP)
     assert err is None
+
+
+def test_environment_reward_defaults_to_normalized_range(monkeypatch):
+    monkeypatch.setenv("ANTIATROPOS_REWARD_OUTPUT_MODE", "normalized")
+    env_mod, models_mod = _bootstrap_environment_module()
+
+    env = env_mod.AntiAtroposEnvironment()
+    env.reset(mode="simulated")
+    action = models_mod.SREAction(action_type=models_mod.ActionType.NO_OP, target_node_id="node-0", parameter=0.0)
+    obs = env.step(action)
+
+    assert 0.0 <= obs.reward <= 1.0
+    assert 0.0 <= obs.normalized_reward <= 1.0
+    assert obs.normalized_reward == obs.reward
+    assert obs.reward_scale_version == "sigmoid-v1"
+    assert isinstance(obs.raw_reward, float)
+
+
+def test_environment_reward_raw_output_mode(monkeypatch):
+    monkeypatch.setenv("ANTIATROPOS_REWARD_OUTPUT_MODE", "raw")
+    env_mod, models_mod = _bootstrap_environment_module()
+
+    env = env_mod.AntiAtroposEnvironment()
+    env.reset(mode="simulated")
+    action = models_mod.SREAction(action_type=models_mod.ActionType.NO_OP, target_node_id="node-0", parameter=0.0)
+    obs = env.step(action)
+
+    assert obs.reward == obs.raw_reward
+    assert 0.0 <= obs.normalized_reward <= 1.0
