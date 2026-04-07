@@ -1,0 +1,334 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (action_type, ack_class) (rate(antiatropos_actions_total{task_id=~\"$task\",mode=~\"$mode\"}[1m]))",
+          "legendFormat": "{{action_type}} {{ack_class}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Actions Per Second",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "expr": "antiatropos_reward_normalized{task_id=~\"$task\",mode=~\"$mode\"}",
+          "legendFormat": "{{task_id}}/{{mode}} normalized",
+          "refId": "A"
+        }
+      ],
+      "title": "Normalized Reward [0,1]",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 7
+      },
+      "id": 3,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "expr": "antiatropos_reward_raw{task_id=~\"$task\",mode=~\"$mode\"}",
+          "legendFormat": "{{task_id}}/{{mode}} raw",
+          "refId": "A"
+        }
+      ],
+      "title": "Raw Reward",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 7
+      },
+      "id": 4,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "expr": "antiatropos_total_queue_backlog{task_id=~\"$task\",mode=~\"$mode\"}",
+          "legendFormat": "{{task_id}}/{{mode}} queue",
+          "refId": "A"
+        },
+        {
+          "expr": "antiatropos_average_latency_norm{task_id=~\"$task\",mode=~\"$mode\"}",
+          "legendFormat": "{{task_id}}/{{mode}} latency",
+          "refId": "B"
+        }
+      ],
+      "title": "Queue Backlog and Latency (Norm)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "id": 5,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "expr": "antiatropos_lyapunov_energy{task_id=~\"$task\",mode=~\"$mode\"}",
+          "legendFormat": "{{task_id}}/{{mode}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Lyapunov Energy",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "id": 6,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(antiatropos_executor_latency_ms_bucket{mode=~\"$mode\"}[2m])) by (le, mode))",
+          "legendFormat": "p95 {{mode}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (mode, error_code) (rate(antiatropos_executor_errors_total{mode=~\"$mode\"}[5m]))",
+          "legendFormat": "{{mode}} {{error_code}}",
+          "refId": "B"
+        }
+      ],
+      "title": "Executor Latency p95 and Errors/s",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": [
+    "antiatropos",
+    "sre",
+    "rl"
+  ],
+  "templating": {
+    "list": [
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "PBFA97CFB590B2093"
+        },
+        "definition": "label_values(antiatropos_steps_total, task_id)",
+        "includeAll": true,
+        "multi": true,
+        "name": "task",
+        "query": {
+          "qryType": 1,
+          "query": "label_values(antiatropos_steps_total, task_id)",
+          "refId": "TaskVar"
+        },
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "PBFA97CFB590B2093"
+        },
+        "definition": "label_values(antiatropos_steps_total, mode)",
+        "includeAll": true,
+        "multi": true,
+        "name": "mode",
+        "query": {
+          "qryType": 1,
+          "query": "label_values(antiatropos_steps_total, mode)",
+          "refId": "ModeVar"
+        },
+        "refresh": 2,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "AntiAtropos Live Control Plane",
+  "uid": "antiatropos-live",
+  "version": 2,
+  "weekStart": ""
+}

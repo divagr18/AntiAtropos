@@ -76,8 +76,8 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "antiatropos_reward",
-          "legendFormat": "reward",
+          "expr": "scalar(avg(last_over_time(antiatropos_reward{mode=\"simulated\"}[1m])))",
+          "legendFormat": "reward (simulated)",
           "range": true,
           "refId": "A"
         }
@@ -143,8 +143,8 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "antiatropos_total_queue_backlog",
-          "legendFormat": "queue backlog",
+          "expr": "scalar(avg(last_over_time(antiatropos_total_queue_backlog{mode=\"simulated\"}[1m])))",
+          "legendFormat": "queue backlog (simulated)",
           "range": true,
           "refId": "A"
         }
@@ -210,8 +210,8 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "antiatropos_average_latency_norm",
-          "legendFormat": "latency",
+          "expr": "scalar(avg(last_over_time(antiatropos_average_latency_norm{mode=\"simulated\"}[1m])))",
+          "legendFormat": "latency (simulated)",
           "range": true,
           "refId": "A"
         }
@@ -277,8 +277,8 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "antiatropos_lyapunov_energy",
-          "legendFormat": "lyapunov energy",
+          "expr": "scalar(avg(last_over_time(antiatropos_lyapunov_energy{mode=\"simulated\"}[1m])))",
+          "legendFormat": "lyapunov energy (simulated)",
           "range": true,
           "refId": "A"
         }
@@ -369,15 +369,15 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "antiatropos_reward",
-          "legendFormat": "reward {{task_id}}",
+          "expr": "antiatropos_reward{mode=\"simulated\"}",
+          "legendFormat": "reward {{task_id}} ({{mode}})",
           "range": true,
           "refId": "A"
         },
         {
           "editorMode": "code",
-          "expr": "antiatropos_lyapunov_energy",
-          "legendFormat": "lyapunov {{task_id}}",
+          "expr": "antiatropos_lyapunov_energy{mode=\"simulated\"}",
+          "legendFormat": "lyapunov {{task_id}} ({{mode}})",
           "range": true,
           "refId": "B"
         }
@@ -468,15 +468,15 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "antiatropos_total_queue_backlog",
-          "legendFormat": "queue {{task_id}}",
+          "expr": "antiatropos_total_queue_backlog{mode=\"simulated\"}",
+          "legendFormat": "queue {{task_id}} ({{mode}})",
           "range": true,
           "refId": "A"
         },
         {
           "editorMode": "code",
-          "expr": "antiatropos_average_latency_norm",
-          "legendFormat": "latency {{task_id}}",
+          "expr": "antiatropos_average_latency_norm{mode=\"simulated\"}",
+          "legendFormat": "latency {{task_id}} ({{mode}})",
           "range": true,
           "refId": "B"
         }
@@ -535,15 +535,15 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "rate(antiatropos_steps_total[1m])",
-          "legendFormat": "steps/sec {{task_id}}",
+          "expr": "sum by (task_id, mode) (rate(antiatropos_steps_total{mode=\"simulated\"}[1m]))",
+          "legendFormat": "steps/sec {{task_id}} ({{mode}})",
           "range": true,
           "refId": "A"
         },
         {
           "editorMode": "code",
-          "expr": "rate(antiatropos_actions_total[1m])",
-          "legendFormat": "actions/sec {{action_type}}",
+          "expr": "sum by (task_id, mode, action_type) (rate(antiatropos_actions_total{mode=\"simulated\"}[1m]))",
+          "legendFormat": "actions/sec {{action_type}} ({{task_id}}, {{mode}})",
           "range": true,
           "refId": "B"
         }
@@ -602,14 +602,14 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "rate(antiatropos_executor_errors_total[5m])",
-          "legendFormat": "executor errors {{error_code}}",
+          "expr": "sum by (mode, error_code) (rate(antiatropos_executor_errors_total{mode=\"simulated\"}[5m]))",
+          "legendFormat": "executor errors {{error_code}} ({{mode}})",
           "range": true,
           "refId": "A"
         },
         {
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum(rate(antiatropos_executor_latency_ms_bucket[5m])) by (le, mode))",
+          "expr": "histogram_quantile(0.95, sum(rate(antiatropos_executor_latency_ms_bucket{mode=\"simulated\"}[5m])) by (le, mode))",
           "legendFormat": "p95 executor latency {{mode}}",
           "range": true,
           "refId": "B"
@@ -637,6 +637,6 @@
   "timezone": "browser",
   "title": "AntiAtropos Overview",
   "uid": "antiatropos-overview",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }
