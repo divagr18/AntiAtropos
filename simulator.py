@@ -38,9 +38,9 @@ NODE_FAILURE_PROB:    float = 0.00    # P(node fails naturally) — largely driv
 COST_PER_CAPACITY_UNIT_PER_HOUR: float = 0.05
 
 # Task Profiles (Domain Randomization)
-# Task 1: Start near capacity so idle over-provisioning is expensive.
+# Task 1: Start very near capacity so reward/state react earlier.
 # Default μ_total = 5 nodes × 3 capacity × 15 = 225 req/tick.
-# λ_initial = 195 → utilisation ≈ 87 %, no slack without intelligence.
+# λ_initial randomized close to saturation to avoid long flat early phases.
 T1_INITIAL_LAMBDA: float = 195.0
 T1_RAMP_SLOPE:     float = 1.0   # +1 req per tick globally
 # Task 2: lambda ≈ 205 means 41/node (91% util), 51/survivor on failure (113% overload).
@@ -153,11 +153,11 @@ class ClusterSimulator:
     def _randomize_domain(self) -> None:
         """Apply domain randomization for RL robustness across tasks."""
         self._t1_ramp_slope = self._rng.uniform(0.8, 2.0)
-        # Task 1: start between 85–95 % of default cluster capacity so
-        # blind over-provisioning is expensive but not trivially free.
+        # Task 1: start between 92–99 % of default cluster capacity so
+        # the system is responsive early (less flat reward plateaus).
         default_mu_total = self._n_nodes * DEFAULT_CAPACITY * 15.0  # 225
         self._t1_init_lambda = self._rng.uniform(
-            default_mu_total * 0.85, default_mu_total * 0.95
+            default_mu_total * 0.92, default_mu_total * 0.99
         )
         self._t2_fail_tick = self._rng.randint(10, 40)
         # Task 2: guarantee immediate overload on failure
