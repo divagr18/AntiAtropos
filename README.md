@@ -1,4 +1,4 @@
-﻿---
+---
 title: AntiAtropos Environment Server
 colorFrom: gray
 colorTo: red
@@ -12,30 +12,76 @@ tags:
 
 # AntiAtropos: Autonomous SRE Control Environment (OpenEnv)
 
-AntiAtropos is a real-world RL/agent environment for autonomous site reliability engineering (SRE): the agent manages a production-like five-node microservice cluster under changing demand, failures, and safety constraints.
+> **A production-grade RL/agent environment for the future of autonomous DevOps — where intelligent agents replace fragile runbooks, reduce on-call toil, and keep infrastructure healthy without human intervention.**
 
-It simulates decisions humans actually make in operations teams:
-- capacity planning under latency/error SLO pressure,
-- fault recovery after node failure,
-- burst handling with action safety constraints,
-- cost-reliability trade-offs over long horizons.
+AntiAtropos is an open, high-fidelity environment for training and benchmarking AI agents on site reliability engineering (SRE) — the discipline that keeps production infrastructure alive at scale. It models a live five-node microservice cluster operating under realistic production pressures: demand surges, cascading node failures, SLA deadlines, and hard safety constraints on critical services.
 
-## Why This Environment Is Useful
+This is not a toy grid world or an abstract planning problem. Every action type, every penalty function, and every telemetry field in AntiAtropos was designed to mirror the exact decisions an on-call engineer faces when the PagerDuty alert fires at 3 AM.
 
-Most agent benchmarks underrepresent infrastructure operations. AntiAtropos targets that gap with:
-- an explicit control plane (actions),
-- a data plane (telemetry observations),
-- mathematically defined reward shaping (Lyapunov drift + penalties),
-- deterministic grading functions in `[0.0, 1.0]`,
-- deployment-ready observability (Prometheus + Grafana) and Kubernetes action execution paths.
+## The Problem: Infrastructure Operations Don't Scale With Humans
+
+Modern platform teams operate infrastructure that is orders of magnitude more complex than the teams managing it. The result is a well-documented set of pain points:
+
+- **On-call toil.** Engineers are paged for incidents that follow predictable patterns — traffic spikes, memory pressure, node failures — and execute the same runbooks repeatedly. This is high-stress, low-leverage work that burns out senior engineers.
+- **Reactive, not proactive.** Static autoscaling policies (HPA, VPA) react to thresholds but cannot reason ahead about demand trajectories, reroute traffic away from degrading nodes, or balance cost and reliability over time.
+- **Runbook rot.** Documented procedures go stale. Edge cases accumulate. The institutional knowledge that makes incident response fast lives in engineers' heads, not in systems.
+
+AntiAtropos is a training and evaluation ground for agents that solve this problem — systems that can observe cluster telemetry, reason about multi-step consequences, and issue control actions that keep services healthy, cost-efficient, and resilient.
+
+## What AntiAtropos Trains Agents to Do
+
+An agent operating in AntiAtropos executes the same core loop a platform engineer runs continuously:
+
+**1. Observe the cluster state.**
+The observation space mirrors real Prometheus/Grafana metrics: request rates, p99 latency, error rates, queue backlogs, CPU utilization, and per-node health — the same signals that drive every serious SRE incident workflow.
+
+**2. Reason about what is wrong and why.**
+The environment implements genuine queueing dynamics with boot delays, traffic reroute decay, and Lyapunov-based stability measurement. Agents that only react to threshold breaches perform poorly; agents that build a causal model of the cluster perform well.
+
+**3. Issue control actions with real operational semantics.**
+- `SCALE_UP` — expand node capacity (with a realistic `BOOT_DELAY_TICKS = 5` cold-start delay)
+- `SCALE_DOWN` — reduce capacity and cost
+- `REROUTE_TRAFFIC` — shift request load away from unhealthy nodes
+- `SHED_LOAD` — drop a fraction of traffic to protect the cluster (forbidden on critical nodes)
+- `NO_OP` — hold position when the system is stable
+
+These are not abstract symbols. They map directly to `kubectl scale`, traffic policy overrides, and rate limiter controls used in production Kubernetes environments.
+
+**4. Balance competing objectives across time.**
+Uptime vs. cost vs. stability is the fundamental trade-off every platform team navigates. Brute-force overprovisioning fails the cost grader. Underprovisioning fails SLAs. The agent must plan — not just react.
+
+**5. Respect hard safety constraints.**
+Critical nodes cannot have load shed. Scale operations are bounded. Invalid actions are penalized. AntiAtropos enforces the same guardrails that production runbooks encode, rewarding agents that understand operational boundaries.
+
+## Why This Matters for AIOps
+
+The trajectory of platform engineering is clear: the toil layer gets automated, and engineers move up the stack. AntiAtropos provides the training and evaluation infrastructure to accelerate that transition responsibly:
+
+- **Benchmark before you deploy.** An agent evaluated on AntiAtropos has been tested against capacity ramps, node failures, and burst surges with safety constraints — covering the incident categories that account for the majority of real production pages.
+- **Dense, informative feedback.** Most production telemetry arrives in sparse, high-dimensional streams. AntiAtropos provides step-level Lyapunov-grounded reward signals that give learning algorithms meaningful gradient information at every tick — not just at episode end.
+- **Composable with real infrastructure.** The Kubernetes executor (`control/kubernetes_executor.py`) and Prometheus ingestion (`telemetry/prometheus_client.py`) make it possible to wire a trained policy into a real cluster with minimal adaptation, enabling true hybrid-autonomy workflows where the agent handles routine incidents and escalates novel ones.
+- **Deterministic grading.** Unlike production incidents where success is hard to measure objectively, AntiAtropos provides a clean `[0.0, 1.0]` composite score per episode — making benchmark comparisons across models and policies reproducible and auditable.
+
+## LLM-as-SRE: Zero-Shot Incident Response Evaluation
+
+`inference.py` provides a complete evaluation harness for testing frontier LLMs as zero-shot SRE agents. Set your API key, pick a model, and run — the script handles the full episode loop: observation formatting, action parsing, constraint enforcement, and final grading.
+
+```bash
+set OPENAI_API_KEY=your_key_here
+set MODEL_NAME=gpt-4.1
+set ANTIATROPOS_TASK=task-3
+python inference.py
+```
+
+This makes AntiAtropos a drop-in benchmark for comparing how well different LLMs reason about infrastructure operations — a capability that is increasingly relevant as AI models are integrated into on-call tooling, runbook automation, and incident triage systems.
 
 ## OpenEnv Specification Compliance
 
-AntiAtropos implements typed OpenEnv interfaces using Pydantic models and an OpenEnv-compatible server:
+AntiAtropos implements typed OpenEnv interfaces using Pydantic models and an OpenEnv-compatible FastAPI server:
 - `Action` model: `SREAction` in `models.py`
 - `Observation` model: `ClusterObservation` + `NodeObservation` in `models.py`
-- `step(action)` returns observation with reward/done fields (served through OpenEnv HTTP/WebSocket app in `server/app.py`)
-- `reset()` returns initial observation
+- `step(action)` returns observation with reward/done fields
+- `reset()` returns initial cluster observation
 - `state` is exposed through the OpenEnv `State` object
 - `openenv.yaml` is present at repository root
 
@@ -45,19 +91,9 @@ OpenEnv manifest:
 - app: `server.app:app`
 - port: `7860`
 
-## Real-World Task Simulation
+## Environment Dynamics
 
-The environment models autonomous SRE control for a microservice cluster:
-- Nodes have service capacity, queue depth, incoming load, latency, CPU utilization, failure state, and business importance weight.
-- The agent issues management actions (`SCALE_UP`, `SCALE_DOWN`, `REROUTE_TRAFFIC`, `SHED_LOAD`, `NO_OP`).
-- Queue/latency/failure dynamics evolve in discrete time with delayed scaling effects.
-- Unsafe operations are rejected (for example, `SHED_LOAD` on critical nodes).
-
-This directly maps to real operations workflows in platform/SRE teams.
-
-## Mathematical Environment Dynamics
-
-### Queueing Dynamics
+### Queueing Model
 
 For each node `i`, AntiAtropos uses a fluid queue update:
 
@@ -65,201 +101,124 @@ For each node `i`, AntiAtropos uses a fluid queue update:
 
 where:
 - `lambda_eff_i = lambda_incoming_i * (1 - shed_fraction_i)`
-- `mu_i = capacity_i * 15` requests/tick (unless failed, where `mu_i = 0`)
+- `mu_i = capacity_i * 15` requests/tick (or `0` if node has failed)
 
-### Latency and Utilization
+### Latency and CPU Utilization
 
-Per node:
 - `cpu_i = lambda_incoming_i / mu_i`
 - `latency_i = BASE_LATENCY_MS + LATENCY_STEEPNESS * Q_i`
 
-with constants in `simulator.py`.
+### Lyapunov Stability
 
-### Lyapunov Energy
-
-The core stability objective is weighted Lyapunov energy:
+Core stability objective is weighted Lyapunov energy:
 
 `V(s) = sum_i (w_i * Q_i^2)`
 
-where VIP/business-critical nodes have higher `w_i`.
-
-Drift term:
+VIP/business-critical nodes carry higher weights `w_i`. Drift term:
 
 `DeltaV(t) = V(s_t) - V(s_{t-1})`
 
-### Reward Function (Step-Level)
-
-Raw reward is:
+### Reward Function
 
 `R_raw_t = -(alpha * DeltaV_t + beta * Cost_t + gamma * SLA_violation_t)`
 
-Current default weights:
-- `alpha = 0.002`
-- `beta = 0.01`
-- `gamma = 10.0`
+Default weights: `alpha = 0.002`, `beta = 0.01`, `gamma = 10.0`.
 
-Normalized reward exposed to agents by default:
+Normalized:
 
 `R_norm_t = sigmoid((R_raw_t - midpoint) / temperature)`
 
-with `reward_scale_version = sigmoid-v1`.
-
-This provides dense trajectory-level signal (not sparse terminal-only reward) and strongly penalizes undesirable behavior (SLA failures, invalid actions, destabilizing queue growth).
+Dense step-level signal — not sparse terminal reward — that strongly penalizes SLA failures, invalid actions, and destabilizing queue growth.
 
 ## Action Space
 
 `SREAction` (`models.py`):
-- `action_type`: one of
-  - `NO_OP`
-  - `SCALE_UP`
-  - `SCALE_DOWN`
-  - `REROUTE_TRAFFIC`
-  - `SHED_LOAD`
-- `target_node_id`: `node-0` .. `node-4`
-- `parameter`: bounded float (action-dependent semantics)
+- `action_type`: `NO_OP` | `SCALE_UP` | `SCALE_DOWN` | `REROUTE_TRAFFIC` | `SHED_LOAD`
+- `target_node_id`: `node-0` to `node-4`
+- `parameter`: bounded float with action-dependent semantics
 
-Operational semantics (`simulator.py` + `control/validation.py`):
-- `SCALE_UP`: delayed capacity increase (`BOOT_DELAY_TICKS = 5`), bounded by max capacity.
-- `SCALE_DOWN`: bounded capacity reduction.
-- `REROUTE_TRAFFIC`: shifts a fraction of traffic away from target node, decays over time.
-- `SHED_LOAD`: drops a fraction of load for one tick; forbidden on critical nodes (`node-0`, `node-1`, `node-2`).
-- Invalid actions are tracked and penalized in final scoring.
+Safety constraints enforced by `control/validation.py`:
+- `SHED_LOAD` is **forbidden on critical nodes** (`node-0`, `node-1`, `node-2`)
+- Scale operations are bounded by node min/max capacity
+- Invalid actions are counted and penalized in the final score
 
 ## Observation Space
 
-`ClusterObservation` includes cluster-wide and execution metadata:
-- task/mode/episode step metadata,
-- active node count,
-- normalized latency, error rate, backlog,
-- cost per hour,
-- Lyapunov energy,
-- SLA and invalid-action counters,
-- executor/ack telemetry,
-- raw and normalized reward fields,
-- per-node `NodeObservation` list.
+`ClusterObservation`:
+- Task/mode/episode step metadata
+- Active node count, normalized latency, error rate, backlog
+- Cost per hour, Lyapunov energy
+- SLA and invalid-action counters
+- Raw and normalized reward fields
+- Per-node `NodeObservation` list
 
-`NodeObservation` exposes normalized per-node telemetry:
-- queue depth,
-- latency,
-- incoming request rate,
-- CPU utilization,
-- health status,
-- VIP flag and importance weight.
+`NodeObservation` (per node):
+- Queue depth, latency, incoming request rate
+- CPU utilization, health status
+- VIP flag and importance weight
 
-## Tasks and Difficulty Progression
+## Task Suite
 
-AntiAtropos defines three deterministic task families (with domain randomization across episodes):
+### `task-1` — Capacity Ramp (Easy)
+Load starts near cluster capacity and ramps over the episode. The agent must proactively scale and contain queue growth without overprovisioning. A clean benchmark for predictive capacity planning — the most common form of infrastructure toil.
 
-1. `task-1` (Easy): Capacity Ramp
-- Global load starts near cluster capacity and ramps over time.
-- Agent must proactively scale and control queue growth/cost.
+### `task-2` — Fault Tolerance (Medium)
+A non-VIP node fails at a randomized tick. Traffic continues hitting failed capacity until the agent detects the failure and responds. Tests reactive incident response: detecting failure signals, rerouting affected traffic, and compensating with scaling — under realistic delay constraints.
 
-2. `task-2` (Medium): Fault Tolerance
-- A non-VIP node fails at a randomized fail tick.
-- Traffic initially continues to hit failed capacity until agent reroutes/scales.
+### `task-3` — Burst Surge with Safety Constraints (Hard)
+Periodic high-amplitude surges target critical nodes. `SHED_LOAD` is prohibited on those nodes. The agent must coordinate `SCALE_UP` + `REROUTE_TRAFFIC` under strict safety rules while maintaining cost discipline. The closest analogue to a real high-severity incident: time pressure, safety constraints, and no single correct action.
 
-3. `task-3` (Hard): Burst Surge with Safety Constraints
-- Periodic high-amplitude surge targeted at critical nodes.
-- Critical nodes cannot use `SHED_LOAD`; agent must coordinate scaling/reroute under strict safety rules.
+## Grading (0.0–1.0)
 
-## Graders and Final Score (0.0-1.0)
+Computed by `grader.py` — deterministic and reproducible:
 
-`grader.py` computes deterministic episode scores from recorded observations:
+| Component | Formula | Weight |
+|---|---|---|
+| Uptime | Fraction of steps with latency ≤ 0.20 and error rate ≤ 0.05 | 0.4 |
+| Cost | `exp(-3.0 * over_ratio)` — punishes overprovisioning | 0.4 |
+| Stability | `1 / (1 + (avg_energy / TARGET_ENERGY)^power)` | 0.2 |
 
-1. Uptime score
-- fraction of steps satisfying both:
-  - normalized latency `<= 0.20`
-  - error rate `<= 0.05`
+- task-3: cost contribution disabled when uptime `< 0.5`
+- Invalid-action penalty: `-0.05` per invalid action
+- Final value clipped at `0.0`
 
-2. Cost score
-- `cost_score = exp(-k * over_ratio)`, with `k = 3.0`
-- heavily punishes brute-force overprovisioning
+## Observability Stack
 
-3. Stability score
-- `stability = 1 / (1 + (avg_energy / TARGET_ENERGY)^power)`
-- smooth, non-binary stability measure
+AntiAtropos ships a full production-style observability stack:
+- Prometheus scrapes environment metrics at `GET /metrics`
+- Grafana `antiatropos-overview` dashboard: reward trajectory, queue heatmaps, latency timeseries, SLA violations, per-node state, action throughput, executor reliability
+- NGINX reverse proxy exposes `/`, `/prometheus/`, and `/grafana/` on port `7860`
+- `deploy/entrypoint.sh` boots the full stack in a single container
 
-Composite score:
-- task 1/2: `0.4*uptime + 0.2*stability + 0.4*cost`
-- task 3: cost contribution disabled when uptime `< 0.5`
-- invalid-action penalty: `-0.05` per invalid action
-- final value clipped at lower bound `0.0`
+## Kubernetes Integration
 
-## Kubernetes, Prometheus, and Grafana Integration
+For teams evaluating agents against real infrastructure:
+- `control/kubernetes_executor.py` translates `SCALE_UP`/`SCALE_DOWN` into `kubectl` operations on mapped deployments
+- Configure via `ANTIATROPOS_WORKLOAD_MAP` or `ANTIATROPOS_NODE_DEPLOYMENT_MAP`
+- `telemetry/prometheus_client.py` ingests live PromQL metrics and reconciles them into simulator state via weighted blending — enabling a real-environment feedback loop with minimal code change
 
-### Control Plane (Kubernetes)
+## Baseline Scores
 
-`control/kubernetes_executor.py` translates high-level actions into Kubernetes operations:
-- Live mode supports bounded real execution for `SCALE_UP` and `SCALE_DOWN` on mapped deployments.
-- Node-to-workload mapping is configured via:
-  - `ANTIATROPOS_WORKLOAD_MAP` (preferred), or
-  - `ANTIATROPOS_NODE_DEPLOYMENT_MAP` (legacy).
+Reproducible NO-OP baseline over 20 seeded runs (100 steps each):
 
-### Telemetry Plane (Prometheus)
+| Task | Mean Composite | Min | Max |
+|---|---:|---:|---:|
+| task-1 | 0.6980 | 0.6845 | 0.7171 |
+| task-2 | 0.7020 | 0.6400 | 0.7560 |
+| task-3 | 0.2063 | 0.1721 | 0.2521 |
 
-`telemetry/prometheus_client.py` can ingest real Prometheus metrics via configurable PromQL queries:
-- request rate,
-- latency,
-- error rate,
-- CPU utilization,
-- queue depth.
-
-In hybrid/live mode, telemetry is reconciled into simulator state with weighted blending, enabling a real-environment feedback loop.
-
-### Observability Plane (Grafana)
-
-- Environment exports metrics at `GET /metrics`.
-- `deploy/prometheus.yml` scrapes `127.0.0.1:8000/metrics`.
-- Grafana datasource is provisioned to Prometheus (`deploy/grafana/provisioning/datasources/prometheus.yaml`).
-- Dashboard `antiatropos-overview` is preprovisioned with reward, Lyapunov, queue, latency, SLA violations, per-node state, action throughput, and executor reliability panels.
-
-### Runtime Topology
-
-`deploy/entrypoint.sh` starts:
-- FastAPI environment server,
-- Prometheus,
-- Grafana,
-- NGINX reverse proxy on port `7860`.
-
-`deploy/nginx.conf` exposes:
-- API/web root,
-- `/prometheus/`,
-- `/grafana/`.
-
-## Performance and Inference Characteristics
-
-AntiAtropos is lightweight by design:
-- core physics is pure Python over 5 nodes with simple O(N) per-step updates,
-- no large simulation framework dependency for step execution,
-- WebSocket session support for low-latency episode rollouts,
-- fast environment stepping makes policy inference the dominant runtime cost once a model is trained.
-
-## Reproducibility
-
-Reproducibility is built into the project via:
-- containerized execution (`Dockerfile`, `server/Dockerfile`),
-- pinned dependency lockfile (`uv.lock`),
-- deterministic grading equations (`grader.py`),
-- explicit metric/reward equations in code,
-- configurable environment variables for mode, telemetry endpoints, and policy runtime.
-
-Note on stochasticity: task generation includes domain randomization (for robustness). For fixed-seed studies, use controlled simulator seeding in evaluation harnesses.
+Task-3's low baseline score reflects the genuine difficulty of burst surge management under safety constraints — and the substantial headroom available for capable agents.
 
 ## Setup and Usage
 
-### Local Python Setup
+### Local Python
 
 ```bash
 pip install -e .
-```
-
-Run server:
-
-```bash
 uvicorn server.app:app --host 0.0.0.0 --port 8000
 ```
 
-### Containerized Run
+### Docker
 
 ```bash
 docker build -t antiatropos:latest .
@@ -278,58 +237,41 @@ openenv validate
 openenv push
 ```
 
-## Baseline Inference Script (OpenAI API Client)
+## Project Structure
 
-`inference.py` runs an LLM policy loop using OpenAI-compatible chat completions:
-- reads credentials from environment variables (supports `OPENAI_API_KEY`),
-- connects to AntiAtropos server or local docker image,
-- executes an episode,
-- grades with `EpisodeGrader`.
+| Path | Description |
+|---|---|
+| `models.py` | Typed OpenEnv action/observation models |
+| `simulator.py` | Queueing physics, task dynamics, action semantics |
+| `stability.py` | Lyapunov/reward math |
+| `grader.py` | Deterministic episode scoring |
+| `inference.py` | OpenAI-compatible baseline runner |
+| `client.py` | OpenEnv client wrapper |
+| `openenv.yaml` | Environment manifest |
+| `server/AntiAtropos_environment.py` | Environment runtime (`reset`, `step`, state handling) |
+| `server/app.py` | FastAPI/OpenEnv app + `/metrics` |
+| `control/` | Action validation and Kubernetes executor |
+| `telemetry/` | Prometheus ingestion, metric mapping, exporter |
+| `deploy/` | Entrypoint, NGINX, Prometheus, Grafana provisioning |
+| `Dockerfile`, `server/Dockerfile` | Container build targets |
 
-Example:
+## Reproducibility
 
-```bash
-set OPENAI_API_KEY=your_key_here
-set MODEL_NAME=gpt-4.1-mini
-set ANTIATROPOS_TASK=task-3
-python inference.py
-```
+- Containerized execution (`Dockerfile`, `server/Dockerfile`)
+- Pinned dependency lockfile (`uv.lock`)
+- Deterministic grading equations (`grader.py`)
+- Explicit reward equations in code — no black-box scoring
+- Configurable environment variables for mode, telemetry endpoints, and policy runtime
 
-## Baseline Scores
+For fixed-seed studies, use controlled simulator seeding in evaluation harnesses.
 
-The table below provides a reproducible sanity baseline using a deterministic `NO_OP` policy over 20 seeded runs (100 steps each) with the implemented grader equations.
+## Evaluation Alignment
 
-| Task | Mean Composite | Min | Max |
-|---|---:|---:|---:|
-| task-1 | 0.6980 | 0.6845 | 0.7171 |
-| task-2 | 0.7020 | 0.6400 | 0.7560 |
-| task-3 | 0.2063 | 0.1721 | 0.2521 |
-
-Interpretation:
-- Task-3 is significantly harder under safety constraints and burst dynamics.
-- The baseline leaves substantial headroom for learned/LLM policies.
-
-## Project Structure (This Directory)
-
-- `models.py`: typed OpenEnv action/observation models
-- `simulator.py`: queueing physics, task dynamics, action semantics
-- `stability.py`: Lyapunov/reward math
-- `grader.py`: deterministic episode scoring
-- `inference.py`: OpenAI-compatible baseline runner
-- `client.py`: OpenEnv client wrapper
-- `openenv.yaml`: environment manifest
-- `server/AntiAtropos_environment.py`: environment runtime (`reset`, `step`, state handling)
-- `server/app.py`: FastAPI/OpenEnv app + `/metrics`
-- `control/`: action validation and Kubernetes executor
-- `telemetry/`: Prometheus ingestion, metric mapping, exporter instrumentation
-- `deploy/`: entrypoint, NGINX, Prometheus, Grafana provisioning, console UI
-- `Dockerfile`, `server/Dockerfile`: container build targets
-
-## Evaluation Alignment Summary
-
-Against common OpenEnv judging criteria:
-- Real-world utility: genuine SRE control task with concrete operational constraints.
-- Task/grader quality: 3 tasks with easy-medium-hard progression and deterministic scoring in `[0,1]`.
-- Environment design: dense reward shaping over full trajectories, clean reset/step loop, explicit episode boundaries.
-- Code quality/spec: typed models, modular components, OpenEnv manifest, containerized runtime.
-- Novelty: Lyapunov-grounded reward shaping with control-plane/data-plane integration and observability-first design.
+| Criterion | AntiAtropos |
+|---|---|
+| Real-world utility | Genuine SRE/platform engineering control task with production-grade operational constraints |
+| Task quality | 3 tasks with easy-medium-hard progression mapped to real incident categories |
+| Grader quality | Deterministic, interpretable composite score in `[0, 1]` |
+| Environment design | Dense Lyapunov-grounded reward, clean reset/step loop, explicit episode boundaries |
+| Code quality | Typed Pydantic models, modular components, OpenEnv manifest, containerized runtime |
+| Novelty | Lyapunov reward shaping + live K8s control plane + Prometheus telemetry + observability-first design |
