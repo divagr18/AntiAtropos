@@ -79,7 +79,7 @@ class AntiAtroposEnvironment(Environment):
             self._reward_output_mode = "normalized"
         self._last_metric_time: float = 0.0
 
-    def reset(self, task_id: str = "task-1", mode: str = "simulated") -> ClusterObservation:
+    def reset(self, task_id: str = "task-1", mode: str = "simulated", seed: int | None = None) -> ClusterObservation:
         """
         Start a fresh episode with a specific task profile and mode.
         """
@@ -110,7 +110,7 @@ class AntiAtroposEnvironment(Environment):
             # self._telemetry = PrometheusClient(url=os.getenv("PROMETHEUS_URL"))
             pass
 
-        self._sim.reset(task_id=task_id)
+        self._sim.reset(task_id=task_id, seed=seed)
         
         # If in hybrid mode, immediately pull a baseline
         if self._mode in [EnvironmentMode.HYBRID, EnvironmentMode.LIVE]:
@@ -140,7 +140,10 @@ class AntiAtroposEnvironment(Environment):
         is_enabled, mode_error = self._is_action_enabled_for_mode(action.action_type)
         if not is_enabled:
             self._action_ack_status = f"Rejected: {mode_error}"
-            self._last_executor_error_code = "MODE_UNSUPPORTED"
+            # Capability gate rejections happen before executor invocation, so
+            # they should be tracked as rejected actions (ack_class) rather than
+            # executor failures.
+            self._last_executor_error_code = ""
             is_valid = False
             error = mode_error
         else:
@@ -155,7 +158,8 @@ class AntiAtroposEnvironment(Environment):
 
         if not is_valid:
             self._action_ack_status = f"Rejected: {error}"
-            if not self._last_executor_error_code:
+            # Keep capability-gate rejections out of executor error metrics.
+            if not self._last_executor_error_code and not str(error).startswith("Live mode rejected"):
                 self._last_executor_error_code = "VALIDATION_FAILED"
             # Increment invalid action count on the simulator so it's consistent
             self._sim.invalid_action_count += 1
@@ -391,5 +395,4 @@ class AntiAtroposEnvironment(Environment):
             done=False,
             reward=0.0,
         )
-
 
