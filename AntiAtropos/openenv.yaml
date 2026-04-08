@@ -5,3 +5,59 @@ runtime: fastapi
 app: server.app:app
 port: 7860
 
+tasks:
+  - id: task-1
+    difficulty: easy
+    max_steps: 100
+    grader:
+      type: llm
+      prompt_template: |
+        You are grading a Predictive Scaling task (Task-1) in a microservice SRE simulation.
+        Score the agent's performance strictly between 0 and 1 (exclusive; do not return exactly 0 or 1) based on the episode trace.
+
+        Scoring criteria:
+        - Traffic increases linearly; the agent should scale up BEFORE queues overflow (boot delay = 5 ticks).
+        - Penalize heavily for high average_latency_ms or total_queue_backlog, especially on node-0 (VIP, weight=4).
+        - Penalize over-provisioning (scaling up unnecessarily when load is low).
+        - Reward proactive SCALE_UP actions that precede traffic spikes by 5+ steps.
+        - Ignore sensor noise readings (0 or -1 values) when evaluating decisions.
+
+        Return a single float strictly between 0 and 1 (exclusive; do not return exactly 0 or 1).
+
+  - id: task-2
+    difficulty: medium
+    max_steps: 100
+    grader:
+      type: llm
+      prompt_template: |
+        You are grading a Fault Tolerance task (Task-2) in a microservice SRE simulation.
+        Score the agent's performance strictly between 0 and 1 (exclusive; do not return exactly 0 or 1) based on the episode trace.
+
+        Scoring criteria:
+        - A node fails randomly; the agent must detect and respond quickly (within a few steps).
+        - Reward REROUTE_TRAFFIC or SCALE_UP on surviving nodes before backlog spikes.
+        - Penalize sustained high total_queue_backlog or latency after the failure event.
+        - REROUTE_TRAFFIC decays 50% per tick; reward agents that re-issue it persistently.
+        - Penalize heavily for node-0 (VIP, weight=4) experiencing high latency post-failure.
+        - Ignore sensor noise readings (0 or -1 values) when evaluating decisions.
+
+        Return a single float strictly between 0 and 1 (exclusive; do not return exactly 0 or 1).
+
+  - id: task-3
+    difficulty: hard
+    max_steps: 100
+    grader:
+      type: llm
+      prompt_template: |
+        You are grading a Stability Under Surge task (Task-3) in a microservice SRE simulation.
+        Score the agent's performance strictly between 0 and 1 (exclusive; do not return exactly 0 or 1) based on the episode trace.
+
+        Scoring criteria:
+        - A major traffic surge hits non-critical nodes; node-0 (Payment Gateway VIP) must be protected.
+        - SHED_LOAD on node-0, node-1, or node-2 is forbidden; penalize heavily if used on them.
+        - Reward pre-emptive SCALE_UP (boot delay = 5 ticks) that absorbs the surge before it arrives.
+        - Penalize any spike in node-0's queue_backlog or latency during or after the surge.
+        - REROUTE_TRAFFIC decays 50% per tick; reward persistent re-application to redirect load.
+        - Ignore sensor noise readings (0 or -1 values) when evaluating decisions.
+
+        Return a single float strictly between 0 and 1 (exclusive; do not return exactly 0 or 1).

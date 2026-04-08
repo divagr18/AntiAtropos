@@ -165,8 +165,8 @@ Load starts near cluster capacity and ramps over the episode. The agent must pro
 ### `task-2` — Fault Tolerance (Medium)
 A non-VIP node fails at a randomized tick. Traffic continues hitting failed capacity until the agent detects the failure and responds. Tests reactive incident response: detecting failure signals, rerouting affected traffic, and compensating with scaling — under realistic delay constraints.
 
-### `task-3` — Burst Surge with Safety Constraints (Hard)
-Periodic high-amplitude surges target critical nodes. `SHED_LOAD` is prohibited on those nodes. The agent must coordinate `SCALE_UP` + `REROUTE_TRAFFIC` under strict safety rules while maintaining cost discipline. The closest analogue to a real high-severity incident: time pressure, safety constraints, and no single correct action.
+### `task-3` — Stability Under Surge (Hard)
+Major traffic surges target non-critical nodes, threatening to cascade. The agent must protect the VIP Payment Gateway (`node-0`). `SHED_LOAD` is forbidden on critical nodes (`node-0`, `node-1`, and `node-2`). The agent must coordinate pre-emptive `SCALE_UP` to absorb the surge before it arrives and use persistent `REROUTE_TRAFFIC` to redirect load, all while maintaining cost discipline. The closest analogue to a real high-severity incident: time pressure, safety constraints, and no single correct action.
 
 ## Grading (0.0–1.0)
 
