@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import json
 import os
 import random
@@ -24,7 +25,7 @@ if not API_KEY:
     API_KEY = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY")
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 
-ENV_URL = os.getenv("ENV_URL") or os.getenv("ANTIATROPOS_ENV_URL", "https://pranavkk-antiatropos.hf.space")
+ENV_URL = os.getenv("ENV_URL") or os.getenv("ANTIATROPOS_ENV_URL")
 ENV_MODE = os.getenv("ANTIATROPOS_MODE", "simulated")
 TASK_NAME = os.getenv("ANTIATROPOS_TASK", "task-1")
 BENCHMARK = os.getenv("ANTIATROPOS_BENCHMARK", "antiatropos")
@@ -58,6 +59,10 @@ SYSTEM_PROMPT = textwrap.dedent(
 ).strip()
 
 
+class InferenceError(RuntimeError):
+    """Raised when inference execution fails for a task."""
+
+
 def log_start(task: str, env: str, model: str) -> None:
     print(f"[START] task={task} env={env} model={model}", flush=True)
 
@@ -70,10 +75,10 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
     )
 
 
-def log_end(task: str, success: bool, steps: int, score: float, rewards: List[float]) -> None:
+def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
     print(
-        f"[END] task={task} success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}",
+        f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}",
         flush=True,
     )
 
@@ -84,7 +89,7 @@ def _seed_everything(seed: int) -> None:
         import numpy as np
 
         np.random.seed(seed)
-    except Exception:
+    except ImportError:
         pass
 
 
@@ -94,7 +99,8 @@ def _task_seed(base_seed: int, task_id: str) -> int:
 
 
 def _strict_score(score: float, eps: float = 0.001) -> float:
-    return min(1.0 - eps, max(eps, float(score)))
+    del eps
+    return min(1.0, max(0.0, float(score)))
 
 
 def _hf_web_fallback_url(base_url: str) -> str:
@@ -107,17 +113,32 @@ def _hf_web_fallback_url(base_url: str) -> str:
 
 
 @asynccontextmanager
-async def open_env_with_ws_fallback(base_url: str, message_timeout_s: int):
-    try:
-        async with AntiAtroposEnv(base_url, message_timeout_s=message_timeout_s) as env:
+async def open_env(message_timeout_s: int):
+    # Precedence rule: use ENV_URL when both ENV_URL and LOCAL_IMAGE_NAME are set.
+    if ENV_URL:
+        try:
+            async with AntiAtroposEnv(ENV_URL, message_timeout_s=message_timeout_s) as env:
+                yield env
+                return
+        except ConnectionError as e:
+            fallback_url = _hf_web_fallback_url(ENV_URL)
+            if fallback_url == ENV_URL or "404" not in str(e):
+                raise
+            async with AntiAtroposEnv(fallback_url, message_timeout_s=message_timeout_s) as env:
+                yield env
+        return
+
+    if LOCAL_IMAGE_NAME:
+        env = AntiAtroposEnv.from_docker_image(LOCAL_IMAGE_NAME)
+        try:
             yield env
-            return
-    except ConnectionError as e:
-        fallback_url = _hf_web_fallback_url(base_url)
-        if fallback_url == base_url or "404" not in str(e):
-            raise
-        async with AntiAtroposEnv(fallback_url, message_timeout_s=message_timeout_s) as env:
-            yield env
+        finally:
+            close_result = env.close()
+            if inspect.isawaitable(close_result):
+                await close_result
+        return
+
+    raise RuntimeError("Missing environment target. Set ENV_URL/ANTIATROPOS_ENV_URL or LOCAL_IMAGE_NAME.")
 
 
 def build_user_prompt(task_id: str, step: int, obs: dict, history: List[str]) -> str:
@@ -203,9 +224,11 @@ async def get_model_action(client: AsyncOpenAI, task_id: str, step: int, obs: di
             seed=SEED,
         )
         content = completion.choices[0].message.content or ""
+        if not content.strip():
+            raise InferenceError("Model returned empty content.")
         return _parse_action(_extract_json_object(content))
-    except Exception:
-        return SREAction(action_type=ActionType.NO_OP, target_node_id="node-0", parameter=0.0)
+    except Exception as exc:
+        raise InferenceError(f"Model inference failed at step {step} for {task_id}: {exc}") from exc
 
 
 def _compact_action(action: SREAction) -> str:
@@ -273,12 +296,13 @@ async def run_all_tasks() -> None:
     client = AsyncOpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
     try:
-        async with open_env_with_ws_fallback(ENV_URL, MESSAGE_TIMEOUT_S) as env:
+        async with open_env(MESSAGE_TIMEOUT_S) as env:
             for task in tasks_to_run:
                 success = False
                 steps = 0
-                score = 0.001
+                score = 0.0
                 rewards: List[float] = []
+                task_error: Optional[Exception] = None
                 log_start(task=task, env=BENCHMARK, model=MODEL_NAME)
                 try:
                     report = await run_single_task(env=env, client=client, task_id=task)
@@ -287,10 +311,12 @@ async def run_all_tasks() -> None:
                     score = _strict_score(float(report["score"]))
                     rewards = list(report["rewards"])
                 except Exception as exc:
-                    print(f"[DEBUG] task={task} error={exc}", flush=True)
-                    score = 0.001
+                    task_error = exc
+                    score = 0.0
                 finally:
-                    log_end(task=task, success=success, steps=steps, score=score, rewards=rewards)
+                    log_end(success=success, steps=steps, score=score, rewards=rewards)
+                if task_error is not None:
+                    raise InferenceError(f"Task {task} failed.") from task_error
     finally:
         await client.close()
 
