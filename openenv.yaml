@@ -13,7 +13,7 @@ tasks:
       type: llm
       prompt_template: |
         You are grading a Predictive Scaling task (Task-1) in a microservice SRE simulation.
-        Score the agent's performance from 0.0 (worst) to 1.0 (best) based on the episode trace.
+        Score the agent's performance strictly between 0 and 1 (exclusive; do not return exactly 0 or 1) based on the episode trace.
 
         Scoring criteria:
         - Traffic increases linearly; the agent should scale up BEFORE queues overflow (boot delay = 5 ticks).
@@ -22,7 +22,7 @@ tasks:
         - Reward proactive SCALE_UP actions that precede traffic spikes by 5+ steps.
         - Ignore sensor noise readings (0 or -1 values) when evaluating decisions.
 
-        Return a single float between 0.0 and 1.0.
+        Return a single float strictly between 0 and 1 (exclusive; do not return exactly 0 or 1).
 
   - id: task-2
     difficulty: medium
@@ -31,7 +31,7 @@ tasks:
       type: llm
       prompt_template: |
         You are grading a Fault Tolerance task (Task-2) in a microservice SRE simulation.
-        Score the agent's performance from 0.0 (worst) to 1.0 (best) based on the episode trace.
+        Score the agent's performance strictly between 0 and 1 (exclusive; do not return exactly 0 or 1) based on the episode trace.
 
         Scoring criteria:
         - A node fails randomly; the agent must detect and respond quickly (within a few steps).
@@ -41,7 +41,7 @@ tasks:
         - Penalize heavily for node-0 (VIP, weight=4) experiencing high latency post-failure.
         - Ignore sensor noise readings (0 or -1 values) when evaluating decisions.
 
-        Return a single float between 0.0 and 1.0.
+        Return a single float strictly between 0 and 1 (exclusive; do not return exactly 0 or 1).
 
   - id: task-3
     difficulty: hard
@@ -50,7 +50,7 @@ tasks:
       type: llm
       prompt_template: |
         You are grading a Stability Under Surge task (Task-3) in a microservice SRE simulation.
-        Score the agent's performance from 0.0 (worst) to 1.0 (best) based on the episode trace.
+        Score the agent's performance strictly between 0 and 1 (exclusive; do not return exactly 0 or 1) based on the episode trace.
 
         Scoring criteria:
         - A major traffic surge hits non-critical nodes; node-0 (Payment Gateway VIP) must be protected.
@@ -60,4 +60,4 @@ tasks:
         - REROUTE_TRAFFIC decays 50% per tick; reward persistent re-application to redirect load.
         - Ignore sensor noise readings (0 or -1 values) when evaluating decisions.
 
-        Return a single float between 0.0 and 1.0.
+        Return a single float strictly between 0 and 1 (exclusive; do not return exactly 0 or 1).
