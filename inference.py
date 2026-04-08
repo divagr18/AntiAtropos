@@ -18,7 +18,7 @@ from AntiAtropos.models import ActionType, SREAction
 load_dotenv()
 
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4.1-mini")
+MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
 API_KEY = os.getenv("API_KEY")
 if not API_KEY:
     # Local fallback to keep developer runs convenient.
