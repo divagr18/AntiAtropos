@@ -30,6 +30,9 @@ BASE_LATENCY_MS:      float = 20.0    # Minimum processing time
 OVERLOAD_THRESHOLD:   int   = 80      # Request count where node begins to "fail" (DEGRADED)
 LATENCY_STEEPNESS:    float = 2.0     # Increased to ensure SLA violations before death
 FATAL_FAIL_THRESHOLD: int   = 200     # Hard cap on queue depth (catastrophic failure boundary)
+CASCADE_WINDOW_TICKS: int = 3     # Ticks after a failure to check for cascade effects
+CASCADE_QUEUE_MULTIPLIER: float = 1.2  # Queue must exceed FATAL_FAIL_THRESHOLD * this to cascade
+NODE_RECOVERY_TICKS: int   = 20      # Ticks before a FAILED node auto-recovers
 
 SENSOR_DROPOUT_PROB:  float = 0.05    # P(node.queue, latency reports 0 or -1.0)
 NODE_FAILURE_PROB:    float = 0.00    # P(node fails naturally) — largely driven by task profile
@@ -90,6 +93,8 @@ class NodeState:
     dropped_requests: float = 0.0
     shed_fraction: float = 0.0       # Fraction of incoming traffic to drop this tick
     pending_capacity_queue: list[int] = field(default_factory=list)
+    recovery_timer: int = 0          # Countdown to auto-recovery from FAILED status
+    is_scripted_failure: bool = False  # True if failed due to task scripting (no auto-recovery)
 
     # Derived (recomputed whenever capacity or status changes)
     @property
@@ -114,6 +119,8 @@ class NodeState:
             "shed_fraction": round(self.shed_fraction, 4),
             "capacity_units": int(self.capacity),
             "pending_capacity_units": int(len(self.pending_capacity_queue)),
+            "recovery_timer": self.recovery_timer,
+            "is_scripted_failure": self.is_scripted_failure,
         }
 
 
@@ -146,6 +153,8 @@ class ClusterSimulator:
         self._t3_surge_end:   int = T3_SURGE_BASE_END
         # Per-node reroute weights for REROUTE_TRAFFIC (node_id → fraction)
         self._reroute_weights: dict[str, float] = {}
+        self._cascade_tick: int = 0  # Tick counter for cascade detection window
+        self._cascade_triggered: bool = False  # Set True when a NEW overload failure occurs
         self._nodes: list[NodeState] = []
         self.invalid_action_count: int = 0
         self._randomize_domain()
@@ -176,6 +185,7 @@ class ClusterSimulator:
                 node_id=f"node-{i}",
                 is_vip=f"node-{i}" in VIP_NODE_WEIGHTS,
                 importance_weight=VIP_NODE_WEIGHTS.get(f"node-{i}", 1.0),
+                is_scripted_failure=False,
             )
             for i in range(self._n_nodes)
         ]
@@ -190,6 +200,8 @@ class ClusterSimulator:
         self._tick_count = 0
         self._failed_node_id = None
         self._reroute_weights = {}
+        self._cascade_tick = 0
+        self._cascade_triggered = False
         self.invalid_action_count = 0
         self._randomize_domain()
         self._reset_nodes()
@@ -266,9 +278,16 @@ class ClusterSimulator:
         self._update_queues()
         self._update_derived_metrics()
         self._update_statuses()
-        # decay/reset shed fractions for next tick
+        self._cascade_failures()
+        self._process_recovery()
+        # Decay shed fractions gradually (retain 80% per tick = slow decay)
+        # The agent must still re-issue to maintain full effect, but the
+        # effect doesn't vanish instantly.  *= 0.8 means after 3 ticks
+        # the shed is still at 51% (0.8^3), vs old 0.0 after 1 tick.
         for node in self._nodes:
-            node.shed_fraction = 0.0
+            node.shed_fraction *= 0.8
+            if node.shed_fraction < 0.01:
+                node.shed_fraction = 0.0
 
     def _update_capacity(self) -> None:
         """Process pending capacity from SCALE_UP actions"""
@@ -296,6 +315,10 @@ class ClusterSimulator:
                 self._failed_node_id = self._rng.choice(
                     [n.node_id for n in self._nodes if n.node_id != "node-0"]
                 )
+                # Mark the chosen node as a scripted (permanent) failure
+                target = next((n for n in self._nodes if n.node_id == self._failed_node_id), None)
+                if target:
+                    target.is_scripted_failure = True
 
             # Physics change: In Task 2, we do NOT redistribute dead node traffic 
             # automatically. The infrastructure keeps sending λ/N to the failed node
@@ -384,8 +407,10 @@ class ClusterSimulator:
                     n.incoming_request_rate += share
 
         # Decay weights — agent must keep re-issuing to maintain effect
+        # *= 0.8 retains 80% per tick (slow decay, persistent effect).
+        # After 5 ticks without re-issue, effect is at 33% (0.8^5).
         for nid in list(self._reroute_weights.keys()):
-            self._reroute_weights[nid] *= 0.5
+            self._reroute_weights[nid] *= 0.8
             if self._reroute_weights[nid] < 0.01:
                 del self._reroute_weights[nid]
 
@@ -421,23 +446,92 @@ class ClusterSimulator:
             # Utilization = Ratio of λ to μ
             service_rate = n.service_rate
             n.cpu_utilization = n.incoming_request_rate / service_rate if service_rate > 0 else 1.0
-            
-            # Latency (simplified M/M/1 wait-time model)
-            n.latency_ms = BASE_LATENCY_MS + (n.queue_depth * LATENCY_STEEPNESS)
+
+            # Latency: Hybrid M/M/1 + backlog term
+            # M/M/1 gives exponential blow-up as utilization->1 (the "hockey stick")
+            # Backlog term ensures queue_depth still contributes signal even when
+            # utilization is capped at 0.99, preventing the flattening problem.
+            utilization = min(0.99, n.cpu_utilization)  # cap to prevent infinity
+            mm1_latency = BASE_LATENCY_MS / (1.0 - utilization)
+            backlog_latency = n.queue_depth * LATENCY_STEEPNESS
+            n.latency_ms = mm1_latency + backlog_latency
 
     def _update_statuses(self) -> None:
-        """Transition node health based on queue boundaries."""
+        """Transition node health based on queue boundaries.
+
+        Recovery rules:
+        - Scripted failures (Task 2 forced node kill): permanent, never auto-recover.
+          Marked by is_scripted_failure=True, recovery_timer=0.
+        - Overload failures (queue > FATAL_FAIL_THRESHOLD): auto-recover after
+          NODE_RECOVERY_TICKS. The agent can learn to reroute away and let the
+          node heal.
+        """
         for n in self._nodes:
-            if n.node_id == self._failed_node_id:
+            # Scripted (task-forced) failures are permanent
+            if n.is_scripted_failure:
                 n.status = NodeStatus.FAILED
+                n.recovery_timer = 0
                 continue
 
             if n.queue_depth > FATAL_FAIL_THRESHOLD:
-                n.status = NodeStatus.FAILED
+                if n.status != NodeStatus.FAILED:
+                    n.status = NodeStatus.FAILED
+                    n.recovery_timer = NODE_RECOVERY_TICKS
+                    self._cascade_triggered = True  # Signal cascade detection
             elif n.queue_depth > OVERLOAD_THRESHOLD:
                 n.status = NodeStatus.DEGRADED
             elif n.status == NodeStatus.DEGRADED and n.queue_depth < (OVERLOAD_THRESHOLD / 2):
                 n.status = NodeStatus.HEALTHY
+
+    def _cascade_failures(self) -> None:
+        """Detect cascading failure: if a peer node's queue exceeds a heightened
+        threshold within CASCADE_WINDOW_TICKS of a *new* failure, degrade it.
+
+        Guardrails:
+        - Only triggers when a NEW failure occurred this tick (not any failed node).
+        - Max one cascade step per failure event (no cascade chains).
+        - Scripted failures (Task 2) do not trigger cascades.
+        """
+        if not self._cascade_triggered:
+            self._cascade_tick = 0
+            return
+
+        self._cascade_tick += 1
+        if self._cascade_tick > CASCADE_WINDOW_TICKS:
+            self._cascade_triggered = False
+            self._cascade_tick = 0
+            return
+
+        cascade_threshold = FATAL_FAIL_THRESHOLD * CASCADE_QUEUE_MULTIPLIER
+        cascaded_this_tick = 0
+        for n in self._nodes:
+            if cascaded_this_tick >= 1:
+                break  # Max one cascade per window to prevent chain reactions
+            if n.status == NodeStatus.FAILED:
+                continue
+            if n.is_scripted_failure:
+                continue
+            if n.queue_depth > cascade_threshold:
+                n.status = NodeStatus.DEGRADED
+                cascaded_this_tick += 1
+
+    def _process_recovery(self) -> None:
+        """Count down recovery timers and bring FAILED nodes back online.
+
+        Only overload-failed nodes (recovery_timer > 0) can recover.
+        Scripted failures (is_scripted_failure=True) are excluded.
+        """
+        for n in self._nodes:
+            if n.is_scripted_failure:
+                continue
+            if n.status == NodeStatus.FAILED and n.recovery_timer > 0:
+                n.recovery_timer -= 1
+                if n.recovery_timer <= 0:
+                    n.status = NodeStatus.HEALTHY
+                    n.capacity = 1.0  # Recover at minimum capacity
+                    n.queue_depth = 0.0
+                    n.latency_ms = BASE_LATENCY_MS
+                    n.cpu_utilization = 0.0
 
     def reconcile_state(self, telemetry_map: dict) -> None:
         """

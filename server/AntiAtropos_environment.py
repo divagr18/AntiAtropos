@@ -10,13 +10,13 @@ from openenv.core.env_server.types import State
 try:
     from ..models import SREAction, ClusterObservation, NodeObservation, NodeStatus, EnvironmentMode
     from ..simulator import ClusterSimulator, COST_PER_CAPACITY_UNIT_PER_HOUR
-    from ..stability import compute_lyapunov, compute_reward, normalize_reward, REWARD_SCALE_VERSION
+    from ..stability import compute_lyapunov, compute_reward, compute_barrier, normalize_reward, smooth_sla_penalty, REWARD_SCALE_VERSION
     from ..telemetry import PrometheusClient, get_observability_tracker
     from ..control import KubernetesExecutor, ActionValidator
 except ImportError:
     from models import SREAction, ClusterObservation, NodeObservation, NodeStatus, EnvironmentMode  # type: ignore[no-redef]
     from simulator import ClusterSimulator, COST_PER_CAPACITY_UNIT_PER_HOUR  # type: ignore[no-redef]
-    from stability import compute_lyapunov, compute_reward, normalize_reward, REWARD_SCALE_VERSION  # type: ignore[no-redef]
+    from stability import compute_lyapunov, compute_reward, compute_barrier, normalize_reward, smooth_sla_penalty, REWARD_SCALE_VERSION  # type: ignore[no-redef]
     from telemetry import PrometheusClient, get_observability_tracker  # type: ignore[no-redef]
     from control import KubernetesExecutor, ActionValidator  # type: ignore[no-redef]
 
@@ -25,9 +25,10 @@ except ImportError:
 # Reward hyper-parameters (synchronized with stability.py constants)
 # ---------------------------------------------------------------------------
 
-ALPHA: float = 0.002   # Weight on Lyapunov energy drift ΔV(s) (Increased for faster feedback)
+ALPHA: float = 0.002   # Weight on Lyapunov energy drift DeltaV(s) (Increased for faster feedback)
 BETA:  float = 0.01    # Weight on infrastructure cost (Reduced to prevent cheap-but-dead strategies)
 GAMMA: float = 10.0    # Weight on per-step SLA violation indicator (Increased to force reactive scaling)
+DELTA: float = 0.005   # Weight on control-barrier function penalty (queue safety zone)
 
 MAX_QUEUE_NORM = 200.0
 MAX_LATENCY_NORM = 1000.0
@@ -66,6 +67,7 @@ class AntiAtroposEnvironment(Environment):
         
         self._nodes_true: list[dict] = []
         self._nodes_obs: list[dict] = []
+        self._prev_nodes_true: list[dict] = []  # For per-node queue delta + reward
         self._prev_lyapunov: float = 0.0
         self._sla_violations: int = 0
         self._action_ack_status: str = "success"
@@ -74,6 +76,10 @@ class AntiAtroposEnvironment(Environment):
         self._last_executor_error_code: str = ""
         self._last_raw_reward: float = 0.0
         self._last_normalized_reward: float = 0.0
+        self._last_reward_drift: float = 0.0
+        self._last_reward_cost: float = 0.0
+        self._last_reward_sla: float = 0.0
+        self._last_reward_barrier: float = 0.0
         self._reward_output_mode: str = os.getenv("ANTIATROPOS_REWARD_OUTPUT_MODE", "normalized").strip().lower()
         if self._reward_output_mode not in REWARD_OUTPUT_MODES:
             self._reward_output_mode = "normalized"
@@ -140,14 +146,13 @@ class AntiAtroposEnvironment(Environment):
         is_enabled, mode_error = self._is_action_enabled_for_mode(action.action_type)
         if not is_enabled:
             self._action_ack_status = f"Rejected: {mode_error}"
-            # Capability gate rejections happen before executor invocation, so
-            # they should be tracked as rejected actions (ack_class) rather than
-            # executor failures.
             self._last_executor_error_code = ""
             is_valid = False
             error = mode_error
+            cooldown_penalty = 0.0
         else:
-            is_valid, error = self._validator.validate(
+            self._validator.set_tick(self._state.step_count)
+            is_valid, error, cooldown_penalty = self._validator.validate(
             action.action_type, 
             action.target_node_id, 
             action.parameter,
@@ -196,34 +201,51 @@ class AntiAtroposEnvironment(Environment):
             self._last_metric_time = time.time()
         
         # 4. Extract states (Ground Truth for reward; Observation for agent)
+        self._prev_nodes_true = self._nodes_true  # Save for per-node delta
         self._nodes_true = self._sim.state(for_agent=False)
         self._nodes_obs  = self._sim.state(for_agent=True)
 
-        # 5. SLA Check
-        avg_latency = self._avg_latency(self._nodes_true)
+        # 5. SLA Check (smooth sigmoid penalty instead of binary cliff)
+        avg_latency_norm = self._avg_latency(self._nodes_true) / MAX_LATENCY_NORM
         error_rate  = self._error_rate(self._nodes_true)
-        sla_violation_step = 1 if (avg_latency > 200.0 or error_rate > 0.05) else 0
-        if sla_violation_step:
+        sla_penalty_step = smooth_sla_penalty(avg_latency_norm, error_rate)
+        # Track binary violations for the grader (backward compat)
+        if avg_latency_norm > 0.20 or error_rate > 0.05:
             self._sla_violations += 1
 
         # 6. Compute Lyapunov stability metrics from Ground Truth
         current_lyapunov = compute_lyapunov(self._nodes_true)
         
-        # 7. Compute scalar reward
+        # 7. Compute scalar reward (with barrier function)
         cost = self._compute_cost(self._nodes_true)
+        barrier = compute_barrier(self._nodes_true)
         raw_reward = compute_reward(
             v_prev=self._prev_lyapunov,
             v_curr=current_lyapunov,
             cost=cost,
-            sla_violation_step=sla_violation_step,
+            sla_violation_step=sla_penalty_step,
             alpha=ALPHA,
             beta=BETA,
-            gamma=GAMMA
+            gamma=GAMMA,
+            barrier=barrier,
+            delta=DELTA,
         )
         normalized_reward = normalize_reward(raw_reward)
+        # Apply soft cooldown penalty: reduces reward for rapid re-scaling
+        # without blocking the action (emergency scaling still goes through)
+        if cooldown_penalty > 0:
+            normalized_reward = max(0.0, normalized_reward - cooldown_penalty * 0.1)
         reward = normalized_reward if self._reward_output_mode == "normalized" else raw_reward
         self._last_raw_reward = raw_reward
         self._last_normalized_reward = normalized_reward
+        # Store reward component breakdown for the observation
+        from ..stability import compute_drift, BARRIER_NORM_SCALE
+        delta_v = compute_drift(self._prev_lyapunov, current_lyapunov)
+        barrier_norm = barrier / BARRIER_NORM_SCALE if BARRIER_NORM_SCALE > 0 else barrier
+        self._last_reward_drift = -(ALPHA * delta_v)
+        self._last_reward_cost = -(BETA * cost)
+        self._last_reward_sla = -(GAMMA * sla_penalty_step)
+        self._last_reward_barrier = -(DELTA * barrier_norm)
         
         self._prev_lyapunov = current_lyapunov
 
@@ -348,8 +370,40 @@ class AntiAtroposEnvironment(Environment):
 
     def _build_observation(self) -> ClusterObservation:
         """Assembles the ClusterObservation from the current observed simulator state."""
-        node_obs = [
-            NodeObservation(
+        # Build a lookup for previous node state (for queue_delta and node_reward)
+        prev_by_id: dict[str, dict] = {n["node_id"]: n for n in self._prev_nodes_true}
+
+        node_obs = []
+        for n in self._nodes_obs:
+            # Per-node queue delta (normalized)
+            true_n = next((t for t in self._nodes_true if t["node_id"] == n["node_id"]), n)
+            prev_n = prev_by_id.get(n["node_id"])
+            if prev_n:
+                queue_delta_raw = float(n["queue_depth"]) - float(prev_n.get("queue_depth", 0))
+                queue_delta = max(-1.0, min(1.0, queue_delta_raw / MAX_QUEUE_NORM))
+            else:
+                queue_delta = 0.0
+
+            # Per-node reward contribution (normalized)
+            # Uses same formula as global reward but per-node
+            weight = float(n.get("importance_weight", 1.0))
+            if prev_n:
+                prev_q = float(prev_n.get("queue_depth", 0))
+                curr_q = float(true_n["queue_depth"])
+                node_drift = weight * (curr_q ** 2 - prev_q ** 2)
+                node_barrier = max(0, curr_q - 150.0) ** 2  # Q_BARRIER_MAX=150
+                node_cost = float(true_n.get("capacity_units", 0)) * COST_PER_CAPACITY_UNIT_PER_HOUR
+                node_reward_raw = -(ALPHA * node_drift + DELTA * (node_barrier / 10000.0) + BETA * node_cost)
+                # Normalize to [-1, 0] range
+                node_reward_val = max(-1.0, min(0.0, node_reward_raw / 10.0))
+            else:
+                node_reward_val = 0.0
+
+            # SLA proximity: how close this node is to violating (normalized)
+            node_latency_norm = min(1.0, max(0.0, float(n["latency_ms"]) / MAX_LATENCY_NORM))
+            sla_prox = max(0.0, min(1.0, node_latency_norm / 0.20))  # 0.20 is SLA threshold
+
+            node_obs.append(NodeObservation(
                 node_id=n["node_id"],
                 status=n["status"],
                 queue_depth=min(1.0, max(0.0, float(n["queue_depth"]) / MAX_QUEUE_NORM)),
@@ -358,11 +412,14 @@ class AntiAtroposEnvironment(Environment):
                 cpu_utilization=min(1.0, max(0.0, float(n["cpu_utilization"]))),
                 is_vip=bool(n.get("is_vip", False)),
                 importance_weight=float(n.get("importance_weight", 1.0)),
+                capacity=float(n.get("capacity_units", 0)) / 5.0,  # Normalize to [0,1]
+                pending_capacity=float(n.get("pending_capacity_units", 0)) / 5.0,
+                queue_delta=queue_delta,
+                sla_proximity=sla_prox,
+                node_reward=node_reward_val,
                 done=False,
                 reward=0.0,
-            )
-            for n in self._nodes_obs
-        ]
+            ))
 
         freshness = int((time.time() - self._last_metric_time) * 1000) if self._last_metric_time > 0 else 0
 
@@ -391,6 +448,10 @@ class AntiAtroposEnvironment(Environment):
             raw_reward=self._last_raw_reward,
             normalized_reward=self._last_normalized_reward,
             reward_scale_version=REWARD_SCALE_VERSION,
+            reward_drift=self._last_reward_drift,
+            reward_cost=self._last_reward_cost,
+            reward_sla=self._last_reward_sla,
+            reward_barrier=self._last_reward_barrier,
             choke_level=0.0,
             done=False,
             reward=0.0,

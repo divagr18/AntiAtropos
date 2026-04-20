@@ -53,6 +53,13 @@ Q_BARRIER_MAX: float = 150.0
 Set higher than OVERLOAD_THRESHOLD (80) to allow the agent time to react
 before the barrier penalty kicks in."""
 
+BARRIER_NORM_SCALE: float = 10000.0
+"""Normalization divisor for the barrier term.
+The raw barrier H(s) = sum(max(0, Q_i - Q_max)^2) can produce very large values
+(e.g. 5 nodes at Q=200, Q_max=150 gives 5*2500=12500). Without normalization,
+this dominates the reward. Dividing by this scale keeps barrier in the same
+order of magnitude as the other terms when delta=0.005."""
+
 STABILITY_WINDOW: int = 10
 """Number of ticks to look back when judging whether the system is
 trend-stable (V is on a decreasing trajectory)."""
@@ -65,7 +72,7 @@ trend-stable (V is on a decreasing trajectory)."""
 REWARD_NORM_MIDPOINT: float = float(os.getenv("ANTIATROPOS_REWARD_MIDPOINT", "0.0"))
 REWARD_NORM_TEMPERATURE: float = float(os.getenv("ANTIATROPOS_REWARD_TEMPERATURE", "5.0"))
 REWARD_NORM_EPS: float = float(os.getenv("ANTIATROPOS_REWARD_EPS", "1e-8"))
-REWARD_SCALE_VERSION: str = "sigmoid-v1"
+REWARD_SCALE_VERSION: str = "sigmoid-v2"  # v2: smooth SLA + barrier active
 
 
 # ---------------------------------------------------------------------------
@@ -245,36 +252,93 @@ def drift_plus_penalty(
 # Convenience: full reward computation (matches environment.py formula)
 # ---------------------------------------------------------------------------
 
+def smooth_sla_penalty(
+    avg_latency_norm: float,
+    error_rate: float,
+    latency_threshold: float = 0.20,
+    error_threshold: float = 0.05,
+    latency_temperature: float = 0.03,
+    error_temperature: float = 0.01,
+) -> float:
+    """
+    Smooth SLA penalty in [0, 1] that ramps up as metrics approach thresholds.
+
+    Unlike the binary cliff (0 or 1), this gives the agent gradient signal
+    BEFORE the SLA is actually violated, enabling preventive learning.
+
+    Uses two sigmoids (one for latency, one for errors) and takes the max
+    so whichever dimension is worse dominates.
+
+    Args:
+        avg_latency_norm:     Normalized average latency [0, 1].
+        error_rate:           Cluster-wide error rate [0, 1].
+        latency_threshold:    Normalized latency SLA boundary.
+        error_threshold:      Error rate SLA boundary.
+        latency_temperature:  Sigmoid temperature for latency (lower = sharper).
+        error_temperature:    Sigmoid temperature for errors (lower = sharper).
+
+    Returns:
+        Smooth penalty in [0, 1]. Near 0 when safe, near 1 when violating.
+
+    Raises:
+        ValueError: If inputs are outside [0, 1], indicating raw (non-normalized)
+            values were passed by mistake. This is a common bug: passing latency
+            in raw ms (e.g. 200.0) instead of normalized [0,1] (e.g. 0.20).
+    """
+    if avg_latency_norm < -0.01 or avg_latency_norm > 1.5:
+        raise ValueError(
+            f"smooth_sla_penalty: avg_latency_norm={avg_latency_norm:.4f} is outside "
+            f"expected [0, 1] range. Did you pass raw ms instead of normalized? "
+            f"Divide by MAX_LATENCY_NORM before calling."
+        )
+    if error_rate < -0.01 or error_rate > 1.5:
+        raise ValueError(
+            f"smooth_sla_penalty: error_rate={error_rate:.4f} is outside "
+            f"expected [0, 1] range."
+        )
+    lat_z = (avg_latency_norm - latency_threshold) / max(1e-8, latency_temperature)
+    err_z = (error_rate - error_threshold) / max(1e-8, error_temperature)
+    lat_penalty = 1.0 / (1.0 + math.exp(-lat_z))
+    err_penalty = 1.0 / (1.0 + math.exp(-err_z))
+    return max(lat_penalty, err_penalty)
+
+
 def compute_reward(
     v_prev: float,
     v_curr: float,
     cost: float,
-    sla_violation_step: int,
+    sla_violation_step: float = 0.0,
     alpha: float = 1.0,
     beta: float = 0.05,
     gamma: float = 2.0,
+    barrier: float = 0.0,
+    delta: float = 0.005,
 ) -> float:
     """
-    R_t = −(α·ΔV(s)  +  β·Cost  +  γ·SLA_violation_step)
+    R_t = -(alpha * DeltaV(s) + beta * Cost + gamma * SLA_smooth + delta * Barrier)
 
     Convenience wrapper that mirrors the reward formula in environment.py.
-    Can be used by the baseline agent to simulate rewards without calling
-    the server, or by the grader to reconstruct reward trajectories.
 
     Args:
         v_prev:         Lyapunov energy at previous tick.
         v_curr:         Lyapunov energy at current tick.
         cost:           Infrastructure cost this tick (USD/hr).
-        sla_violation_step: 1 if this step violated SLA, else 0.
+        sla_violation_step: Smooth SLA penalty in [0, 1] (was binary 0/1).
         alpha:          Weight on Lyapunov drift.
         beta:           Weight on cost.
         gamma:          Weight on SLA violations.
+        barrier:        Control-barrier function violation energy.
+        delta:          Weight on barrier penalty.
 
     Returns:
-        Scalar reward (higher is better, always ≤ 0 in a stable episode).
+        Scalar reward (higher is better, always <= 0 in a stable episode).
     """
     delta_v = compute_drift(v_prev, v_curr)
-    return -(alpha * delta_v + beta * cost + gamma * sla_violation_step)
+    # Normalize barrier to prevent reward domination: raw barrier can be ~12500,
+    # after dividing by BARRIER_NORM_SCALE it's ~1.25, then scaled by delta=0.005
+    # gives ~0.006 which is comparable to other terms.
+    barrier_normalized = barrier / BARRIER_NORM_SCALE if BARRIER_NORM_SCALE > 0 else barrier
+    return -(alpha * delta_v + beta * cost + gamma * sla_violation_step + delta * barrier_normalized)
 
 
 def normalize_reward(

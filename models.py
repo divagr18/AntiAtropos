@@ -84,6 +84,37 @@ class NodeObservation(BaseModel):
         description="Business criticality weight. VIP nodes have higher impact on scoring.",
     )
 
+    capacity: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Current capacity units provisioned for this node (0-5).",
+    )
+
+    pending_capacity: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Capacity units being booted (will be live after boot delay).",
+    )
+
+    queue_delta: float = Field(
+        default=0.0,
+        ge=-1.0,
+        le=1.0,
+        description="Normalized queue depth change from previous tick (-1 to +1).",
+    )
+
+    sla_proximity: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="How close this node is to SLA violation (0=safe, 1=violating).",
+    )
+
+    node_reward: float = Field(
+        default=0.0,
+        description="Per-node reward contribution for credit assignment.",
+    )
+
     # Episode interaction fields (handled by framework)
     done: bool = False
     reward: float = 0.0
@@ -158,6 +189,24 @@ class ClusterObservation(BaseModel):
     raw_reward: float = 0.0
     normalized_reward: float = Field(default=0.0, ge=0.0, le=1.0)
     reward_scale_version: str = "sigmoid-v1"
+    # Reward components breakdown
+    reward_drift: float = Field(
+        default=0.0,
+        description="Lyapunov drift component of the reward.",
+    )
+    reward_cost: float = Field(
+        default=0.0,
+        description="Infrastructure cost component of the reward.",
+    )
+    reward_sla: float = Field(
+        default=0.0,
+        description="SLA penalty component of the reward.",
+    )
+    reward_barrier: float = Field(
+        default=0.0,
+        description="Barrier function penalty component of the reward.",
+    )
+
     choke_level: float = 0.0
 
     nodes: list[NodeObservation]
