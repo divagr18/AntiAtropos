@@ -18,6 +18,26 @@ metadata:
     app.kubernetes.io/part-of: antiatropos
 
 ---
+# ResourceQuota: Hard cap on pods in prod-sre namespace.
+# This is a Kubernetes-level safety net. Even if the agent's Python cap fails,
+# Kubernetes will refuse to create pods beyond this limit.
+#
+# Max 30 pods = 6 replicas x 5 deployments (our worst-case budget)
+# Max 8 CPU / 8GB RAM = enough for 30 small nginx pods
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: prod-sre-quota
+  namespace: prod-sre
+spec:
+  hard:
+    pods: "30"
+    requests.cpu: "8"
+    requests.memory: 8Gi
+    limits.cpu: "15"
+    limits.memory: 15Gi
+
+---
 # payments — node-0 (VIP)
 # Business-critical payment service. Always has 2 replicas for redundancy.
 # The SRE agent should never SHED_LOAD on this (CRITICAL_NODES in simulator.py).
