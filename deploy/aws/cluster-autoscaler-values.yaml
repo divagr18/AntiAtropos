@@ -1,0 +1,56 @@
+# Cluster Autoscaler Helm values
+#
+# This ensures EKS adds/removes nodes based on pod scheduling pressure.
+# The node group maxSize in eksctl-cluster.yaml (4) is the ultimate cap.
+#
+# Install:
+#   helm repo add autoscaler https://kubernetes.github.io/autoscaler
+#   helm repo update
+#   helm install cluster-autoscaler autoscaler/cluster-autoscaler \
+#     --namespace kube-system \
+#     -f cluster-autoscaler-values.yaml
+
+autoDiscovery:
+  clusterName: antiatropos
+  enabled: true
+
+awsRegion: us-east-1
+
+# Only scale nodes that have the specific tag
+# This prevents autoscaling unrelated node groups if you add them later
+nodeGroupAutoDiscovery:
+  - tags: cluster-autoscaler/cluster-name=antiatropos
+
+# Conservative scaling — don't overreact
+scaleDown:
+  enabled: true
+  # Wait 10 minutes before removing a node
+  # This prevents flapping when agents create/destroy pods frequently
+  delayAfterAdd: 600s
+  delayAfterDelete: 60s
+  delayAfterScaleDown: 600s
+  # Only remove nodes that are below 50% utilization
+  utilizationThreshold: "0.5"
+  # Don't remove nodes that have AntiAtropos pods on them
+  # (we don't want to kill active training sessions)
+  skipNodesWithSystemPods: true
+
+# Don't try to scale beyond this many nodes total
+# This is a safety net — the eksctl node group maxSize is the real limit
+maxNodeProvisionTime: 15m
+
+rbac:
+  create: true
+  serviceAccount:
+    create: true
+    name: cluster-autoscaler
+
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi

@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
-# AntiAtropos AWS Quick Deploy Script
-# 
-# Prerequisites: aws cli, eksctl, kubectl, helm, docker
-# 
+# AntiAtropos AWS Infrastructure Deploy Script
+#
+# Deploys: EKS cluster, sample workloads, AMP workspace, Prometheus Agent,
+#          AMG workspace, Cluster Autoscaler, and generates kubeconfig for HF Spaces.
+#
+# The AntiAtropos FastAPI server runs on Hugging Face Spaces, NOT on AWS.
+# This script only sets up the infrastructure that HF Spaces connects to.
+#
+# Prerequisites: aws cli, eksctl, kubectl, helm
+#
 # Usage:
 #   chmod +x deploy/aws/deploy.sh
 #   ./deploy/aws/deploy.sh
 #
-# This script creates all AWS resources and deploys AntiAtropos to EKS.
-# Set these environment variables before running:
-#   OPENAI_API_KEY     - Your OpenAI API key (required)
-#   AWS_REGION         - AWS region (default: us-east-1)
-#   CLUSTER_NAME       - EKS cluster name (default: antiatropos)
+# Environment variables:
+#   AWS_REGION     - AWS region (default: us-east-1)
+#   CLUSTER_NAME   - EKS cluster name (default: antiatropos)
 
 set -euo pipefail
 
@@ -19,23 +23,19 @@ REGION="${AWS_REGION:-us-east-1}"
 CLUSTER_NAME="${CLUSTER_NAME:-antiatropos}"
 AWS_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-echo "=== AntiAtropos AWS Deployment ==="
+echo "=== AntiAtropos AWS Infrastructure Deployment ==="
 echo "Region:      $REGION"
 echo "Cluster:     $CLUSTER_NAME"
+echo "FastAPI:     Runs on HF Spaces (not deployed here)"
 echo ""
 
 # --- Check prerequisites ---
-for cmd in aws eksctl kubectl helm docker; do
+for cmd in aws eksctl kubectl helm; do
     if ! command -v "$cmd" &>/dev/null; then
         echo "ERROR: $cmd is not installed. Please install it first."
         exit 1
     fi
 done
-
-if [ -z "${OPENAI_API_KEY:-}" ]; then
-    echo "ERROR: OPENAI_API_KEY environment variable is not set."
-    exit 1
-fi
 
 # --- Phase 1: Create EKS Cluster ---
 echo ""
@@ -50,9 +50,16 @@ fi
 aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$REGION"
 echo "kubeconfig updated."
 
-# --- Phase 2: Create AMP Workspace ---
+# --- Phase 2: Deploy Sample Workloads ---
 echo ""
-echo ">>> Phase 2: Creating Amazon Managed Prometheus workspace..."
+echo ">>> Phase 2: Deploying sample workloads (payments, checkout, catalog, cart, auth)..."
+kubectl apply -f "$AWS_DIR/k8s-workloads.yaml"
+echo "Workloads deployed."
+kubectl get pods -n prod-sre
+
+# --- Phase 3: Create AMP Workspace ---
+echo ""
+echo ">>> Phase 3: Creating Amazon Managed Prometheus workspace..."
 AMP_WS_ID=$(aws amp list-workspaces --alias antiatropos-metrics --region "$REGION" --query 'workspaces[0].workspaceId' --output text 2>/dev/null || echo "")
 
 if [ -z "$AMP_WS_ID" ] || [ "$AMP_WS_ID" = "None" ]; then
@@ -69,13 +76,9 @@ fi
 AMP_URL="https://aps-workspaces.$REGION.amazonaws.com/workspaces/$AMP_WS_ID"
 echo "AMP URL: $AMP_URL"
 
-# --- Phase 3: Set up IAM Roles for Service Accounts (IRSA) ---
+# --- Phase 4: Set up IRSA for Prometheus Agent ---
 echo ""
-echo ">>> Phase 3: Setting up IRSA..."
-CLUSTER_OIDC=$(aws eks describe-cluster --name "$CLUSTER_NAME" --region "$REGION" --query 'cluster.identity.oidc.issuer' --output text | sed 's|https://||')
-ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-
-# Prometheus service account
+echo ">>> Phase 4: Setting up IRSA for Prometheus Agent..."
 if kubectl get serviceaccount prometheus-sa -n monitoring &>/dev/null; then
     echo "prometheus-sa already exists."
 else
@@ -89,23 +92,9 @@ else
     echo "prometheus-sa created."
 fi
 
-# AntiAtropos service account
-if kubectl get serviceaccount antiatropos-sa -n antiatropos &>/dev/null; then
-    echo "antiatropos-sa already exists."
-else
-    eksctl create iamserviceaccount \
-        --cluster "$CLUSTER_NAME" \
-        --namespace antiatropos \
-        --name antiatropos-sa \
-        --attach-policy-arn arn:aws:iam::aws:policy/AmazonPrometheusQueryAccess \
-        --approve \
-        --override-existing-serviceaccounts
-    echo "antiatropos-sa created."
-fi
-
-# --- Phase 4: Install Prometheus Agent ---
+# --- Phase 5: Install Prometheus Agent ---
 echo ""
-echo ">>> Phase 4: Installing Prometheus Agent (remote-writes to AMP)..."
+echo ">>> Phase 5: Installing Prometheus Agent (remote-writes to AMP)..."
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
 helm repo update
 
@@ -123,86 +112,89 @@ else
     echo "prometheus-agent installed."
 fi
 
-# --- Phase 5: Build and Push Docker Image ---
+# --- Phase 6: Create AMG Workspace ---
 echo ""
-echo ">>> Phase 5: Building and pushing Docker image to ECR..."
-ECR_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/antiatropos"
+echo ">>> Phase 6: Creating Amazon Managed Grafana workspace..."
 
-if aws ecr describe-repositories --repository-name antiatropos --region "$REGION" &>/dev/null; then
-    echo "ECR repository already exists."
+# Create IAM role for Grafana if it doesn't exist
+if aws iam get-role --role-name AntiAtroposGrafanaRole &>/dev/null; then
+    echo "AntiAtroposGrafanaRole already exists."
 else
-    aws ecr create-repository --repository-name antiatropos --region "$REGION"
-    echo "ECR repository created."
+    aws iam create-role \
+        --role-name AntiAtroposGrafanaRole \
+        --assume-role-policy-document file://"$AWS_DIR/grafana-trust-policy.json"
+    aws iam attach-role-policy \
+        --role-name AntiAtroposGrafanaRole \
+        --policy-arn arn:aws:iam::aws:policy/AmazonPrometheusQueryAccess
+    aws iam attach-role-policy \
+        --role-name AntiAtroposGrafanaRole \
+        --policy-arn arn:aws:iam::aws:policy/AmazonPrometheusRemoteWriteAccess
+    echo "AntiAtroposGrafanaRole created."
 fi
 
-aws ecr get-login-password --region "$REGION" | \
-    docker login --username AWS --password-stdin \
-    "$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com"
+AMG_WS_ID=$(aws grafana list-workspaces --region "$REGION" --query 'workspaces[0].id' --output text 2>/dev/null || echo "")
+if [ -z "$AMG_WS_ID" ] || [ "$AMG_WS_ID" = "None" ]; then
+    AMG_WS_ID=$(aws grafana create-workspace \
+        --workspace-name antiatropos-dashboards \
+        --account-access-type CURRENT_ACCOUNT \
+        --authentication-method AWS_SSO \
+        --permission-type SERVICE_MANAGED \
+        --data-sources PROMETHEUS \
+        --region "$REGION" \
+        --query 'workspaceId' \
+        --output text)
+    echo "AMG workspace created: $AMG_WS_ID"
+else
+    echo "AMG workspace already exists: $AMG_WS_ID"
+fi
 
-docker build -t antiatropos:latest "$AWS_DIR/../.."
-docker tag antiatropos:latest "$ECR_URI:latest"
-docker push "$ECR_URI:latest"
-echo "Image pushed to $ECR_URI:latest"
+AMG_ENDPOINT=$(aws grafana list-workspaces --region "$REGION" --query 'workspaces[0].endpoint' --output text)
+echo "AMG URL: https://$AMG_ENDPOINT"
 
-# --- Phase 6: Deploy AntiAtropos ---
+# --- Phase 7: Install Cluster Autoscaler ---
 echo ""
-echo ">>> Phase 6: Deploying AntiAtropos to EKS..."
+echo ">>> Phase 7: Installing Cluster Autoscaler..."
+helm repo add autoscaler https://kubernetes.github.io/autoscaler 2>/dev/null || true
+helm repo update
 
-# Apply namespace first
-kubectl apply -f "$AWS_DIR/k8s-namespace.yaml"
+if helm status cluster-autoscaler -n kube-system &>/dev/null; then
+    echo "cluster-autoscaler already installed, upgrading..."
+    helm upgrade cluster-autoscaler autoscaler/cluster-autoscaler \
+        --namespace kube-system \
+        -f "$AWS_DIR/cluster-autoscaler-values.yaml"
+else
+    helm install cluster-autoscaler autoscaler/cluster-autoscaler \
+        --namespace kube-system \
+        -f "$AWS_DIR/cluster-autoscaler-values.yaml"
+    echo "cluster-autoscaler installed."
+fi
 
-# Create/update configmap with the real AMP URL
-kubectl create configmap antiatropos-config \
-    --from-literal=ANTIATROPOS_ENV_MODE=live \
-    --from-literal=ANTIATROPOS_STRICT_REAL=false \
-    --from-literal="PROMETHEUS_URL=$AMP_URL" \
-    --from-literal=KUBECONFIG="" \
-    --from-literal=ANTIATROPOS_K8S_NAMESPACE=default \
-    --from-literal=ANTIATROPOS_DEPLOYMENT_PREFIX="" \
-    --from-literal=ANTIATROPOS_MIN_REPLICAS=1 \
-    --from-literal=ANTIATROPOS_MAX_REPLICAS=20 \
-    --from-literal=ANTIATROPOS_SCALE_STEP=3 \
-    --from-literal=ANTIATROPOS_WORKLOAD_MAP='{}' \
-    --from-literal=ANTIATROPOS_NODE_DEPLOYMENT_MAP='{}' \
-    --from-literal=ANTIATROPOS_PROM_TIMEOUT_S=5.0 \
-    --from-literal=ANTIATROPOS_METRIC_AGGREGATION=sum \
-    -n antiatropos \
-    --dry-run=client -o yaml | kubectl apply -f -
-
-# Create secret with OpenAI API key
-kubectl create secret generic antiatropos-secrets \
-    --from-literal=openai-api-key="$OPENAI_API_KEY" \
-    -n antiatropos \
-    --dry-run=client -o yaml | kubectl apply -f -
-
-# Apply deployment with the correct ECR image
-sed "s|ACCOUNT_ID|$ACCOUNT_ID|g; s|us-east-1|$REGION|g" "$AWS_DIR/k8s-deployment.yaml" | kubectl apply -f -
-kubectl apply -f "$AWS_DIR/k8s-service.yaml"
-
-# Wait for rollout
-echo "Waiting for deployment to be ready..."
-kubectl rollout status deployment/antiatropos -n antiatropos --timeout=300s
+# --- Phase 8: Generate Kubeconfig for HF Spaces ---
+echo ""
+echo ">>> Phase 8: Generating kubeconfig for HF Spaces..."
+"$AWS_DIR/generate-kubeconfig.sh"
 
 # --- Done ---
 echo ""
 echo "=========================================="
-echo "   AntiAtropos AWS Deployment Complete!"
+echo "   AntiAtropos AWS Infrastructure Ready!"
 echo "=========================================="
 echo ""
-echo "AMP Workspace ID: $AMP_WS_ID"
-echo "AMP URL:          $AMP_URL"
+echo "AMP Workspace ID:  $AMP_WS_ID"
+echo "AMP URL:           $AMP_URL"
+echo "AMG Workspace ID:  $AMG_WS_ID"
+echo "AMG URL:           https://$AMG_ENDPOINT"
 echo ""
-echo "Next steps:"
-echo "  1. Create an Amazon Managed Grafana workspace:"
-echo "     aws grafana create-workspace --workspace-name antiatropos-dashboards \\"
-echo "       --account-access-type CURRENT_ACCOUNT --authentication-method AWS_SSO \\"
-echo "       --permission-type SERVICE_MANAGED --data-sources PROMETHEUS --region $REGION"
+echo "Kubeconfig saved:  $AWS_DIR/kubeconfig-antiatropos.yaml"
 echo ""
-echo "  2. Add AMP as a data source in AMG and import dashboards from:"
-echo "     deploy/grafana/provisioning/dashboards/json/"
+echo "Next steps — configure your HF Space:"
+echo "  1. Set secret KUBECONFIG_CONTENT = base64 of kubeconfig-antiatropos.yaml"
+echo "  2. Set env var PROMETHEUS_URL = $AMP_URL"
+echo "  3. Set env var KUBECONFIG = /app/kubeconfig.yaml"
+echo "  4. Set env var ANTIATROPOS_ENV_MODE = live"
+echo "  5. Set env var ANTIATROPOS_MAX_REPLICAS = 6"
+echo "  6. Set env var ANTIATROPOS_WORKLOAD_MAP = (see OPERATIONS.md)"
+echo "  7. Add kubeconfig decode to deploy/entrypoint.sh (see OPERATIONS.md)"
 echo ""
-echo "  3. Get the AntiAtropos service URL:"
-echo "     kubectl get svc -n antiatropos antiatropos"
-echo ""
-echo "  4. Port-forward for local testing:"
-echo "     kubectl port-forward -n antiatropos deployment/antiatropos 8000:8000"
+echo "In AMG, add AMP as a data source and import dashboards from:"
+echo "  deploy/grafana/provisioning/dashboards/json/"

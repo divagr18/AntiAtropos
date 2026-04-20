@@ -25,16 +25,17 @@ prometheus:
         sigv4:
           region: us-east-1
 
-    # Scrape the AntiAtropos FastAPI /metrics endpoint
+    # Scrape the workload pods in prod-sre namespace (the microservices
+    # the SRE agent manages: payments, checkout, catalog, cart, auth)
     additionalScrapeConfigs:
-      - job_name: antiatropos
+      - job_name: antiatropos-workloads
         metrics_path: /metrics
         scrape_interval: 15s
         kubernetes_sd_configs:
           - role: pod
             namespaces:
               names:
-                - antiatropos
+                - prod-sre
         relabel_configs:
           - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
             action: keep
@@ -56,6 +57,13 @@ prometheus:
           - source_labels: [__meta_kubernetes_pod_name]
             action: replace
             target_label: pod
+
+      # Also scrape the Prometheus Agent's own metrics for monitoring
+      - job_name: prometheus-agent-self
+        scrape_interval: 15s
+        static_configs:
+          - targets:
+              - localhost:9090
 
     resources:
       requests:
