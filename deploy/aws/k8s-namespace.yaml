@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: antiatropos
+  labels:
+    app.kubernetes.io/name: antiatropos
+    app.kubernetes.io/part-of: antiatropos

@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: antiatropos
+  namespace: antiatropos
+  labels:
+    app: antiatropos
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: antiatropos
+  template:
+    metadata:
+      labels:
+        app: antiatropos
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: antiatropos-sa
+      containers:
+        - name: antiatropos
+          # Replace ACCOUNT_ID with your AWS account ID
+          image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/antiatropos:latest
+          ports:
+            - containerPort: 8000
+              name: http
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: antiatropos-config
+          env:
+            # Secrets should come from AWS Secrets Manager or Kubernetes Secrets
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: antiatropos-secrets
+                  key: openai-api-key
+            - name: ANTIATROPOS_TASK
+              value: "task-1"
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+      # Allow scheduling on spot instances too
+      tolerations:
+        - key: "spot"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              preference:
+                matchExpressions:
+                  - key: role
+                    operator: In
+                    values:
+                      - worker
+                      - spot-worker

@@ -1,0 +1,86 @@
+# Helm values for Prometheus Agent that remote-writes to Amazon Managed Prometheus
+#
+# Usage:
+#   helm install prometheus-agent prometheus-community/prometheus \
+#     --namespace monitoring --create-namespace \
+#     -f prometheus-agent-values.yaml \
+#     --set prometheus.prometheusSpec.remoteWrite[0].url="https://aps-workspaces.us-east-1.amazonaws.com/workspaces/WORKSPACE_ID/api/v1/remote_write"
+#
+# Prerequisite: Create an IAM service account for the prometheus pod
+#   eksctl create iamserviceaccount \
+#     --cluster antiatropos \
+#     --namespace monitoring \
+#     --name prometheus-sa \
+#     --attach-policy-arn arn:aws:iam::aws:policy/AmazonPrometheusRemoteWriteAccess \
+#     --approve
+
+prometheus:
+  prometheusSpec:
+    # Run as agent mode (remote-write only, no local query API)
+    agentMode: true
+
+    # Remote write — override via --set on the command line
+    remoteWrite:
+      - url: "https://aps-workspaces.us-east-1.amazonaws.com/workspaces/REPLACE_WORKSPACE_ID/api/v1/remote_write"
+        sigv4:
+          region: us-east-1
+
+    # Scrape the AntiAtropos FastAPI /metrics endpoint
+    additionalScrapeConfigs:
+      - job_name: antiatropos
+        metrics_path: /metrics
+        scrape_interval: 15s
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - antiatropos
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: pod
+
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+    # Short retention since we're remote-writing everything to AMP
+    retention: 2h
+
+  # Use the IAM service account for AMP authentication
+  serviceAccount:
+    name: prometheus-sa
+    create: false
+
+# Disable alertmanager (AMP handles alerting if needed)
+alertmanager:
+  enabled: false
+
+# Disable pushgateway
+pushgateway:
+  enabled: false
+
+# Disable server (we only need the agent)
+server:
+  enabled: false
