@@ -7,7 +7,7 @@
 """
 AntiAtropos Core Simulation Physics.
 
-A discrete-time fluid-queue model simulating a 5-node microservice cluster.
+A discrete-time fluid-queue model simulating a 10-node microservice cluster.
 Each node has stateful queues, capacities, and failure probabilities. 
 Dynamic traffic is injected per tick, and management actions shift capacity
 and routing parameters.
@@ -42,21 +42,21 @@ COST_PER_CAPACITY_UNIT_PER_HOUR: float = 0.05
 
 # Task Profiles (Domain Randomization)
 # Task 1: Start very near capacity so reward/state react earlier.
-# Default μ_total = 5 nodes × 3 capacity × 15 = 225 req/tick.
+# Default μ_total = 10 nodes × 3 capacity × 15 = 450 req/tick.
 # λ_initial randomized close to saturation to avoid long flat early phases.
-T1_INITIAL_LAMBDA: float = 195.0
-T1_RAMP_SLOPE:     float = 1.0   # +1 req per tick globally
-# Task 2: lambda ≈ 205 means 41/node (91% util), 51/survivor on failure (113% overload).
-T2_INITIAL_LAMBDA: float = 205.0
+T1_INITIAL_LAMBDA: float = 390.0
+T1_RAMP_SLOPE:     float = 2.0   # +2 req per tick globally (doubled for 10 nodes)
+# Task 2: lambda ≈ 460 means 46/node (102% util) — creates dynamic queue pressure for RL signal.
+T2_INITIAL_LAMBDA: float = 460.0
 T2_FAIL_TICK:      int   = 20
-T3_INITIAL_LAMBDA: float = 30.0
+T3_INITIAL_LAMBDA: float = 60.0
 
 # Task 3 surge parameters — base window, jitter applied per episode
 T3_SURGE_CYCLE:        int   = 60   # Cycle length (ticks)
 T3_SURGE_BASE_START:   int   = 30   # Nominal start of surge within cycle
 T3_SURGE_BASE_END:     int   = 40   # Nominal end of surge within cycle
 T3_SURGE_JITTER:       int   = 10   # ±jitter applied to start/end each episode
-T3_SURGE_MAGNITUDE:    float = 70.0 # Extra req/tick added to node-1 and node-2
+T3_SURGE_MAGNITUDE:    float = 140.0 # Extra req/tick added to node-1 and node-2
 
 # Hardening: Critical infrastructure that CANNOT be shed
 # In Task 3, these receive the surge. Forcing the agent to SCALE.
@@ -134,7 +134,7 @@ class ClusterSimulator:
     3. Failure Logic: Queue overflows trigger status degradation/node death.
     """
 
-    def __init__(self, n_nodes: int = 5, task_id: str = "task-1", seed: Optional[int] = None):
+    def __init__(self, n_nodes: int = 10, task_id: str = "task-1", seed: Optional[int] = None):
         self._n_nodes = n_nodes
         self._task_id = task_id
         # Default to non-deterministic RNG seeding so fresh simulator instances
@@ -170,8 +170,8 @@ class ClusterSimulator:
             default_mu_total * 0.92, default_mu_total * 0.99
         )
         self._t2_fail_tick = self._rng.randint(10, 40)
-        # Task 2: guarantee immediate overload on failure
-        self._t2_init_lambda = self._rng.uniform(200.0, 220.0)
+        # Task 2: guarantee immediate overload (46/node vs 45 capacity)
+        self._t2_init_lambda = self._rng.uniform(455.0, 475.0)
         # Task 3: jitter the surge window so the LLM can't memorise it.
         jitter = self._rng.randint(-T3_SURGE_JITTER, T3_SURGE_JITTER)
         self._t3_surge_start = T3_SURGE_BASE_START + jitter
@@ -398,9 +398,13 @@ class ClusterSimulator:
                 and n.status != NodeStatus.FAILED
             ]
             # If every healthy node is rerouted this tick, fall back to all
-            # healthy nodes to conserve total incoming traffic.
+            # healthy non-rerouted nodes first, then finally all healthy nodes.
+            # CRITICAL: A FAILED node should NEVER be an absorber.
+            if not absorbers:
+                absorbers = [n for n in self._nodes if n.status != NodeStatus.FAILED and n.node_id not in rerouted_ids]
             if not absorbers:
                 absorbers = [n for n in self._nodes if n.status != NodeStatus.FAILED]
+            
             if absorbers:
                 share = total_overflow / len(absorbers)
                 for n in absorbers:

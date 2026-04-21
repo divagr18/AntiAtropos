@@ -28,11 +28,11 @@ SLA_ERROR_RATE: float = 0.05
 # Cost calibration
 # ---------------------------------------------------------------------------
 
-# Baseline cost = all 5 nodes at default capacity 3 with $0.05 / capacity-unit.
-# 5 * 3 * 0.05 = $0.75 / hr.  This is what a perfectly provisioned agent pays.
-BASELINE_COST_PER_HOUR: float = 0.75
+# Baseline cost = all 10 nodes at default capacity 3 with $0.05 / capacity-unit.
+# 10 * 3 * 0.05 = $1.50 / hr.  This is what a perfectly provisioned agent pays.
+BASELINE_COST_PER_HOUR: float = 1.50
 MIN_COST_PER_HOUR: float = 0.05    # 1 active node at min capacity 1
-MAX_COST_PER_HOUR: float = 1.25    # 5 nodes at capacity 5 (MAX_CAPACITY)
+MAX_COST_PER_HOUR: float = 2.50    # 10 nodes at capacity 5 (MAX_CAPACITY)
 # Exponential cost penalty harshness — higher = steeper curve
 COST_PENALTY_K: float = 3.0
 

@@ -35,7 +35,7 @@ MAX_LATENCY_NORM = 1000.0
 MAX_REQUEST_RATE_NORM = 100.0
 
 MAX_STEPS: int = 100      # Episode length
-N_NODES:   int = 5        # Cluster size
+N_NODES:   int = 10       # Cluster size
 REWARD_OUTPUT_MODES = {"normalized", "raw"}
 
 
