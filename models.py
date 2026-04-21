@@ -128,7 +128,7 @@ class ClusterObservation(BaseModel):
     
     mode: EnvironmentMode = EnvironmentMode.SIMULATED
     
-    active_nodes: int = Field(ge=0, le=5)
+    active_nodes: int = Field(ge=0, le=10)
     
     average_latency_ms: float = Field(
         default=0.0,

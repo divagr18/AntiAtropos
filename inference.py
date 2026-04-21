@@ -51,12 +51,12 @@ TASK_BRIEFS: Dict[str, str] = {
 
 SYSTEM_PROMPT = textwrap.dedent(
     """
-    You are an autonomous SRE controller managing a five-node microservice cluster.
+    You are an autonomous SRE controller managing a ten-node microservice cluster.
 
     Return exactly one JSON object:
     {
       "action_type": "SCALE_UP" | "SCALE_DOWN" | "REROUTE_TRAFFIC" | "SHED_LOAD" | "NO_OP",
-      "target_node_id": "node-0" | "node-1" | "node-2" | "node-3" | "node-4",
+      "target_node_id": "node-0" | "node-1" | "node-2" | "node-3" | "node-4" | "node-5" | "node-6" | "node-7" | "node-8" | "node-9",
       "parameter": 0.0
     }
     """
