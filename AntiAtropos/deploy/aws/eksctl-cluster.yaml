@@ -1,0 +1,57 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: antiatropos
+  region: ap-south-1
+  version: "1.30"
+  tags:
+    Project: AntiAtropos
+    Environment: production
+
+autoModeConfig:
+  enabled: false
+
+iam:
+  withOIDC: true
+
+addons:
+  - name: vpc-cni
+    version: latest
+  - name: coredns
+    version: latest
+  - name: kube-proxy
+    version: latest
+  - name: aws-ebs-csi-driver
+    version: latest
+    wellKnownPolicies:
+      ebsCSIController: true
+
+managedNodeGroups:
+  - name: linux-nodes
+    instanceType: t3.medium
+    desiredCapacity: 2
+    minSize: 1
+    maxSize: 4
+    volumeSize: 50
+    volumeType: gp3
+    availabilityZones:
+      - ap-southeast-1a
+      - ap-southeast-1b
+    labels:
+      role: worker
+    tags:
+      Project: AntiAtropos
+      NodeGroup: linux-nodes
+    iam:
+      withAddonPolicies:
+        ebs: true
+        cloudWatch: true
+        autoScaler: true
+
+cloudWatch:
+  clusterLogging:
+    enableTypes:
+      - api
+      - audit
+      - authenticator

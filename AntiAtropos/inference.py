@@ -14,6 +14,7 @@ from openai import AsyncOpenAI
 from AntiAtropos.client import AntiAtroposEnv
 from AntiAtropos.grader import EpisodeGrader
 from AntiAtropos.models import ActionType, SREAction
+from AntiAtropos.replay import EpisodeReplayBuffer, compress_trajectory
 
 load_dotenv()
 
@@ -39,6 +40,8 @@ TEMPERATURE = float(os.getenv("ANTIATROPOS_TEMPERATURE", "0.0"))
 MAX_TOKENS = int(os.getenv("ANTIATROPOS_MAX_TOKENS", "180"))
 SEED = int(os.getenv("ANTIATROPOS_SEED", "42"))
 SUCCESS_SCORE_THRESHOLD = float(os.getenv("ANTIATROPOS_SUCCESS_THRESHOLD", "0.55"))
+EVAL_RUNS = int(os.getenv("ANTIATROPOS_EVAL_RUNS", "3"))  # Num eval runs per task
+TEMPERATURE_SWEEP = [0.0, 0.3, 0.7]  # Fixed temperatures for multi-episode eval
 
 TASK_BRIEFS: Dict[str, str] = {
     "task-1": "Traffic increases linearly. Scale proactively to keep latency low and cost efficient.",
@@ -48,12 +51,12 @@ TASK_BRIEFS: Dict[str, str] = {
 
 SYSTEM_PROMPT = textwrap.dedent(
     """
-    You are an autonomous SRE controller managing a five-node microservice cluster.
+    You are an autonomous SRE controller managing a ten-node microservice cluster.
 
     Return exactly one JSON object:
     {
       "action_type": "SCALE_UP" | "SCALE_DOWN" | "REROUTE_TRAFFIC" | "SHED_LOAD" | "NO_OP",
-      "target_node_id": "node-0" | "node-1" | "node-2" | "node-3" | "node-4",
+      "target_node_id": "node-0" | "node-1" | "node-2" | "node-3" | "node-4" | "node-5" | "node-6" | "node-7" | "node-8" | "node-9",
       "parameter": 0.0
     }
     """
@@ -142,9 +145,10 @@ async def open_env(message_timeout_s: int):
     raise RuntimeError("Missing environment target. Set ENV_URL/ANTIATROPOS_ENV_URL or LOCAL_IMAGE_NAME.")
 
 
-def build_user_prompt(task_id: str, step: int, obs: dict, history: List[str]) -> str:
+def build_user_prompt(task_id: str, step: int, obs: dict, history: List[str], demo_text: str = "") -> str:
     recent = "\n".join(history[-4:]) if history else "None"
     brief = TASK_BRIEFS.get(task_id, "Maintain SLA, stability, and efficient cost.")
+    demo_section = f"\n\n{demo_text}" if demo_text else ""
     return textwrap.dedent(
         f"""
         Task: {task_id}
@@ -155,7 +159,7 @@ def build_user_prompt(task_id: str, step: int, obs: dict, history: List[str]) ->
         {json.dumps(obs, separators=(",", ":"))}
 
         Recent decisions:
-        {recent}
+        {recent}{demo_section}
 
         Choose the next SRE action.
         """
@@ -174,15 +178,25 @@ def observation_for_model(obs) -> dict:
         "total_queue_backlog": obs.total_queue_backlog,
         "sla_violations": obs.sla_violations,
         "invalid_action_count": obs.invalid_action_count,
+        "reward_drift": getattr(obs, "reward_drift", 0.0),
+        "reward_cost": getattr(obs, "reward_cost", 0.0),
+        "reward_sla": getattr(obs, "reward_sla", 0.0),
+        "reward_barrier": getattr(obs, "reward_barrier", 0.0),
         "nodes": [
             {
                 "node_id": node.node_id,
                 "status": getattr(node.status, "value", str(node.status)),
                 "is_vip": node.is_vip,
+                "importance_weight": node.importance_weight,
                 "queue_depth": node.queue_depth,
                 "latency_ms": node.latency_ms,
                 "incoming_request_rate": node.incoming_request_rate,
                 "cpu_utilization": node.cpu_utilization,
+                "capacity": getattr(node, "capacity", 0.0),
+                "pending_capacity": getattr(node, "pending_capacity", 0.0),
+                "queue_delta": getattr(node, "queue_delta", 0.0),
+                "sla_proximity": getattr(node, "sla_proximity", 0.0),
+                "node_reward": getattr(node, "node_reward", 0.0),
             }
             for node in obs.nodes
         ],
@@ -209,8 +223,8 @@ def _parse_action(payload: dict) -> SREAction:
     )
 
 
-async def get_model_action(client: AsyncOpenAI, task_id: str, step: int, obs: dict, history: List[str]) -> SREAction:
-    prompt = build_user_prompt(task_id=task_id, step=step, obs=obs, history=history)
+async def get_model_action(client: AsyncOpenAI, task_id: str, step: int, obs: dict, history: List[str], demo_text: str = "") -> SREAction:
+    prompt = build_user_prompt(task_id=task_id, step=step, obs=obs, history=history, demo_text=demo_text)
     try:
         completion = await client.chat.completions.create(
             model=MODEL_NAME,
@@ -241,15 +255,17 @@ def _compact_action(action: SREAction) -> str:
     return json.dumps(payload, separators=(",", ":"))
 
 
-async def run_single_task(env: AntiAtroposEnv, client: AsyncOpenAI, task_id: str) -> dict:
-    task_seed = _task_seed(SEED, task_id)
+async def run_single_task(env: AntiAtroposEnv, client: AsyncOpenAI, task_id: str, temperature: float = 0.0, replay_buffer: Optional[EpisodeReplayBuffer] = None, run_seed: Optional[int] = None) -> dict:
+    task_seed = run_seed if run_seed is not None else _task_seed(SEED, task_id)
     result = await env.reset(task_id=task_id, mode=ENV_MODE, seed=task_seed)
 
     grader = EpisodeGrader(task_id=task_id)
     grader.record(result.observation)
     history: List[str] = []
     rewards: List[float] = []
+    raw_steps: List[dict] = []  # For replay buffer compression
     steps_taken = 0
+    demo_text = replay_buffer.format_demonstrations() if replay_buffer else ""
     for step in range(1, MAX_STEPS_PER_TASK + 1):
         if result.done:
             break
@@ -260,6 +276,7 @@ async def run_single_task(env: AntiAtroposEnv, client: AsyncOpenAI, task_id: str
             step=step,
             obs=observation_for_model(result.observation),
             history=history,
+            demo_text=demo_text,
         )
         result = await env.step(action)
         grader.record(result.observation)
@@ -270,12 +287,39 @@ async def run_single_task(env: AntiAtroposEnv, client: AsyncOpenAI, task_id: str
         action_str = _compact_action(action)
         history.append(f"step={step} action={action_str} reward={reward:.2f}")
 
+        # Collect raw step data for replay compression
+        obs = result.observation
+        raw_steps.append({
+            "step": step,
+            "action_type": action.action_type.value,
+            "target_node_id": action.target_node_id,
+            "parameter": float(action.parameter),
+            "reward": reward,
+            "avg_latency_norm": getattr(obs, "average_latency_ms", 0.0),
+            "error_rate": getattr(obs, "error_rate", 0.0),
+            "queue_backlog_norm": getattr(obs, "total_queue_backlog", 0.0),
+            "sla_violation": reward < 0.3,
+        })
+
         error = getattr(result.observation, "last_action_error", None)
         log_step(step=step, action=action_str, reward=reward, done=bool(result.done), error=error)
 
     grade = grader.score()
     score = _strict_score(float(grade.composite))
     success = score >= SUCCESS_SCORE_THRESHOLD
+
+    # Store in replay buffer if available
+    if replay_buffer is not None and raw_steps:
+        trajectory = compress_trajectory(
+            steps=raw_steps,
+            task_id=task_id,
+            score=score,
+            total_steps=steps_taken,
+            final_sla_violations=int(grade.scores.get("violations", 0)),
+            final_invalid_actions=int(grade.scores.get("invalid_actions", 0)),
+        )
+        replay_buffer.store(trajectory, score)
+
     return {
         "task_id": task_id,
         "success": success,
@@ -295,29 +339,58 @@ async def run_all_tasks() -> None:
         raise RuntimeError("Missing API key (API_KEY/HF_TOKEN/OPENAI_API_KEY).")
 
     client = AsyncOpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+    replay_buffer = EpisodeReplayBuffer()
 
     try:
         async with open_env(MESSAGE_TIMEOUT_S) as env:
             for task in tasks_to_run:
-                success = False
-                steps = 0
-                score = 0.0
-                rewards: List[float] = []
-                task_error: Optional[Exception] = None
-                log_start(task=task, env=BENCHMARK, model=MODEL_NAME)
-                try:
-                    report = await run_single_task(env=env, client=client, task_id=task)
-                    success = bool(report["success"])
-                    steps = int(report["steps"])
-                    score = _strict_score(float(report["score"]))
-                    rewards = list(report["rewards"])
-                except Exception as exc:
-                    task_error = exc
+                task_scores: List[float] = []
+                task_successes: List[bool] = []
+
+                for run_idx in range(EVAL_RUNS):
+                    # Fixed seed per (task, run_idx) so runs are reproducible
+                    # and comparable across temperature conditions.
+                    run_seed = SEED * 1000 + hash(task) % 100 + run_idx
+                    temperature = TEMPERATURE_SWEEP[run_idx % len(TEMPERATURE_SWEEP)]
+
+                    success = False
+                    steps = 0
                     score = 0.0
-                finally:
-                    log_end(success=success, steps=steps, score=score, rewards=rewards)
-                if task_error is not None:
-                    raise InferenceError(f"Task {task} failed.") from task_error
+                    rewards: List[float] = []
+                    task_error: Optional[Exception] = None
+                    log_start(task=f"{task} run={run_idx+1}/{EVAL_RUNS} temp={temperature}", env=BENCHMARK, model=MODEL_NAME)
+                    try:
+                        report = await run_single_task(
+                            env=env,
+                            client=client,
+                            task_id=task,
+                            temperature=temperature,
+                            replay_buffer=replay_buffer,
+                            run_seed=run_seed,
+                        )
+                        success = bool(report["success"])
+                        steps = int(report["steps"])
+                        score = _strict_score(float(report["score"]))
+                        rewards = list(report["rewards"])
+                        task_scores.append(score)
+                        task_successes.append(success)
+                    except Exception as exc:
+                        task_error = exc
+                        score = 0.0
+                    finally:
+                        log_end(success=success, steps=steps, score=score, rewards=rewards)
+                    if task_error is not None:
+                        raise InferenceError(f"Task {task} run {run_idx+1} failed.") from task_error
+
+                # Report aggregate stats
+                if task_scores:
+                    mean_score = sum(task_scores) / len(task_scores)
+                    std_score = (sum((s - mean_score) ** 2 for s in task_scores) / len(task_scores)) ** 0.5
+                    print(
+                        f"[AGGREGATE] task={task} mean_score={mean_score:.3f} "
+                        f"std={std_score:.3f} runs={len(task_scores)}",
+                        flush=True,
+                    )
     finally:
         await client.close()
 

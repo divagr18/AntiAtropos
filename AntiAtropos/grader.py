@@ -28,11 +28,11 @@ SLA_ERROR_RATE: float = 0.05
 # Cost calibration
 # ---------------------------------------------------------------------------
 
-# Baseline cost = all 5 nodes at default capacity 3 with $0.05 / capacity-unit.
-# 5 * 3 * 0.05 = $0.75 / hr.  This is what a perfectly provisioned agent pays.
-BASELINE_COST_PER_HOUR: float = 0.75
+# Baseline cost = all 10 nodes at default capacity 3 with $0.05 / capacity-unit.
+# 10 * 3 * 0.05 = $1.50 / hr.  This is what a perfectly provisioned agent pays.
+BASELINE_COST_PER_HOUR: float = 1.50
 MIN_COST_PER_HOUR: float = 0.05    # 1 active node at min capacity 1
-MAX_COST_PER_HOUR: float = 1.25    # 5 nodes at capacity 5 (MAX_CAPACITY)
+MAX_COST_PER_HOUR: float = 2.50    # 10 nodes at capacity 5 (MAX_CAPACITY)
 # Exponential cost penalty harshness — higher = steeper curve
 COST_PENALTY_K: float = 3.0
 
@@ -60,25 +60,41 @@ class Grade:
 
         Weights deliberately penalise cost heavily so that brute-force
         SCALE_UP spam cannot achieve a high composite even with perfect uptime.
-        
+
         Hardening:
         - Task 3 coupling: Cost only rewards if Uptime is >= 50%. Stops 'Cheap-but-Dead'.
         - Invalid Action Penalty: -0.05 per forbidden command (SHED_LOAD on critical).
+        - Episode bonuses: Prevention rewards that DON'T overlap with step-level
+          reward signals (no double-counting). These are:
+            +0.10 if zero VIP failures throughout the episode
+            +0.05 if SLA violations < 3 for the whole episode
+            +0.05 if no invalid actions
+        These bonuses are small and additive, avoiding overlap with the
+        step-level reward which already penalizes SLA violations and barrier
+        breaches on each tick. The bonuses reward *sustained* prevention.
         """
         uptime = self.scores["uptime"]
         stability = self.scores["stability"]
         cost = self.scores["cost"]
         invalid_penalty = self.scores.get("invalid_actions", 0) * 0.05
 
+        # Episode-level prevention bonuses (NOT in step reward to avoid double-counting)
+        bonus = 0.0
+        if self.scores.get("vip_failure_count", 0) == 0:
+            bonus += 0.10  # Zero VIP failures all episode
+        if self.scores.get("violations", 0) < 3:
+            bonus += 0.05  # Very few SLA violations all episode
+        if self.scores.get("invalid_actions", 0) == 0:
+            bonus += 0.05  # Clean actions all episode
+
         if self.task_id == "task-3":
             # Coupling: If uptime < 0.5, the cost benefit is zeroed out.
-            # Mirroring real-world priority: Budget doesn't matter if the site is down.
             cost_weight = 1.0 if uptime >= 0.5 else 0.0
             score = (0.4 * uptime + 0.2 * stability + 0.4 * (cost * cost_weight))
         else:
             score = (0.4 * uptime + 0.2 * stability + 0.4 * cost)
-            
-        return max(0.0, score - invalid_penalty)
+
+        return max(0.0, min(1.0, score - invalid_penalty + bonus))
 
     def summary(self) -> str:
         s = self.scores
@@ -150,13 +166,15 @@ class EpisodeGrader:
 
         # ── 4. Invalid Action tracking ──────────────────────────────────────
         total_invalid = self._records[-1].get("invalid_action_count", 0)
+        total_vip_failures = self._records[-1].get("vip_failure_count", 0)
 
         return Grade(self.task_id, {
             "uptime": uptime_score,
             "cost": cost_score,
             "stability": stability_score,
             "violations": total_violations,
-            "invalid_actions": total_invalid
+            "invalid_actions": total_invalid,
+            "vip_failure_count": total_vip_failures,
         })
 
 
