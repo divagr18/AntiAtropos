@@ -6,12 +6,7 @@
       "Principal": {
         "Service": "grafana.amazonaws.com"
       },
-      "Action": "sts:AssumeRole",
-      "Condition": {
-        "StringEquals": {
-          "sts:ExternalId": "YOUR_ACCOUNT_ID"
-        }
-      }
+      "Action": "sts:AssumeRole"
     }
   ]
 }

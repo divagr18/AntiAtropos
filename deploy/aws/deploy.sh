@@ -19,7 +19,7 @@
 
 set -euo pipefail
 
-REGION="${AWS_REGION:-us-east-1}"
+REGION="${AWS_REGION:-ap-southeast-1}"
 CLUSTER_NAME="${CLUSTER_NAME:-antiatropos}"
 AWS_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -112,44 +112,47 @@ else
     echo "prometheus-agent installed."
 fi
 
-# --- Phase 6: Create AMG Workspace ---
+# --- Phase 6: Install Self-Hosted Grafana on EKS ---
 echo ""
-echo ">>> Phase 6: Creating Amazon Managed Grafana workspace..."
+echo ">>> Phase 6: Installing self-hosted Grafana on EKS..."
 
-# Create IAM role for Grafana if it doesn't exist
-if aws iam get-role --role-name AntiAtroposGrafanaRole &>/dev/null; then
-    echo "AntiAtroposGrafanaRole already exists."
+# Add Grafana Helm repo
+helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true
+helm repo update
+
+# Create a secret with the dashboard JSON files for Grafana to import
+DASHBOARDS_DIR="$AWS_DIR/../../grafana/provisioning/dashboards/json"
+if [ -d "$DASHBOARDS_DIR" ]; then
+    echo "Creating dashboard secret from $DASHBOARDS_DIR..."
+    kubectl create secret generic antiatropos-grafana-dashboards \
+        --from-file=antiatropos-overview.json="$DASHBOARDS_DIR/antiatropos-overview.json" \
+        --from-file=antiatropos-live.json="$DASHBOARDS_DIR/antiatropos-live.json" \
+        --namespace monitoring \
+        --dry-run=client -o yaml | kubectl apply -f -
+    echo "Dashboard secret created."
 else
-    aws iam create-role \
-        --role-name AntiAtroposGrafanaRole \
-        --assume-role-policy-document file://"$AWS_DIR/grafana-trust-policy.json"
-    aws iam attach-role-policy \
-        --role-name AntiAtroposGrafanaRole \
-        --policy-arn arn:aws:iam::aws:policy/AmazonPrometheusQueryAccess
-    aws iam attach-role-policy \
-        --role-name AntiAtroposGrafanaRole \
-        --policy-arn arn:aws:iam::aws:policy/AmazonPrometheusRemoteWriteAccess
-    echo "AntiAtroposGrafanaRole created."
+    echo "Dashboard JSON directory not found at $DASHBOARDS_DIR, skipping."
 fi
 
-AMG_WS_ID=$(aws grafana list-workspaces --region "$REGION" --query 'workspaces[0].id' --output text 2>/dev/null || echo "")
-if [ -z "$AMG_WS_ID" ] || [ "$AMG_WS_ID" = "None" ]; then
-    AMG_WS_ID=$(aws grafana create-workspace \
-        --workspace-name antiatropos-dashboards \
-        --account-access-type CURRENT_ACCOUNT \
-        --authentication-method AWS_SSO \
-        --permission-type SERVICE_MANAGED \
-        --data-sources PROMETHEUS \
-        --region "$REGION" \
-        --query 'workspaceId' \
-        --output text)
-    echo "AMG workspace created: $AMG_WS_ID"
+# Install Grafana
+GRAFANA_VALUES="$AWS_DIR/grafana-values.yaml"
+
+if helm status grafana -n monitoring &>/dev/null; then
+    echo "Grafana already installed, upgrading..."
+    helm upgrade grafana grafana/grafana --namespace monitoring -f "$GRAFANA_VALUES"
 else
-    echo "AMG workspace already exists: $AMG_WS_ID"
+    helm install grafana grafana/grafana --namespace monitoring -f "$GRAFANA_VALUES"
+    echo "Grafana installed."
 fi
 
-AMG_ENDPOINT=$(aws grafana list-workspaces --region "$REGION" --query 'workspaces[0].endpoint' --output text)
-echo "AMG URL: https://$AMG_ENDPOINT"
+# Wait for Grafana pod to be ready
+echo "Waiting for Grafana pod to be ready..."
+kubectl rollout status deployment/grafana --namespace monitoring --timeout=120s 2>/dev/null || true
+
+GRAFANA_POD=$(kubectl get pods -n monitoring -l app.kubernetes.io/name=grafana -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+echo "Grafana pod: $GRAFANA_POD"
+echo "To access Grafana: kubectl port-forward svc/grafana 3000 -n monitoring"
+echo "Login: admin / antiatropos"
 
 # --- Phase 7: Install Cluster Autoscaler ---
 echo ""
@@ -182,8 +185,11 @@ echo "=========================================="
 echo ""
 echo "AMP Workspace ID:  $AMP_WS_ID"
 echo "AMP URL:           $AMP_URL"
-echo "AMG Workspace ID:  $AMG_WS_ID"
-echo "AMG URL:           https://$AMG_ENDPOINT"
+echo ""
+echo "Grafana: Self-hosted on EKS (monitoring namespace)"
+echo "  Access: kubectl port-forward svc/grafana 3000 -n monitoring"
+echo "  Login: admin / antiatropos"
+echo "  URL: http://localhost:3000"
 echo ""
 echo "Kubeconfig saved:  $AWS_DIR/kubeconfig-antiatropos.yaml"
 echo ""
@@ -195,6 +201,3 @@ echo "  4. Set env var ANTIATROPOS_ENV_MODE = live"
 echo "  5. Set env var ANTIATROPOS_MAX_REPLICAS = 6"
 echo "  6. Set env var ANTIATROPOS_WORKLOAD_MAP = (see OPERATIONS.md)"
 echo "  7. Add kubeconfig decode to deploy/entrypoint.sh (see OPERATIONS.md)"
-echo ""
-echo "In AMG, add AMP as a data source and import dashboards from:"
-echo "  deploy/grafana/provisioning/dashboards/json/"

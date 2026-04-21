@@ -28,7 +28,7 @@
 
 set -euo pipefail
 
-REGION="${AWS_REGION:-us-east-1}"
+REGION="${AWS_REGION:-ap-southeast-1}"
 CLUSTER_NAME="${CLUSTER_NAME:-antiatropos}"
 AWS_DIR="$(cd "$(dirname "$0")" && pwd)"
 OUTPUT="$AWS_DIR/kubeconfig-antiatropos.yaml"
