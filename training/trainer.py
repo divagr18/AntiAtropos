@@ -50,7 +50,7 @@ class TrainingConfig:
     """Configuration for the SRE training loop."""
 
     # Episode settings
-    n_nodes: int = 10
+    n_nodes: int = 5
     max_steps: int = 100
     tasks: List[str] = field(default_factory=lambda: ["task-1", "task-2", "task-3"])
 
@@ -104,7 +104,7 @@ class MockPolicyModel:
     This ensures the training pipeline produces non-trivial losses.
     """
 
-    def __init__(self, n_nodes: int = 10, seed: int = 42):
+    def __init__(self, n_nodes: int = 5, seed: int = 42):
         self._rng = random.Random(seed)
         self._n_nodes = n_nodes
         # Action-dependent log probs: different action types get different

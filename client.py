@@ -12,7 +12,10 @@ from openenv.core import EnvClient
 from openenv.core.client_types import StepResult
 from openenv.core.env_server.types import State
 
-from .models import SREAction, ClusterObservation, NodeObservation, NodeStatus
+try:
+    from .models import SREAction, ClusterObservation, NodeObservation, NodeStatus
+except ImportError:
+    from models import SREAction, ClusterObservation, NodeObservation, NodeStatus  # type: ignore
 
 
 class AntiAtroposEnv(

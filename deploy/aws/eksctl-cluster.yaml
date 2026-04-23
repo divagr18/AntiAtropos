@@ -30,14 +30,15 @@ addons:
 managedNodeGroups:
   - name: linux-nodes
     instanceType: t3.medium
+    maxPodsPerNode: 110
     desiredCapacity: 2
     minSize: 1
     maxSize: 4
     volumeSize: 50
     volumeType: gp3
     availabilityZones:
-      - ap-southeast-1a
-      - ap-southeast-1b
+      - ap-south-1a
+      - ap-south-1b
     labels:
       role: worker
     tags:

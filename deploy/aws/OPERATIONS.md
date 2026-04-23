@@ -177,7 +177,7 @@ You need:
 eksctl create cluster -f deploy/aws/eksctl-cluster.yaml
 
 # Verify
-aws eks update-kubeconfig --name antiatropos --region us-east-1
+aws eks update-kubeconfig --name antiatropos --region ap-south-1
 kubectl get nodes
 ```
 
@@ -191,10 +191,10 @@ kubectl get pods -n prod-sre
 ### Step 3: Create AMP Workspace (1 min)
 
 ```bash
-aws amp create-workspace --alias antiatropos-metrics --region us-east-1
+aws amp create-workspace --alias antiatropos-metrics --region ap-south-1
 
 # Note the workspace ID
-aws amp list-workspaces --alias antiatropos-metrics --region us-east-1 --query 'workspaces[0].workspaceId' --output text
+aws amp list-workspaces --alias antiatropos-metrics --region ap-south-1 --query 'workspaces[0].workspaceId' --output text
 ```
 
 ### Step 4: Set Up IRSA (2 min)
@@ -219,7 +219,7 @@ helm repo update
 helm install prometheus-agent prometheus-community/prometheus \
   --namespace monitoring --create-namespace \
   -f deploy/aws/prometheus-agent-values.yaml \
-  --set "prometheus.prometheusSpec.remoteWrite[0].url=https://aps-workspaces.us-east-1.amazonaws.com/workspaces/WORKSPACE_ID/api/v1/remote_write"
+  --set "prometheus.prometheusSpec.remoteWrite[0].url=https://aps-workspaces.ap-south-1.amazonaws.com/workspaces/WORKSPACE_ID/api/v1/remote_write"
 ```
 
 ### Step 6: Set Up AMG (5 min)
@@ -241,7 +241,7 @@ aws grafana create-workspace \
   --authentication-method AWS_SSO \
   --permission-type SERVICE_MANAGED \
   --data-sources PROMETHEUS \
-  --region us-east-1
+  --region ap-south-1
 ```
 
 Then in the AMG web UI:
@@ -294,7 +294,7 @@ cat deploy/aws/kubeconfig-antiatropos.yaml | base64 -w 0
 |---|---|
 | `ANTIATROPOS_ENV_MODE` | `live` |
 | `ANTIATROPOS_STRICT_REAL` | `false` |
-| `PROMETHEUS_URL` | `https://aps-workspaces.us-east-1.amazonaws.com/workspaces/WORKSPACE_ID` |
+| `PROMETHEUS_URL` | `https://aps-workspaces.ap-south-1.amazonaws.com/workspaces/WORKSPACE_ID` |
 | `KUBECONFIG` | `/app/kubeconfig.yaml` |
 | `ANTIATROPOS_K8S_NAMESPACE` | `prod-sre` |
 | `ANTIATROPOS_DEPLOYMENT_PREFIX` | `` (empty) |
@@ -426,11 +426,11 @@ helm uninstall prometheus-agent -n monitoring
 kubectl delete namespace monitoring
 
 # Delete AMP workspace
-AMP_WS_ID=$(aws amp list-workspaces --alias antiatropos-metrics --region us-east-1 --query 'workspaces[0].workspaceId' --output text)
-aws amp delete-workspace --workspace-id $AMP_WS_ID --region us-east-1
+AMP_WS_ID=$(aws amp list-workspaces --alias antiatropos-metrics --region ap-south-1 --query 'workspaces[0].workspaceId' --output text)
+aws amp delete-workspace --workspace-id $AMP_WS_ID --region ap-south-1
 
 # Delete AMG workspace
-AMG_WS_ID=$(aws grafana list-workspaces --region us-east-1 --query 'workspaces[0].id' --output text)
+AMG_WS_ID=$(aws grafana list-workspaces --region ap-south-1 --query 'workspaces[0].id' --output text)
 aws grafana delete-workspace --workspace-id $AMG_WS_ID
 
 # Delete IAM role for Grafana
@@ -439,11 +439,11 @@ aws iam detach-role-policy --role-name AntiAtroposGrafanaRole --policy-arn arn:a
 aws iam delete-role --role-name AntiAtroposGrafanaRole
 
 # Delete the EKS cluster (10-15 min)
-eksctl delete cluster --name antiatropos --region us-east-1
+eksctl delete cluster --name antiatropos --region ap-south-1
 
 # Verify nothing is left
-aws eks list-clusters --region us-east-1
-aws amp list-workspaces --region us-east-1
+aws eks list-clusters --region ap-south-1
+aws amp list-workspaces --region ap-south-1
 ```
 
 Also remove the `KUBECONFIG_CONTENT` secret and reset `PROMETHEUS_URL` to `mock` in your HF Space.
@@ -459,6 +459,7 @@ Also remove the `KUBECONFIG_CONTENT` secret and reset `PROMETHEUS_URL` to `mock`
 | Check monitoring | `kubectl get pods -n monitoring` |
 | Scale a workload | `kubectl scale deployment/payments -n prod-sre --replicas=N` |
 | Pause all workloads | `kubectl scale deployment -n prod-sre --replicas=0 --all` |
-| Check AMP data | `awscurl --service aps "https://aps-workspaces.us-east-1.amazonaws.com/workspaces/WS_ID/api/v1/query?query=up" --region us-east-1` |
+| Check AMP data | `awscurl --service aps "https://aps-workspaces.ap-south-1.amazonaws.com/workspaces/WS_ID/api/v1/query?query=up" --region ap-south-1` |
 | Generate kubeconfig | `./deploy/aws/generate-kubeconfig.sh` |
-| Nuke everything | `eksctl delete cluster --name antiatropos --region us-east-1` |
+| Nuke everything | `eksctl delete cluster --name antiatropos --region ap-south-1` |
+

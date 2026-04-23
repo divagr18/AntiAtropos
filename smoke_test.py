@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-AntiAtropos Local Smoke Test — 10-Node Validation.
+AntiAtropos Local Smoke Test — 5-Node Validation.
 
 Validates simulator physics, reward signals, and grading WITHOUT any LLM,
 Colab, or AWS infrastructure. Uses only stdlib + project modules
@@ -169,7 +169,7 @@ def run_episode(
 def test_simulator_node_count():
     """Simulator creates exactly 10 nodes; node-0 is VIP."""
     print("\n--- Simulator Node Count ---")
-    sim = ClusterSimulator(n_nodes=10, task_id="task-1", seed=1)
+    sim = ClusterSimulator(n_nodes=5, task_id="task-1", seed=1)
     nodes = sim.state(for_agent=False)
 
     record("10 nodes created",
@@ -204,7 +204,7 @@ def test_simulator_node_count():
 def test_task1_ramp():
     """Task-1: traffic ramps, queues grow under NO_OP, rewards non-degenerate."""
     print("\n--- Task-1: Linear Ramp (NO_OP policy) ---")
-    sim = ClusterSimulator(n_nodes=10, task_id="task-1")
+    sim = ClusterSimulator(n_nodes=5, task_id="task-1")
     ep = run_episode(sim, "task-1", max_steps=60, seed=42, action_policy="noop")
 
     # Queues should grow (no scaling action taken)
@@ -246,7 +246,7 @@ def test_task1_ramp():
 def test_task2_fault():
     """Task-2: a node fails, queues react, reroute reduces load on failed node."""
     print("\n--- Task-2: Fault Tolerance ---")
-    sim = ClusterSimulator(n_nodes=10, task_id="task-2")
+    sim = ClusterSimulator(n_nodes=5, task_id="task-2")
     ep = run_episode(sim, "task-2", max_steps=60, seed=42, action_policy="noop")
 
     # At least one node should be FAILED by end (scripted failure)
@@ -288,7 +288,7 @@ def test_task2_fault():
 
     # Now test with targeted reroute on the scripted-failed node
     # (NOT all nodes — rerouting everything to node-0 kills it)
-    sim2 = ClusterSimulator(n_nodes=10, task_id="task-2", seed=99)
+    sim2 = ClusterSimulator(n_nodes=5, task_id="task-2", seed=99)
     sim2.reset(task_id="task-2", seed=99)
     scripted_fail_id = None
     for step in range(1, 61):
@@ -317,7 +317,7 @@ def test_task2_fault():
 def test_task3_surge():
     """Task-3: surge hits node-1/node-2, SHED_LOAD on critical nodes rejected."""
     print("\n--- Task-3: Periodic Surge ---")
-    sim = ClusterSimulator(n_nodes=10, task_id="task-3")
+    sim = ClusterSimulator(n_nodes=5, task_id="task-3")
     ep = run_episode(sim, "task-3", max_steps=60, seed=42, action_policy="noop")
 
     # Rewards non-degenerate
@@ -338,7 +338,7 @@ def test_task3_surge():
            PASS if not has_nan else FAIL, "")
 
     # Test SHED_LOAD rejection on critical nodes
-    sim3 = ClusterSimulator(n_nodes=10, task_id="task-3", seed=7)
+    sim3 = ClusterSimulator(n_nodes=5, task_id="task-3", seed=7)
     sim3.reset(task_id="task-3", seed=7)
     for critical_id in CRITICAL_NODES:
         class _A:
@@ -368,7 +368,7 @@ def test_task3_surge():
 def test_scale_up_down():
     """SCALE_UP increases capacity after boot delay; SCALE_DOWN decreases it."""
     print("\n--- Scale Up / Scale Down ---")
-    sim = ClusterSimulator(n_nodes=10, task_id="task-1", seed=1)
+    sim = ClusterSimulator(n_nodes=5, task_id="task-1", seed=1)
     sim.reset(task_id="task-1", seed=1)
 
     # SCALE_UP node-3
@@ -539,7 +539,7 @@ def test_curriculum_tracker():
 def test_cascade_and_recovery():
     """Cascade failure detection and auto-recovery work."""
     print("\n--- Cascade & Recovery ---")
-    sim = ClusterSimulator(n_nodes=10, task_id="task-1", seed=1)
+    sim = ClusterSimulator(n_nodes=5, task_id="task-1", seed=1)
     sim.reset(task_id="task-1", seed=1)
 
     # Artificially overload a node to trigger failure
@@ -567,7 +567,7 @@ def test_cascade_and_recovery():
 
 def main():
     print("=" * 60)
-    print("AntiAtropos Smoke Test — 10-Node Cluster Validation")
+    print("AntiAtropos Smoke Test — 5-Node Cluster Validation")
     print("=" * 60)
 
     test_simulator_node_count()

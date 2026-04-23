@@ -1,11 +1,13 @@
 # AntiAtropos AWS Deployment Guide
 
-Deploy the AWS infrastructure (EKS + AMP + self-hosted Grafana) that AntiAtropos on Hugging Face Spaces connects to.
+Deploy the AWS infrastructure (EKS + AMP) that AntiAtropos on Hugging Face Spaces connects to.
+
+For FastAPI wiring with `aws` mode and laptop Grafana, see [deploy/aws/FASTAPI_AWS_MODE_GUIDE.md](deploy/aws/FASTAPI_AWS_MODE_GUIDE.md).
 
 ## Architecture
 
 ```
-Hugging Face Spaces                    AWS Region (ap-southeast-1)
+Hugging Face Spaces                    AWS Region (ap-south-1)
 =====================                  ======================
                                        ┌─────────────────────────┐
                                        │ EKS Cluster             │
@@ -60,7 +62,7 @@ aws configure
 eksctl create cluster -f deploy/aws/eksctl-cluster.yaml
 
 # Verify
-aws eks update-kubeconfig --name antiatropos --region ap-southeast-1
+aws eks update-kubeconfig --name antiatropos --region ap-south-1
 kubectl get nodes
 ```
 
@@ -95,10 +97,10 @@ kubectl get pods -n prod-sre
 ```bash
 aws amp create-workspace \
   --alias antiatropos-metrics \
-  --region ap-southeast-1
+  --region ap-south-1
 
 # Note the workspace ID
-aws amp list-workspaces --alias antiatropos-metrics --region ap-southeast-1
+aws amp list-workspaces --alias antiatropos-metrics --region ap-south-1
 ```
 
 ### Set Up IRSA for Prometheus Agent
@@ -125,19 +127,21 @@ helm repo update
 helm install prometheus-agent prometheus-community/prometheus \
   --namespace monitoring --create-namespace \
   -f deploy/aws/prometheus-agent-values.yaml \
-  --set prometheus.prometheusSpec.remoteWrite[0].url="https://aps-workspaces.ap-southeast-1.amazonaws.com/workspaces/WORKSPACE_ID/api/v1/remote_write"
+  --set prometheus.prometheusSpec.remoteWrite[0].url="https://aps-workspaces.ap-south-1.amazonaws.com/workspaces/WORKSPACE_ID/api/v1/remote_write"
 ```
 
 ### Verify AMP is Receiving Data
 
 ```bash
 pip install awscurl
-awscurl --service aps "https://aps-workspaces.ap-southeast-1.amazonaws.com/workspaces/WORKSPACE_ID/api/v1/query?query=up" --region ap-southeast-1
+awscurl --service aps "https://aps-workspaces.ap-south-1.amazonaws.com/workspaces/WORKSPACE_ID/api/v1/query?query=up" --region ap-south-1
 ```
 
 ---
 
-## Phase 4: Set Up Self-Hosted Grafana on EKS
+## Phase 4 (Optional): Set Up Self-Hosted Grafana on EKS
+
+If you are on free-tier nodes, skip this section and run Grafana locally on your laptop.
 
 ### Install Grafana
 
@@ -201,9 +205,9 @@ Set these in your HF Space (Settings → Repository secrets and Variables):
 
 | Variable | Value |
 |---|---|
-| `ANTIATROPOS_ENV_MODE` | `live` |
+| `ANTIATROPOS_ENV_MODE` | `aws` |
 | `ANTIATROPOS_STRICT_REAL` | `false` |
-| `PROMETHEUS_URL` | `https://aps-workspaces.ap-southeast-1.amazonaws.com/workspaces/WORKSPACE_ID` |
+| `PROMETHEUS_URL` | `https://aps-workspaces.ap-south-1.amazonaws.com/workspaces/WORKSPACE_ID` |
 | `KUBECONFIG` | `/app/kubeconfig.yaml` |
 | `ANTIATROPOS_K8S_NAMESPACE` | `prod-sre` |
 | `ANTIATROPOS_MAX_REPLICAS` | `6` |
@@ -236,6 +240,31 @@ if [ -n "${KUBECONFIG_CONTENT:-}" ]; then
     export KUBECONFIG=/app/kubeconfig.yaml
 fi
 ```
+
+### FastAPI Reset Mode
+
+Use `mode="aws"` on environment reset for AWS-backed execution. If omitted, the server will use `ANTIATROPOS_ENV_MODE`.
+
+---
+
+## Local Grafana (Recommended on Free Tier)
+
+Grafana is only for observability dashboards. Agent action execution stays in FastAPI + Kubernetes executor.
+
+Start Grafana locally:
+
+```bash
+docker run -d --name antiatropos-grafana -p 3000:3000 grafana/grafana:latest
+```
+
+Then in Grafana:
+
+1. Add Prometheus datasource using AMP workspace URL:
+  - `https://aps-workspaces.<region>.amazonaws.com/workspaces/<WORKSPACE_ID>`
+2. Enable SigV4 auth and set the same AWS region.
+3. Import dashboards:
+  - [deploy/grafana/provisioning/dashboards/json/antiatropos-overview.json](deploy/grafana/provisioning/dashboards/json/antiatropos-overview.json)
+  - [deploy/grafana/provisioning/dashboards/json/antiatropos-live.json](deploy/grafana/provisioning/dashboards/json/antiatropos-live.json)
 
 ---
 
@@ -296,11 +325,11 @@ kubectl delete namespace monitoring
 kubectl delete secret antiatropos-grafana-dashboards -n monitoring 2>/dev/null || true
 
 # Delete AMP workspace
-AMP_WS_ID=$(aws amp list-workspaces --alias antiatropos-metrics --region ap-southeast-1 --query 'workspaces[0].workspaceId' --output text)
-aws amp delete-workspace --workspace-id $AMP_WS_ID --region ap-southeast-1
+AMP_WS_ID=$(aws amp list-workspaces --alias antiatropos-metrics --region ap-south-1 --query 'workspaces[0].workspaceId' --output text)
+aws amp delete-workspace --workspace-id $AMP_WS_ID --region ap-south-1
 
 # Delete the EKS cluster (10-15 min)
-eksctl delete cluster --name antiatropos --region ap-southeast-1
+eksctl delete cluster --name antiatropos --region ap-south-1
 ```
 
 ---
@@ -329,3 +358,4 @@ kubectl logs -n monitoring -l app.kubernetes.io/name=prometheus
 3. Verify PromQL queries match your metric names
 4. Check Grafana logs: `kubectl logs -n monitoring -l app.kubernetes.io/name=grafana`
 5. Verify dashboards secret exists: `kubectl get secret antiatropos-grafana-dashboards -n monitoring`
+

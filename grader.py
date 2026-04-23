@@ -15,7 +15,10 @@ Provides standard scoring for hackathon submissions across three dimensions:
 
 import math
 from typing import Dict, Any, List
-from .models import ClusterObservation
+try:
+    from .models import ClusterObservation
+except ImportError:
+    from models import ClusterObservation  # type: ignore
 
 # ---------------------------------------------------------------------------
 # SLA thresholds (must match environment.py)

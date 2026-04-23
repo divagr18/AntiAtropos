@@ -104,6 +104,10 @@ if (-not $nodesReady) {
     Write-Host "WARNING: Nodes not ready yet. Check with: kubectl get nodes" -ForegroundColor Yellow
 }
 
+Write-Host "Enabling Prefix Delegation on VPC CNI..."
+kubectl set env daemonset aws-node -n kube-system ENABLE_PREFIX_DELEGATION=true
+Write-Host "Prefix Delegation enabled."
+
 # --- Phase 2: Deploy Sample Workloads ---
 Write-Host ""
 Write-Host ">>> Phase 2: Deploying sample workloads (payments, checkout, catalog, cart, auth)..." -ForegroundColor Yellow
@@ -319,7 +323,7 @@ users:
         command: aws
         args:
           - eks
-          - token
+          - get-token
           - --region
           - $Region
           - --cluster-name

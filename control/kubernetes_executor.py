@@ -1,8 +1,11 @@
 import os
 import json
 import time
+import logging
 from uuid import uuid4
 from typing import Optional
+
+logger = logging.getLogger("kubernetes_executor")
 
 class KubernetesExecutor:
     """
@@ -48,6 +51,7 @@ class KubernetesExecutor:
             try:
                 ack_status = self._real_execution(action_type, target, parameter)
             except Exception as e:
+                logger.error(f"Execution failed for {action_type} on {target}: {str(e)}")
                 ack_status = f"Error: Failed to execute {action_type} on {target}: {str(e)}"
                 error_code = "EXECUTION_ERROR"
 

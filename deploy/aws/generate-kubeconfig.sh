@@ -28,7 +28,7 @@
 
 set -euo pipefail
 
-REGION="${AWS_REGION:-ap-southeast-1}"
+REGION="${AWS_REGION:-ap-south-1}"
 CLUSTER_NAME="${CLUSTER_NAME:-antiatropos}"
 AWS_DIR="$(cd "$(dirname "$0")" && pwd)"
 OUTPUT="$AWS_DIR/kubeconfig-antiatropos.yaml"
@@ -135,3 +135,4 @@ echo "          load_kube_config() which uses the Python client's auth plugins."
 echo ""
 echo "To encode for HF Spaces secret:"
 echo "  cat $OUTPUT | base64 -w 0"
+

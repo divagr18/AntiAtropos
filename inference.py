@@ -11,16 +11,27 @@ from urllib.parse import urlparse
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
-from AntiAtropos.client import AntiAtroposEnv
-from AntiAtropos.grader import EpisodeGrader
-from AntiAtropos.models import ActionType, SREAction
-from AntiAtropos.replay import EpisodeReplayBuffer, compress_trajectory
+try:
+    from AntiAtropos.client import AntiAtroposEnv
+    from AntiAtropos.grader import EpisodeGrader
+    from AntiAtropos.models import ActionType, SREAction
+    from AntiAtropos.replay import EpisodeReplayBuffer, compress_trajectory
+except ModuleNotFoundError:
+    from client import AntiAtroposEnv  # type: ignore
+    from grader import EpisodeGrader  # type: ignore
+    from models import ActionType, SREAction  # type: ignore
+    from replay import EpisodeReplayBuffer, compress_trajectory  # type: ignore
 
 load_dotenv()
 
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
-API_KEY = os.getenv("API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+API_BASE_URL = os.getenv("API_BASE_URL") or (
+    "https://api.groq.com/openai/v1" if GROQ_API_KEY else "https://router.huggingface.co/v1"
+)
+MODEL_NAME = os.getenv("MODEL_NAME") or (
+    "llama-3.1-8b-instant" if GROQ_API_KEY else "Qwen/Qwen2.5-72B-Instruct"
+)
+API_KEY = os.getenv("API_KEY") or GROQ_API_KEY
 if not API_KEY:
     # Local fallback to keep developer runs convenient.
     API_KEY = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY")
@@ -56,7 +67,7 @@ SYSTEM_PROMPT = textwrap.dedent(
     Return exactly one JSON object:
     {
       "action_type": "SCALE_UP" | "SCALE_DOWN" | "REROUTE_TRAFFIC" | "SHED_LOAD" | "NO_OP",
-      "target_node_id": "node-0" | "node-1" | "node-2" | "node-3" | "node-4" | "node-5" | "node-6" | "node-7" | "node-8" | "node-9",
+      "target_node_id": "node-0" | "node-1" | "node-2" | "node-3" | "node-4",
       "parameter": 0.0
     }
     """
@@ -301,7 +312,8 @@ async def run_single_task(env: AntiAtroposEnv, client: AsyncOpenAI, task_id: str
             "sla_violation": reward < 0.3,
         })
 
-        error = getattr(result.observation, "last_action_error", None)
+        ack_status = getattr(result.observation, "action_ack_status", "")
+        error = ack_status if ack_status.startswith("Error:") or ack_status.startswith("Rejected:") else None
         log_step(step=step, action=action_str, reward=reward, done=bool(result.done), error=error)
 
     grade = grader.score()

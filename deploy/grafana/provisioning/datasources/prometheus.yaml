@@ -5,6 +5,13 @@ datasources:
     uid: PBFA97CFB590B2093
     type: prometheus
     access: proxy
-    url: http://127.0.0.1:9090/prometheus
+    url: https://aps-workspaces.ap-south-1.amazonaws.com/workspaces/ws-ba100a53-b185-4e64-8619-59c2bb3d2fce
     isDefault: true
-    editable: false
+    editable: true
+    jsonData:
+      sigV4Auth: true
+      sigV4AuthType: keys
+      sigV4Region: ap-south-1
+    secureJsonData:
+      sigV4AccessKey: "${AWS_ACCESS_KEY_ID}"
+      sigV4SecretKey: "${AWS_SECRET_ACCESS_KEY}"

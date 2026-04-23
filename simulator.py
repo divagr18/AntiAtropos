@@ -7,7 +7,7 @@
 """
 AntiAtropos Core Simulation Physics.
 
-A discrete-time fluid-queue model simulating a 10-node microservice cluster.
+A discrete-time fluid-queue model simulating a 5-node microservice cluster.
 Each node has stateful queues, capacities, and failure probabilities. 
 Dynamic traffic is injected per tick, and management actions shift capacity
 and routing parameters.
@@ -134,7 +134,7 @@ class ClusterSimulator:
     3. Failure Logic: Queue overflows trigger status degradation/node death.
     """
 
-    def __init__(self, n_nodes: int = 10, task_id: str = "task-1", seed: Optional[int] = None):
+    def __init__(self, n_nodes: int = 5, task_id: str = "task-1", seed: Optional[int] = None):
         self._n_nodes = n_nodes
         self._task_id = task_id
         # Default to non-deterministic RNG seeding so fresh simulator instances

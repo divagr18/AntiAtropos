@@ -349,9 +349,9 @@ def test_loss_comparison():
 
 def test_episode_collection():
     print("\n--- Episode Collection (MockPolicyModel) ---")
-    config = TrainingConfig(n_nodes=10, max_steps=30)
+    config = TrainingConfig(n_nodes=5, max_steps=30)
     collector = EpisodeCollector(config)
-    model = MockPolicyModel(n_nodes=10, seed=42)
+    model = MockPolicyModel(n_nodes=5, seed=42)
 
     episode = collector.collect_episode(model, task_id="task-1", seed=42)
 
@@ -388,11 +388,11 @@ def test_episode_collection():
 def test_training_steps():
     """Run one training step with each loss function."""
     print("\n--- Full Training Steps ---")
-    model = MockPolicyModel(n_nodes=10, seed=42)
+    model = MockPolicyModel(n_nodes=5, seed=42)
 
     for loss_name in [LOSS_REINFORCE, LOSS_REINFORCE_BASELINE, LOSS_GRPO, LOSS_RLOO]:
         config = TrainingConfig(
-            n_nodes=10,
+            n_nodes=5,
             max_steps=30,
             loss_fn=loss_name,
             n_samples_per_state=2 if loss_name in (LOSS_GRPO, LOSS_RLOO) else 1,
@@ -426,13 +426,13 @@ def test_multi_episode_stability():
     """Run multiple episodes and check running stats remain stable."""
     print("\n--- Multi-Episode Stability ---")
     config = TrainingConfig(
-        n_nodes=10,
+        n_nodes=5,
         max_steps=30,
         loss_fn=LOSS_REINFORCE_BASELINE,
         tasks=["task-1", "task-2", "task-3"],
     )
     trainer = SRETrainer(config)
-    model = MockPolicyModel(n_nodes=10, seed=42)
+    model = MockPolicyModel(n_nodes=5, seed=42)
 
     all_losses = []
     for i in range(5):

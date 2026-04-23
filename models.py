@@ -6,6 +6,7 @@ class EnvironmentMode(str, Enum):
     SIMULATED = "simulated"
     HYBRID = "hybrid"
     LIVE = "live"
+    AWS = "aws"
 
 # ---------------------------------------------------------------------------
 # SRE Action Schema (Control Plane)

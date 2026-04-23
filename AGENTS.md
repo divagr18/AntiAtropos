@@ -10,7 +10,7 @@ Our vision is to move from reactive scripts to **Dynamical System Control**. We 
 ---
 
 ## 1. The Physics Engine Concept
-Traditional observability measures metrics; we measure **Stability**. We have modeled our 10-node cluster using **Fluid Queue Dynamics**, treating request flow like water and nodes like reservoirs.
+Traditional observability measures metrics; we measure **Stability**. We have modeled our 5-node cluster using **Fluid Queue Dynamics**, treating request flow like water and nodes like reservoirs.
 
 ### The Lyapunov Potential ($V$)
 The "North Star" of our environment is the **Lyapunov Energy Function**:
@@ -45,7 +45,7 @@ Using `replay.py`, our agents maintain a "Long-term Memory" of **Key Transitions
 
 *   **Multi-Token Attention for SRE:** Investigating the use of frequency-selective transformation to capture "cluster breathiness" (p99 jitter) rather than just global averages.
 *   **Graph Neural Network (GNN) Control:** Potential pivot toward modeling the cluster as a dynamic graph to directly manage the "topology of stress."
-*   **Cross-Cluster Generalization:** Testing models trained on 10 nodes against 20 and 50 node environments.
+*   **Cross-Cluster Generalization:** Testing models trained on 5 nodes against 10 and 20 node environments.
 
 ---
 

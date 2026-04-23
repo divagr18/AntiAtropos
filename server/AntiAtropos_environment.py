@@ -10,13 +10,31 @@ from openenv.core.env_server.types import State
 try:
     from ..models import SREAction, ClusterObservation, NodeObservation, NodeStatus, EnvironmentMode
     from ..simulator import ClusterSimulator, COST_PER_CAPACITY_UNIT_PER_HOUR
-    from ..stability import compute_lyapunov, compute_reward, compute_barrier, normalize_reward, smooth_sla_penalty, REWARD_SCALE_VERSION
+    from ..stability import (
+        compute_lyapunov,
+        compute_reward,
+        compute_barrier,
+        normalize_reward,
+        smooth_sla_penalty,
+        compute_drift,
+        BARRIER_NORM_SCALE,
+        REWARD_SCALE_VERSION,
+    )
     from ..telemetry import PrometheusClient, get_observability_tracker
     from ..control import KubernetesExecutor, ActionValidator
 except ImportError:
     from models import SREAction, ClusterObservation, NodeObservation, NodeStatus, EnvironmentMode  # type: ignore[no-redef]
     from simulator import ClusterSimulator, COST_PER_CAPACITY_UNIT_PER_HOUR  # type: ignore[no-redef]
-    from stability import compute_lyapunov, compute_reward, compute_barrier, normalize_reward, smooth_sla_penalty, REWARD_SCALE_VERSION  # type: ignore[no-redef]
+    from stability import (  # type: ignore[no-redef]
+        compute_lyapunov,
+        compute_reward,
+        compute_barrier,
+        normalize_reward,
+        smooth_sla_penalty,
+        compute_drift,
+        BARRIER_NORM_SCALE,
+        REWARD_SCALE_VERSION,
+    )
     from telemetry import PrometheusClient, get_observability_tracker  # type: ignore[no-redef]
     from control import KubernetesExecutor, ActionValidator  # type: ignore[no-redef]
 
@@ -35,7 +53,7 @@ MAX_LATENCY_NORM = 1000.0
 MAX_REQUEST_RATE_NORM = 100.0
 
 MAX_STEPS: int = 100      # Episode length
-N_NODES:   int = 10       # Cluster size
+N_NODES:   int = 5        # Cluster size
 REWARD_OUTPUT_MODES = {"normalized", "raw"}
 
 
@@ -50,6 +68,25 @@ class AntiAtroposEnvironment(Environment):
     """
 
     SUPPORTS_CONCURRENT_SESSIONS: bool = True
+
+    @staticmethod
+    def _parse_mode(raw_mode: str | None) -> EnvironmentMode:
+        candidate = (raw_mode or os.getenv("ANTIATROPOS_ENV_MODE", "simulated")).strip().lower()
+        alias = {
+            "prod": "aws",
+            "production": "aws",
+        }
+        normalized = alias.get(candidate, candidate)
+        try:
+            return EnvironmentMode(normalized)
+        except ValueError:
+            return EnvironmentMode.SIMULATED
+
+    def _uses_real_telemetry(self) -> bool:
+        return self._mode in [EnvironmentMode.HYBRID, EnvironmentMode.LIVE, EnvironmentMode.AWS]
+
+    def _uses_real_executor(self) -> bool:
+        return self._mode in [EnvironmentMode.LIVE, EnvironmentMode.AWS]
 
     def __init__(self):
         """Initialise environment metadata and the simulation core."""
@@ -91,10 +128,7 @@ class AntiAtroposEnvironment(Environment):
         """
         self._state = State(episode_id=str(uuid4()), step_count=0)
         self._task_id = task_id
-        try:
-            self._mode = EnvironmentMode(mode)
-        except ValueError:
-            self._mode = EnvironmentMode.SIMULATED
+        self._mode = self._parse_mode(mode)
             
         self._sla_violations = 0
         self._action_ack_status = "success"
@@ -105,7 +139,7 @@ class AntiAtroposEnvironment(Environment):
         self._last_normalized_reward = 0.0
         
         # Only set baseline metric time for hybrid/live to prevent misleading freshness in SIM
-        if self._mode in [EnvironmentMode.HYBRID, EnvironmentMode.LIVE]:
+        if self._uses_real_telemetry():
             self._last_metric_time = time.time()
         else:
             self._last_metric_time = 0.0
@@ -119,7 +153,7 @@ class AntiAtroposEnvironment(Environment):
         self._sim.reset(task_id=task_id, seed=seed)
         
         # If in hybrid mode, immediately pull a baseline
-        if self._mode in [EnvironmentMode.HYBRID, EnvironmentMode.LIVE]:
+        if self._uses_real_telemetry():
             node_ids = [n["node_id"] for n in self._sim.state(for_agent=False)]
             metrics = self._telemetry.fetch_latest_metrics(node_ids)
             self._sim.reconcile_state(metrics)
@@ -170,7 +204,7 @@ class AntiAtroposEnvironment(Environment):
             self._sim.invalid_action_count += 1
             # Still advance time but the action didn't happen
         else:
-            if self._mode == EnvironmentMode.LIVE:
+            if self._uses_real_executor():
                 # In LIVE mode, we actually hit the cluster
                 exec_result = self._executor.execute_with_metadata(
                     action.action_type,
@@ -194,7 +228,7 @@ class AntiAtroposEnvironment(Environment):
         self._sim.tick()
         
         # 3. Telemetry Ingestion (Hybrid / Live)
-        if self._mode in [EnvironmentMode.HYBRID, EnvironmentMode.LIVE]:
+        if self._uses_real_telemetry():
             node_ids = [n["node_id"] for n in self._nodes_true]
             metrics = self._telemetry.fetch_latest_metrics(node_ids)
             self._sim.reconcile_state(metrics)
@@ -239,7 +273,6 @@ class AntiAtroposEnvironment(Environment):
         self._last_raw_reward = raw_reward
         self._last_normalized_reward = normalized_reward
         # Store reward component breakdown for the observation
-        from ..stability import compute_drift, BARRIER_NORM_SCALE
         delta_v = compute_drift(self._prev_lyapunov, current_lyapunov)
         barrier_norm = barrier / BARRIER_NORM_SCALE if BARRIER_NORM_SCALE > 0 else barrier
         self._last_reward_drift = -(ALPHA * delta_v)
@@ -321,9 +354,11 @@ class AntiAtroposEnvironment(Environment):
         if self._mode in [EnvironmentMode.SIMULATED, EnvironmentMode.HYBRID]:
             return True, "Enabled"
 
-        if self._mode == EnvironmentMode.LIVE:
+        if self._mode in [EnvironmentMode.LIVE, EnvironmentMode.AWS]:
             capability_error = self._executor.live_capability_error(action)
             if capability_error:
+                if self._mode == EnvironmentMode.AWS:
+                    return False, f"AWS mode rejected {action}: {capability_error}"
                 return False, capability_error
             return True, "Enabled"
 

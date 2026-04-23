@@ -28,6 +28,12 @@ Usage:
     python -m server.app
 """
 
+import json
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 try:
     from openenv.core.env_server.http_server import create_app
 except Exception as e:  # pragma: no cover
@@ -64,6 +70,34 @@ def metrics():
 
     payload = render_prometheus_metrics()
     return Response(content=payload, media_type="text/plain; version=0.0.4; charset=utf-8")
+
+
+@app.get("/config/runtime")
+def runtime_config():
+    raw_map = os.getenv("ANTIATROPOS_WORKLOAD_MAP", "")
+    mapped_nodes: list[str] = []
+    if raw_map:
+        try:
+            parsed = json.loads(raw_map)
+            if isinstance(parsed, dict):
+                mapped_nodes = sorted(str(k) for k in parsed.keys())
+        except Exception:
+            mapped_nodes = []
+
+    return {
+        "env_mode": os.getenv("ANTIATROPOS_ENV_MODE", "simulated"),
+        "reward_output_mode": os.getenv("ANTIATROPOS_REWARD_OUTPUT_MODE", "normalized"),
+        "prometheus_url_configured": bool(os.getenv("PROMETHEUS_URL")),
+        "kubeconfig_configured": bool(os.getenv("KUBECONFIG")),
+        "k8s_namespace": os.getenv("ANTIATROPOS_K8S_NAMESPACE", "default"),
+        "min_replicas": os.getenv("ANTIATROPOS_MIN_REPLICAS", "1"),
+        "max_replicas": os.getenv("ANTIATROPOS_MAX_REPLICAS", "20"),
+        "scale_step": os.getenv("ANTIATROPOS_SCALE_STEP", "3"),
+        "strict_real": os.getenv("ANTIATROPOS_STRICT_REAL", "false"),
+        "workload_map_configured": bool(raw_map),
+        "workload_map_nodes": mapped_nodes,
+        "supported_modes": ["simulated", "hybrid", "live", "aws"],
+    }
 
 
 def main(host: str = "0.0.0.0", port: int = 8000):

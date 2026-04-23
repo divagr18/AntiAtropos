@@ -14,7 +14,7 @@ autoDiscovery:
   clusterName: antiatropos
   enabled: true
 
-awsRegion: us-east-1
+awsRegion: ap-south-1
 
 # Only scale nodes that have the specific tag
 # This prevents autoscaling unrelated node groups if you add them later
@@ -54,3 +54,4 @@ resources:
   limits:
     cpu: 500m
     memory: 512Mi
+

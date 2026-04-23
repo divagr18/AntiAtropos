@@ -23,7 +23,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$Region = if ($env:AWS_REGION) { $env:AWS_REGION } else { "ap-southeast-1" }
+$Region = if ($env:AWS_REGION) { $env:AWS_REGION } else { "ap-south-1" }
 $ClusterName = if ($env:CLUSTER_NAME) { $env:CLUSTER_NAME } else { "antiatropos" }
 $AwsDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Output = Join-Path $AwsDir "kubeconfig-antiatropos.yaml"
@@ -99,7 +99,7 @@ users:
         command: aws
         args:
           - eks
-          - token
+          - get-token
           - --region
           - $Region
           - --cluster-name
@@ -128,3 +128,4 @@ Write-Host "          load_kube_config() which uses the Python client's auth plu
 Write-Host ""
 Write-Host "To encode for HF Spaces secret:" -ForegroundColor Yellow
 Write-Host "  [Convert]::ToBase64String([IO.File]::ReadAllBytes('$Output'))"
+

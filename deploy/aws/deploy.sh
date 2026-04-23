@@ -14,12 +14,12 @@
 #   ./deploy/aws/deploy.sh
 #
 # Environment variables:
-#   AWS_REGION     - AWS region (default: us-east-1)
+#   AWS_REGION     - AWS region (default: ap-south-1)
 #   CLUSTER_NAME   - EKS cluster name (default: antiatropos)
 
 set -euo pipefail
 
-REGION="${AWS_REGION:-ap-southeast-1}"
+REGION="${AWS_REGION:-ap-south-1}"
 CLUSTER_NAME="${CLUSTER_NAME:-antiatropos}"
 AWS_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -201,3 +201,4 @@ echo "  4. Set env var ANTIATROPOS_ENV_MODE = live"
 echo "  5. Set env var ANTIATROPOS_MAX_REPLICAS = 6"
 echo "  6. Set env var ANTIATROPOS_WORKLOAD_MAP = (see OPERATIONS.md)"
 echo "  7. Add kubeconfig decode to deploy/entrypoint.sh (see OPERATIONS.md)"
+
