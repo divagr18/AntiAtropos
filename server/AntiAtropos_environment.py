@@ -419,7 +419,7 @@ class AntiAtroposEnvironment(Environment):
                 total_cost += baseline_cap * COST_PER_CAPACITY_UNIT_PER_HOUR
                 above_baseline = capacity - baseline_cap
                 justified = max(0, needed - baseline_cap)  # excess that serves traffic
-                idle = above_baseline - justified              # excess sitting idle
+                idle = max(0, above_baseline - justified)            # excess sitting idle (never negative)
                 # Tier 2: needed excess at moderate rate (4× base)
                 total_cost += justified * (COST_PER_CAPACITY_UNIT_PER_HOUR * 4.0)
                 # Tier 3: idle excess at penalty rate (20× base)

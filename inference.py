@@ -343,7 +343,13 @@ async def run_single_task(env: AntiAtroposEnv, client: AsyncOpenAI, task_id: str
             history=history,
             demo_text=demo_text,
         )
-        result = await env.step(action)
+        action_str = _compact_action(action)
+        print(f"[DEBUG] step={step} sending action={action_str}", flush=True)
+        try:
+            result = await env.step(action)
+        except RuntimeError as e:
+            print(f"[DEBUG] step={step} FAILED action={action_str} error={e}", flush=True)
+            raise
         grader.record(result.observation)
 
         reward = float(result.reward or 0.0)
