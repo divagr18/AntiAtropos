@@ -47,8 +47,8 @@ import math
 # ---------------------------------------------------------------------------
 
 ALPHA: float = 0.002   # Weight on Lyapunov energy drift DeltaV(s)
-BETA:  float = 0.3     # Weight on infrastructure cost (increased so cost signal is visible)
-GAMMA: float = 6.0     # Weight on per-step SLA violation indicator (dominant but not overwhelming)
+BETA:  float = 1.5     # Weight on infrastructure cost (bumped: cost must compete with SLA)
+GAMMA: float = 4.0     # Weight on per-step SLA violation indicator (reduced: prevents cost-blind overprovisioning)
 DELTA: float = 0.1     # Weight on control-barrier function penalty (queue safety zone)
 ZETA:  float = 0.01    # Weight on action-repetition penalty (discourages degenerate fixations)
 
@@ -202,9 +202,11 @@ class AntiAtroposEnvironment(Environment):
             )
         
         apply_to_simulator = False
+        had_effect = True  # Default: assume action had effect unless simulator says otherwise
 
         if not is_valid:
             self._action_ack_status = f"Rejected: {error}"
+            had_effect = False  # Action was rejected — flag for per-step reward penalty
             # Keep capability-gate rejections out of executor error metrics.
             if not self._last_executor_error_code and not str(error).startswith("Live mode rejected"):
                 self._last_executor_error_code = "VALIDATION_FAILED"
@@ -230,7 +232,13 @@ class AntiAtroposEnvironment(Environment):
 
         # Keep simulator aligned with control-plane ack semantics.
         if apply_to_simulator:
-            self._sim.apply_action(action)
+            had_effect = self._sim.apply_action(action)
+            if not had_effect:
+                # Action was rejected at the simulator level (unknown target,
+                # SHED_LOAD on critical node, etc.).  Count as invalid so the
+                # grader penalises it.
+                self._sim.invalid_action_count += 1
+                self._action_ack_status = "Rejected: simulator rejected action"
 
         # 2. Advance Physics
         self._sim.tick()
@@ -277,6 +285,12 @@ class AntiAtroposEnvironment(Environment):
         # without blocking the action (emergency scaling still goes through)
         if cooldown_penalty > 0:
             normalized_reward = max(0.0, normalized_reward - cooldown_penalty * 0.1)
+        # Wasted-action penalty: the action was either rejected by the
+        # validator (unknown target, forbidden action) or by the simulator
+        # (unknown node).  Subtract from the normalised reward so the LLM
+        # sees the consequence immediately in its step history.
+        if not had_effect:
+            normalized_reward = max(0.0, normalized_reward - 0.05)
         reward = normalized_reward if self._reward_output_mode == "normalized" else raw_reward
         self._last_raw_reward = raw_reward
         self._last_normalized_reward = normalized_reward

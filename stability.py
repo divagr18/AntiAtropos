@@ -72,8 +72,8 @@ trend-stable (V is on a decreasing trajectory)."""
 # Reward normalisation defaults (env-overridable)
 # ---------------------------------------------------------------------------
 
-REWARD_NORM_MIDPOINT: float = float(os.getenv("ANTIATROPOS_REWARD_MIDPOINT", "0.0"))
-REWARD_NORM_TEMPERATURE: float = float(os.getenv("ANTIATROPOS_REWARD_TEMPERATURE", "5.0"))
+REWARD_NORM_MIDPOINT: float = float(os.getenv("ANTIATROPOS_REWARD_MIDPOINT", "-3.0"))
+REWARD_NORM_TEMPERATURE: float = float(os.getenv("ANTIATROPOS_REWARD_TEMPERATURE", "2.0"))
 REWARD_NORM_EPS: float = float(os.getenv("ANTIATROPOS_REWARD_EPS", "1e-8"))
 REWARD_SCALE_VERSION: str = "sigmoid-v2"  # v2: smooth SLA + barrier active
 

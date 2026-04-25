@@ -35,7 +35,7 @@ SLA_ERROR_RATE: float = 0.05
 # 10 * 3 * 0.05 = $1.50 / hr.  This is what a perfectly provisioned agent pays.
 BASELINE_COST_PER_HOUR: float = 1.50
 MIN_COST_PER_HOUR: float = 0.05    # 1 active node at min capacity 1
-MAX_COST_PER_HOUR: float = 2.50    # 10 nodes at capacity 5 (MAX_CAPACITY)
+MAX_COST_PER_HOUR: float = 25.00   # 10 nodes at ~50 capacity units (overprovisioned blow-out)
 # Exponential cost penalty harshness — higher = steeper curve
 COST_PENALTY_K: float = 3.0
 

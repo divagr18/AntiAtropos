@@ -23,7 +23,7 @@ from typing import Optional
 # ---------------------------------------------------------------------------
 
 DEFAULT_CAPACITY:     float = 3.0     # Baseline service rate (μ) per node
-MAX_CAPACITY:         float = 5.0     # Maximum SCALE_UP limit (halved to close brute-force headroom)
+MAX_CAPACITY:         float = 999.0   # High sentinel — cost function (not an artificial cap) limits scaling.  Real K8s has no per-node pod ceiling; RL must learn cost discipline.
 MAX_SCALING_STEP:     int   = 3       # Largest allowed SCALE_UP param (was 5)
 BOOT_DELAY_TICKS:     int   = 5       # Time it takes to bring up infrastructure
 BASE_LATENCY_MS:      float = 20.0    # Minimum processing time
@@ -271,8 +271,13 @@ class ClusterSimulator:
             state_list.append(d)
         return state_list
 
-    def apply_action(self, action_model) -> None:
-        """Update simulator world-state parameters based on agent command."""
+    def apply_action(self, action_model) -> bool:
+        """Update simulator world-state parameters based on agent command.
+
+        Returns:
+            True if the action had a measurable effect on state, False if it
+            was silently discarded (e.g. SCALE_UP at capacity cap).
+        """
         at = action_model.action_type if hasattr(action_model, "action_type") else action_model["action_type"]
         node_id = action_model.target_node_id if hasattr(action_model, "target_node_id") else action_model["target_node_id"]
         param = action_model.parameter if hasattr(action_model, "parameter") else action_model["parameter"]
@@ -280,23 +285,26 @@ class ClusterSimulator:
         # 1. Target node lookup
         target = next((n for n in self._nodes if n.node_id == node_id), None)
         if not target:
-            return
+            return False
 
         # 2. Command implementation
         if at == "SCALE_UP":
             delta = max(1, int(param * MAX_SCALING_STEP))
-            current_max = target.capacity + len(target.pending_capacity_queue)
-            actual_delta = int(min(delta, MAX_CAPACITY - current_max))
-            for _ in range(actual_delta):
+            for _ in range(delta):
                 target.pending_capacity_queue.append(BOOT_DELAY_TICKS)
             
             # If scaling up, we forcefully 'repair' DEGRADED status (SRE manual intervention)
-            if target.status == NodeStatus.DEGRADED:
+            was_degraded = target.status == NodeStatus.DEGRADED
+            if was_degraded:
                 target.status = NodeStatus.HEALTHY
+
+            return True  # Always has effect — adds pending capacity, costs money
 
         elif at == "SCALE_DOWN":
             delta = max(1, int(param * MAX_SCALING_STEP))
+            old_capacity = target.capacity
             target.capacity = max(1, target.capacity - delta)
+            return target.capacity != old_capacity  # Had effect if capacity actually changed
 
         elif at == "REROUTE_TRAFFIC":
             # Physically offload traffic FROM the target node by proportion `param`.
@@ -306,17 +314,22 @@ class ClusterSimulator:
             # Record a reroute weight for the target so _inject_traffic() can
             # reduce its lambda and bump peers accordingly.
             self._reroute_weights[node_id] = frac
+            return True  # Always has effect (sets a routing weight)
 
         elif at == "SHED_LOAD":
             # Rule: Cannot shed critical nodes (database/control plane).
             # This forces the agent to handle Task-3 surge via Scaling/Rerouting.
             if node_id in CRITICAL_NODES:
                 self.invalid_action_count += 1
-                return 
+                return False  # Action rejected on critical node
 
             frac = min(1.0, param)
             target.shed_fraction = frac
+            return True  # Had effect (set shed fraction)
             # Note: physically applied in _update_queues() to incoming traffic
+
+        # NO_OP or unrecognised action types — always intentional, count as having effect
+        return True
 
     def tick(self) -> None:
         """
