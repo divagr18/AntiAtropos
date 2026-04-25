@@ -20,7 +20,7 @@ run_id: "exp_001"                    # Unique run identifier (used for Hub paths
 # ---- Environment (OpenEnv) ----
 env_url: "https://pranavkk-antiatropos.hf.space"
 tasks: ["task-1", "task-2", "task-3"]
-max_steps_per_episode: 10            # Reduced for OOM diagnosis (was 40)
+max_steps_per_episode: 20            # Bumped from 10 after OOM resolved
 env_mode: "simulated"                # "simulated" | "live" | "hybrid" — set to "live" for real k8s
 
 # ---- Model ----
@@ -46,7 +46,7 @@ loss_type: "reinforce_baseline"       # reinforce | reinforce_baseline | grpo
 num_episodes_per_iteration: 4         # Safe now: max_seq_len=512 + loss_batch_size=8 + CPU offload
 num_iterations: 500                   # Total training iterations
 parallel_episodes: true               # Batch generation across episodes (10x faster)
-loss_batch_size: 2                    # Qwen3.5 logits = 2×512×151936×4 = 0.62 GB per batch
+loss_batch_size: 8                    # Safe now: for_training removed, ~19 GiB freed
 learning_rate: 2.0e-4
 per_device_train_batch_size: 2        # A10G can handle 2 with seq_len=1024
 gradient_accumulation_steps: 4        # Effective batch = 2*4 = 8 transitions

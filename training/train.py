@@ -548,12 +548,9 @@ def train(cfg: Dict[str, Any]) -> None:
                     t.attention_mask = t.attention_mask.cpu()
         _log_vram(f"i{iteration}_after_offload")
 
-        # ---- Compute loss (activate training mode right before forward) ----
-        try:
-            from unsloth import FastLanguageModel
-            FastLanguageModel.for_training(model)
-        except (ImportError, AttributeError):
-            model.train()
+        # ---- Compute loss (standard train mode — base 4-bit stays frozen, only LoRA needs gradients) ----
+        model.train()
+        _log_vram(f"i{iteration}_after_train")
         loss = loss_fn(model, tokenizer, episodes, cfg)
 
         # ---- Backward + update ----
