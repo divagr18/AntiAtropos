@@ -99,7 +99,7 @@ def runtime_config():
         "strict_real": os.getenv("ANTIATROPOS_STRICT_REAL", "false"),
         "workload_map_configured": bool(raw_map),
         "workload_map_nodes": mapped_nodes,
-        "supported_modes": ["simulated", "hybrid", "live", "aws"],
+        "supported_modes": ["simulated", "hybrid", "live"],
     }
 
 

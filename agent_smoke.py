@@ -22,7 +22,7 @@ except ImportError:
 class Config:
     env_url: str = os.getenv("ENV_URL", "http://localhost:8000")
     task_id: str = os.getenv("ANTIATROPOS_TASK", "task-1")
-    mode: str = os.getenv("ANTIATROPOS_MODE", os.getenv("ANTIATROPOS_ENV_MODE", "aws"))
+    mode: str = os.getenv("ANTIATROPOS_MODE", os.getenv("ANTIATROPOS_ENV_MODE", "live"))
     max_steps: int = int(os.getenv("ANTIATROPOS_SMOKE_STEPS", "20"))
 
 

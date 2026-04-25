@@ -74,8 +74,8 @@ class AntiAtroposEnvironment(Environment):
         env_mode = os.getenv("ANTIATROPOS_ENV_MODE", "").strip().lower()
         candidate = (env_mode or raw_mode or "simulated").strip().lower()
         alias = {
-            "prod": "aws",
-            "production": "aws",
+            "prod": "live",
+            "production": "live",
         }
         normalized = alias.get(candidate, candidate)
         try:
@@ -84,10 +84,10 @@ class AntiAtroposEnvironment(Environment):
             return EnvironmentMode.SIMULATED
 
     def _uses_real_telemetry(self) -> bool:
-        return self._mode in [EnvironmentMode.HYBRID, EnvironmentMode.LIVE, EnvironmentMode.AWS]
+        return self._mode in [EnvironmentMode.HYBRID, EnvironmentMode.LIVE]
 
     def _uses_real_executor(self) -> bool:
-        return self._mode in [EnvironmentMode.LIVE, EnvironmentMode.AWS]
+        return self._mode in [EnvironmentMode.LIVE]
 
     def __init__(self):
         """Initialise environment metadata and the simulation core."""
@@ -355,11 +355,9 @@ class AntiAtroposEnvironment(Environment):
         if self._mode in [EnvironmentMode.SIMULATED, EnvironmentMode.HYBRID]:
             return True, "Enabled"
 
-        if self._mode in [EnvironmentMode.LIVE, EnvironmentMode.AWS]:
+        if self._mode in [EnvironmentMode.LIVE]:
             capability_error = self._executor.live_capability_error(action)
             if capability_error:
-                if self._mode == EnvironmentMode.AWS:
-                    return False, f"AWS mode rejected {action}: {capability_error}"
                 return False, capability_error
             return True, "Enabled"
 
