@@ -1,0 +1,30 @@
+# AntiAtropos QLoRA Reward-Based Training — HF Jobs Requirements
+# Install: pip install -r training/requirements.txt
+
+# ---- Core ML ----
+torch>=2.1.0
+transformers>=4.45.0
+accelerate>=0.34.0
+bitsandbytes>=0.43.0
+peft>=0.13.0
+trl>=0.11.0
+datasets>=3.0.0
+
+# ---- Unsloth (4-bit QLoRA acceleration) ----
+unsloth @ git+https://github.com/unslothai/unsloth.git
+
+# ---- Config ----
+pyyaml>=6.0
+
+# ---- Environment API ----
+requests>=2.31.0
+
+# ---- HF Hub (model push + metrics dataset) ----
+huggingface_hub>=0.25.0
+
+# ---- Misc ----
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+scikit-learn>=1.3.0
+matplotlib>=3.7.0
+numpy>=1.24.0

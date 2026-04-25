@@ -1,0 +1,94 @@
+# AntiAtropos QLoRA Training Configuration
+# ============================================================
+# Target GPU: NVIDIA A10G (24 GiB VRAM)
+#
+# Sequence length rationale:
+#   System prompt ~ 500 tokens
+#   Observation (5 nodes) ~ 150 tokens
+#   Reasoning + JSON action ~ 40 tokens
+#   Chat template overhead ~ 50 tokens
+#   Total per turn ~ 740 tokens
+#   1024 gives 38% headroom — plenty. Going shorter saves VRAM for
+#   more episodes per iteration (the real bottleneck is env API latency).
+#
+# All values can be overridden via environment variables:
+#   e.g. ANTIATROPOS_LR=5e-5 python training/train.py
+
+# ---- Run Identity ----
+run_id: "exp_001"                    # Unique run identifier (used for Hub paths)
+
+# ---- Environment (OpenEnv) ----
+env_url: "https://pranavkk-antiatropos.hf.space"
+tasks: ["task-1", "task-2", "task-3"]
+max_steps_per_episode: 60
+
+# ---- Model ----
+base_model: "Qwen/Qwen3.5-4B"
+max_seq_length: 1024                 # 740 token peak + headroom; saves ~40% VRAM vs 2048
+load_in_4bit: true
+
+# ---- LoRA ----
+lora_rank: 32                        # A10G has room for rank-32 (only ~2% params)
+lora_alpha: 32                       # Usually equals lora_rank
+lora_dropout: 0.0
+lora_target_modules:
+  - "q_proj"
+  - "k_proj"
+  - "v_proj"
+  - "o_proj"
+  - "gate_proj"
+  - "up_proj"
+  - "down_proj"
+
+# ---- Training (reward-based) ----
+loss_type: "reinforce_baseline"       # reinforce | reinforce_baseline | grpo
+num_episodes_per_iteration: 8         # More episodes per step with the VRAM savings
+num_iterations: 500                   # Total training iterations
+learning_rate: 2.0e-4
+per_device_train_batch_size: 2        # A10G can handle 2 with seq_len=1024
+gradient_accumulation_steps: 4        # Effective batch = 2*4 = 8 transitions
+warmup_steps: 50
+weight_decay: 0.01
+max_grad_norm: 1.0
+bf16: true
+optim: "adamw_8bit"
+
+# ---- GRPO / RLOO specific ----
+grpo_k: 4                            # Group size for GRPO (samples per state)
+rloo_k: 2                            # Leave-one-out group size
+
+# ---- Reward shaping ----
+reward_gamma: 0.99                    # Discount factor for returns
+reward_gae_lambda: 0.95              # GAE lambda (if using GAE)
+advantage_normalize: true             # Normalize advantages across batch
+
+# ---- Generation ----
+generation_max_new_tokens: 80         # 40 tokens is typical; 80 is generous cap
+generation_temperature: 0.7           # Slight stochasticity for exploration
+generation_top_p: 0.9
+generation_do_sample: true
+
+# ---- Evaluation ----
+eval_interval: 50                     # Evaluate every N iterations
+eval_episodes: 3                      # Episodes per task during eval
+eval_max_steps: 60
+
+# ---- Checkpointing ----
+checkpoint_interval: 25               # Save + push checkpoint every N iterations
+save_total_limit: 5                   # Max checkpoints on Hub
+
+# ---- Metrics ----
+push_interval: 10                     # Push metrics to Hub every N iterations
+
+# ---- Plotting ----
+plot_interval: 25                     # Generate + push plots every N iterations
+plot_format: "png"                    # png or svg
+plot_dpi: 150                         # Resolution
+
+# ---- Hugging Face Hub ----
+hub_model_repo: ""                    # e.g. "pranavkk/antiatropos-qlora-qwen3.5-4b"
+hub_metrics_dataset: ""               # e.g. "pranavkk/antiatropos-training-metrics"
+push_to_hub: true                     # Push adapter + metrics after training
+
+# ---- Reproducibility ----
+seed: 42
