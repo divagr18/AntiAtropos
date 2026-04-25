@@ -552,8 +552,14 @@ def generate_dataset(hf_space_url, output_dir, seed, episodes_per_task, max_step
 
     for task_id in ["task-1", "task-2", "task-3"]:
         print(f"\n--- Generating episodes for {task_id} ---")
+        first_ep = True
         for ep_idx in range(episodes_per_task):
             ep_seed = seed + ep_idx * 100 + hash(task_id) % 1000
+
+            if first_ep:
+                print(f"  {'Step':5s} | {'Action':34s} | {'Reward':8s} | Notes")
+                print(f"  {'-'*60}")
+                first_ep = False
 
             reset_resp = env_reset(hf_space_url, task_id=task_id, seed=ep_seed, mode=env_mode)
             obs_dict = reset_resp.get("observation", reset_resp)
@@ -568,25 +574,40 @@ def generate_dataset(hf_space_url, output_dir, seed, episodes_per_task, max_step
                 )
                 assistant_text = make_assistant_text(action_type, target_node_id, parameter)
 
+                # Validate what the heuristic produced
+                at, nid, param, repair_note = repair_action(
+                    action_type.value if hasattr(action_type, 'value') else action_type,
+                    target_node_id, parameter
+                )
+                if repair_note:
+                    note = f"REPAIRED: {repair_note}"
+                else:
+                    note = "ok"
+
                 all_examples.append({
                     "system": SYSTEM_PROMPT,
                     "user": obs_text,
                     "assistant": assistant_text,
                     "task_id": task_id,
-                    "action_type": action_type.value,
-                    "target_node_id": target_node_id,
+                    "action_type": at,
+                    "target_node_id": nid,
                     "reward": episode_reward,
                 })
 
-                action_counts[action_type.value] += 1
-                node_counts[target_node_id] += 1
+                action_counts[at] += 1
+                node_counts[nid] += 1
 
-                step_resp = env_step(hf_space_url, action_type.value, target_node_id, parameter)
+                step_resp = env_step(hf_space_url, at, nid, param)
                 obs_dict = step_resp.get("observation", step_resp)
-                episode_reward = step_resp.get("reward", episode_reward)
+                env_reward = step_resp.get("reward", 0.0)
+                episode_reward = env_reward if env_reward is not None else episode_reward
                 reward_sum += episode_reward
                 reward_count += 1
                 sla_violations = obs_dict.get("sla_violations", sla_violations)
+
+                action_str = f"{at:11s} {nid} p={param:.2f}"
+                viol_note = f" SLA={sla_violations}" if sla_violations else ""
+                print(f"  {step:3d}  | {action_str:34s} | {episode_reward:.4f}  | {note}{viol_note}", flush=True)
 
                 if step_resp.get("done", False):
                     break
