@@ -57,8 +57,8 @@ TEMPERATURE_SWEEP = [0.6, 0.3, 0.7]  # Fixed temperatures for multi-episode eval
 
 TASK_BRIEFS: Dict[str, str] = {
     "task-1": "Traffic ramps linearly every tick. Scale up proactively — new capacity takes 5 ticks to boot. Keep latency under SLA (200ms) while minimizing cost. Scale down when queues are safe.",
-    "task-2": "One node will fail permanently (any of node-1 through node-4, never node-0). STEP 1: scan all nodes and find which has status=FAILED and outflow=0. STEP 2: if the failed node has children, scale those children up (they are starved). STEP 3: reroute traffic from THE FAILED NODE (not its parent!) to healthy peers. If node-4 failed (independent), scale up node-0 to compensate.",
-    "task-3": "A surge (~75 req/tick) will hit node-1 and node-2 via a side channel bypassing node-0. Do NOT pre-scale — idle capacity costs money and there is no advance warning. Monitor queue_depth: ONLY scale node-1/node-2 when you SEE their queues climbing sharply. 3-4 SCALE_UPs on each is sufficient (5 replicas handles the burst at equilibrium). If queues don't drop after 4 SCALE_UPs, STOP scaling and try REROUTE instead. Scale down after queues return to safe levels to save cost.",
+    "task-2": "One node (node-1 through node-4) will fail permanently. Wait until you SEE a FAILED node — do NOT pre-scale. Once a node shows status=FAILED: reroute traffic FROM the failed node to healthy peers, and scale up any starved children. Do NOT scale node-0 unless node-4 failed independently. SCALE_DOWN cancels pending boots and reduces cost. If reward is falling, stop scaling.",
+    "task-3": "A surge (~75 req/tick) will hit node-1 and node-2 via a side channel bypassing node-0. Do NOT scale node-0 — it is NOT affected. ONLY scale node-1 or node-2 when their queue_depth rises. Do NOT pre-scale. 3-4 SCALE_UPs on each is sufficient. SCALE_DOWN cancels pending boots and reduces cost — use it when queues are safe. If reward is falling, STOP scaling and SCALE_DOWN to recover.",
 }
 
 SYSTEM_PROMPT = textwrap.dedent(
@@ -74,7 +74,7 @@ SYSTEM_PROMPT = textwrap.dedent(
 
     ACTIONS (new capacity takes 5 ticks to boot):
       SCALE_UP <node> <amount>   — add capacity (0.3-0.5 normal, 0.6-0.8 heavy surge), clears DEGRADED
-      SCALE_DOWN <node> <amount>  — remove capacity (0.2-0.4 safe, 0.5-0.7 aggressive)
+      SCALE_DOWN <node> <amount>  — cancel pending boots first, then remove active capacity (0.2-0.4 safe, 0.5-0.7 aggressive)
       REROUTE_TRAFFIC <node> <fraction> — reduce THIS node capacity, redistribute to peers (0.3-0.5)
       SHED_LOAD <node> <fraction>  — drop incoming traffic (0.3-0.5), NEVER on node-0 (payment gateway)
       NO_OP                           — do nothing
@@ -293,8 +293,8 @@ def _extract_json_object(text: str) -> dict:
 
 def _parse_action(payload: dict) -> SREAction:
     action_type = str(payload.get("action_type", "NO_OP")).upper()
-    target_node_id = str(payload.get("target_node_id", "node-0"))
-    parameter = float(payload.get("parameter", 0.0))
+    target_node_id = str(payload.get("target_node_id") or "node-0")
+    parameter = float(payload.get("parameter") or 0.0)
     return SREAction(
         action_type=ActionType(action_type),
         target_node_id=target_node_id,

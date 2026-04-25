@@ -282,12 +282,16 @@ class ClusterSimulator:
         node_id = action_model.target_node_id if hasattr(action_model, "target_node_id") else action_model["target_node_id"]
         param = action_model.parameter if hasattr(action_model, "parameter") else action_model["parameter"]
 
-        # 1. Target node lookup
+        # 1. NO_OP always succeeds regardless of target node
+        if at == "NO_OP":
+            return True
+
+        # 2. Target node lookup (required for all other actions)
         target = next((n for n in self._nodes if n.node_id == node_id), None)
         if not target:
             return False
 
-        # 2. Command implementation
+        # 3. Command implementation
         if at == "SCALE_UP":
             delta = max(1, int(param * MAX_SCALING_STEP))
             for _ in range(delta):
@@ -302,9 +306,19 @@ class ClusterSimulator:
 
         elif at == "SCALE_DOWN":
             delta = max(1, int(param * MAX_SCALING_STEP))
+            # First cancel any pending capacity (cancel boot queue entries)
+            # This is like canceling a VM launch — it hasn't served traffic yet.
+            cancelled = 0
+            while cancelled < delta and target.pending_capacity_queue:
+                target.pending_capacity_queue.pop()  # Remove newest pending first
+                cancelled += 1
+            # If still need to remove more, reduce active capacity
+            remaining = delta - cancelled
             old_capacity = target.capacity
-            target.capacity = max(1, target.capacity - delta)
-            return target.capacity != old_capacity  # Had effect if capacity actually changed
+            if remaining > 0:
+                target.capacity = max(1, target.capacity - remaining)
+            # Had effect if we cancelled pending or reduced active capacity
+            return cancelled > 0 or target.capacity != old_capacity
 
         elif at == "REROUTE_TRAFFIC":
             # Physically offload traffic FROM the target node by proportion `param`.

@@ -38,6 +38,10 @@ class ActionValidator:
 
         cooldown_penalty = 0.0
 
+        # NO_OP always succeeds — target and parameter don't matter
+        if action == "NO_OP":
+            return True, "Success", 0.0
+
         if valid_targets is not None and target not in valid_targets:
             return False, f"Unknown target node: {target}", 0.0
 

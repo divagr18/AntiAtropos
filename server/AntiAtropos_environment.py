@@ -389,41 +389,61 @@ class AntiAtroposEnvironment(Environment):
 
         Tier 1 — Baseline capacity (up to DEFAULT_CAPACITY): cheap base rate.
             Infrastructure already provisioned and paid for — no penalty.
-        Tier 2 — Needed excess (above DEFAULT_CAPACITY, up to 'needed'): moderate
-            rate (4× base).  Agent added capacity that's actually serving traffic —
-            costs more but is justified by demand.
-        Tier 3 — Idle excess (above 'needed'): expensive penalty rate (20× base).
-            Capacity sitting idle beyond what traffic requires — pure waste.
+        Tier 2 — Justified excess (above DEFAULT_CAPACITY, up to 'needed', or
+            pending/booting capacity): moderate rate (4× base).  Agent-added
+            capacity that's serving traffic OR in the boot queue — costs more
+            but is defensible.
+        Tier 3 — Idle excess (above 'needed', active only): expensive penalty
+            rate (20× base).  ACTIVE capacity sitting idle beyond what traffic
+            requires — pure waste.
 
-        'needed' = ceil(incoming_rate / 15) — minimum units to serve traffic.
-        With DEFAULT_CAPACITY=3, a node at baseline costs 3 × $0.05 = $0.15/hr
-        regardless of traffic.  Only scaling ABOVE baseline triggers higher rates,
-        giving the agent a clear gradient: scale just enough, not too much.
+        Key: PENDING capacity is always charged at Tier 2 (justified), not Tier 3
+        (idle waste).  Pending units haven't booted yet so they CAN'T serve traffic;
+        classifying them as "idle waste" penalises the agent for the boot delay
+        which it cannot control.  Once they boot, they become active and are
+        reclassified as justified or idle based on actual traffic.
+
+        'needed' = ceil(incoming_rate / 15) — minimum ACTIVE units to serve traffic.
+        With DEFAULT_CAPACITY=3, a node at baseline costs 3 × $0.05 = $0.15/hr.
         """
         total_cost = 0.0
-        baseline_cap = int(DEFAULT_CAPACITY)  # Tier 1 ceiling (imported from simulator)
+        baseline_cap = int(DEFAULT_CAPACITY)  # Tier 1 ceiling
         for node in nodes_true:
             if node["status"] == NodeStatus.FAILED:
                 continue
-            capacity = int(node.get("capacity_units", 0)) + int(node.get("pending_capacity_units", 0))
+            active = int(node.get("capacity_units", 0))
+            pending = int(node.get("pending_capacity_units", 0))
+            capacity = active + pending
             if capacity <= 0:
                 continue
             incoming = float(node.get("incoming_request_rate", 0.0))
             needed = max(1, int(math.ceil(incoming / 15.0)))
 
-            if capacity <= baseline_cap:
+            # --- Active capacity ---
+            if active <= baseline_cap:
                 # Tier 1: baseline provisioned capacity — cheap base rate
-                total_cost += capacity * COST_PER_CAPACITY_UNIT_PER_HOUR
+                total_cost += active * COST_PER_CAPACITY_UNIT_PER_HOUR
             else:
                 # Tier 1: baseline portion at cheap rate
                 total_cost += baseline_cap * COST_PER_CAPACITY_UNIT_PER_HOUR
-                above_baseline = capacity - baseline_cap
+                above_baseline = active - baseline_cap
                 justified = max(0, needed - baseline_cap)  # excess that serves traffic
-                idle = max(0, above_baseline - justified)            # excess sitting idle (never negative)
+                idle = max(0, above_baseline - justified)    # excess sitting idle
                 # Tier 2: needed excess at moderate rate (4× base)
                 total_cost += justified * (COST_PER_CAPACITY_UNIT_PER_HOUR * 4.0)
                 # Tier 3: idle excess at penalty rate (20× base)
                 total_cost += idle * OVERPROVISION_COST_PER_UNIT
+
+            # --- Pending capacity (always Tier 2 — booting, not yet serving) ---
+            if pending > 0:
+                # How much of the baseline budget is unused by active capacity?
+                baseline_remaining = max(0, baseline_cap - active)
+                # Pending fills remaining baseline slots first (Tier 1 rate)
+                pending_at_baseline = min(pending, baseline_remaining)
+                pending_above = pending - pending_at_baseline
+                total_cost += pending_at_baseline * COST_PER_CAPACITY_UNIT_PER_HOUR
+                total_cost += pending_above * (COST_PER_CAPACITY_UNIT_PER_HOUR * 4.0)  # Tier 2
+
         return total_cost
 
     def _avg_latency(self, nodes: list[dict]) -> float:
