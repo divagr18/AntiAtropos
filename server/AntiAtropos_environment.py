@@ -9,7 +9,7 @@ from openenv.core.env_server.types import State
 
 try:
     from ..models import SREAction, ClusterObservation, NodeObservation, NodeStatus, EnvironmentMode
-    from ..simulator import ClusterSimulator, COST_PER_CAPACITY_UNIT_PER_HOUR, OVERPROVISION_COST_PER_UNIT, CLUSTER_TOPOLOGY
+    from ..simulator import ClusterSimulator, DEFAULT_CAPACITY, COST_PER_CAPACITY_UNIT_PER_HOUR, OVERPROVISION_COST_PER_UNIT, CLUSTER_TOPOLOGY
     from ..stability import (
         compute_lyapunov,
         compute_lyapunov_graph,
@@ -25,7 +25,7 @@ try:
     from ..control import KubernetesExecutor, ActionValidator
 except ImportError:
     from models import SREAction, ClusterObservation, NodeObservation, NodeStatus, EnvironmentMode  # type: ignore[no-redef]
-    from simulator import ClusterSimulator, COST_PER_CAPACITY_UNIT_PER_HOUR, OVERPROVISION_COST_PER_UNIT, CLUSTER_TOPOLOGY  # type: ignore[no-redef]
+    from simulator import ClusterSimulator, DEFAULT_CAPACITY, COST_PER_CAPACITY_UNIT_PER_HOUR, OVERPROVISION_COST_PER_UNIT, CLUSTER_TOPOLOGY  # type: ignore[no-redef]
     from stability import (  # type: ignore[no-redef]
         compute_lyapunov,
         compute_lyapunov_graph,
@@ -385,13 +385,23 @@ class AntiAtroposEnvironment(Environment):
         return False, f"Unsupported environment mode: {self._mode}"
 
     def _compute_cost(self, nodes_true: list[dict]) -> float:
-        """Two-tier cost: cheap for needed capacity, expensive for idling excess.
+        """Three-tier cost model calibrated to DEFAULT_CAPACITY as the baseline.
 
-        Needed capacity = ceil(incoming_rate / 15.0) — the minimum replicas
-        required to service current traffic.  Excess beyond that is idling
-        waste and costs OVERPROVISION_COST_PER_UNIT (20x base rate).
+        Tier 1 — Baseline capacity (up to DEFAULT_CAPACITY): cheap base rate.
+            Infrastructure already provisioned and paid for — no penalty.
+        Tier 2 — Needed excess (above DEFAULT_CAPACITY, up to 'needed'): moderate
+            rate (4× base).  Agent added capacity that's actually serving traffic —
+            costs more but is justified by demand.
+        Tier 3 — Idle excess (above 'needed'): expensive penalty rate (20× base).
+            Capacity sitting idle beyond what traffic requires — pure waste.
+
+        'needed' = ceil(incoming_rate / 15) — minimum units to serve traffic.
+        With DEFAULT_CAPACITY=3, a node at baseline costs 3 × $0.05 = $0.15/hr
+        regardless of traffic.  Only scaling ABOVE baseline triggers higher rates,
+        giving the agent a clear gradient: scale just enough, not too much.
         """
         total_cost = 0.0
+        baseline_cap = int(DEFAULT_CAPACITY)  # Tier 1 ceiling (imported from simulator)
         for node in nodes_true:
             if node["status"] == NodeStatus.FAILED:
                 continue
@@ -400,11 +410,20 @@ class AntiAtroposEnvironment(Environment):
                 continue
             incoming = float(node.get("incoming_request_rate", 0.0))
             needed = max(1, int(math.ceil(incoming / 15.0)))
-            if capacity <= needed:
+
+            if capacity <= baseline_cap:
+                # Tier 1: baseline provisioned capacity — cheap base rate
                 total_cost += capacity * COST_PER_CAPACITY_UNIT_PER_HOUR
             else:
-                total_cost += needed * COST_PER_CAPACITY_UNIT_PER_HOUR
-                total_cost += (capacity - needed) * OVERPROVISION_COST_PER_UNIT
+                # Tier 1: baseline portion at cheap rate
+                total_cost += baseline_cap * COST_PER_CAPACITY_UNIT_PER_HOUR
+                above_baseline = capacity - baseline_cap
+                justified = max(0, needed - baseline_cap)  # excess that serves traffic
+                idle = above_baseline - justified              # excess sitting idle
+                # Tier 2: needed excess at moderate rate (4× base)
+                total_cost += justified * (COST_PER_CAPACITY_UNIT_PER_HOUR * 4.0)
+                # Tier 3: idle excess at penalty rate (20× base)
+                total_cost += idle * OVERPROVISION_COST_PER_UNIT
         return total_cost
 
     def _avg_latency(self, nodes: list[dict]) -> float:

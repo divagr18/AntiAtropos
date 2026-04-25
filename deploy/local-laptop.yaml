@@ -9,7 +9,7 @@ metadata:
   name: auth
   namespace: prod-sre
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
       app: auth
@@ -81,7 +81,7 @@ metadata:
   name: cart
   namespace: prod-sre
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
       app: cart
@@ -153,7 +153,7 @@ metadata:
   name: catalog
   namespace: prod-sre
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
       app: catalog
@@ -225,7 +225,7 @@ metadata:
   name: checkout
   namespace: prod-sre
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
       app: checkout
@@ -297,7 +297,7 @@ metadata:
   name: payments
   namespace: prod-sre
 spec:
-  replicas: 2
+  replicas: 3
   selector:
     matchLabels:
       app: payments
