@@ -142,7 +142,7 @@ class MockPolicyModel:
 MAX_QUEUE_NORM = 200.0
 MAX_LATENCY_NORM = 1000.0
 MAX_REQUEST_RATE_NORM = 100.0
-ALPHA, BETA, GAMMA, DELTA = 0.002, 0.01, 10.0, 0.005
+ALPHA, BETA, GAMMA, DELTA = 0.002, 0.3, 6.0, 0.1
 
 
 def format_observation(nodes: List[dict], task_id: str, step: int, max_steps: int) -> str:

@@ -52,10 +52,10 @@ MAX_TOKENS = int(os.getenv("ANTIATROPOS_MAX_TOKENS", "180"))
 SEED = int(os.getenv("ANTIATROPOS_SEED", "42"))
 SUCCESS_SCORE_THRESHOLD = float(os.getenv("ANTIATROPOS_SUCCESS_THRESHOLD", "0.55"))
 EVAL_RUNS = int(os.getenv("ANTIATROPOS_EVAL_RUNS", "3"))  # Num eval runs per task
-TEMPERATURE_SWEEP = [0.7, 0.3, 0.7]  # Fixed temperatures for multi-episode eval
+TEMPERATURE_SWEEP = [0.6, 0.3, 0.7]  # Fixed temperatures for multi-episode eval
 
 TASK_BRIEFS: Dict[str, str] = {
-    "task-1": "Traffic increases linearly. Scale proactively to keep latency low and cost efficient.",
+    "task-1": "Traffic ramps linearly every tick. Scale up proactively — new capacity takes 5 ticks to boot. Keep latency under SLA (200ms) while minimizing cost. Scale down when queues are safe.",
     "task-2": "A node fails randomly. Detect quickly and recover with reroute/scale actions.",
     "task-3": "Protect VIP node-0 under surges. Keep VIP healthy without invalid actions.",
 }
@@ -63,8 +63,21 @@ TASK_BRIEFS: Dict[str, str] = {
 SYSTEM_PROMPT = textwrap.dedent(
     """
     You are an autonomous SRE controller managing a five-node microservice cluster.
-    node-0 is the payment gateway (higher business priority, receives 2x reward weight).
-    Balance protection of node-0 with the health of all other nodes — do not ignore nodes 1-4.
+
+    ACTIONS (new capacity takes 5 ticks to boot):
+      SCALE_UP <node> <amount:0-1>   — add capacity, clears DEGRADED status
+      SCALE_DOWN <node> <amount:0-1>  — remove capacity (min 1 unit)
+      REROUTE_TRAFFIC <node> <fraction:0-1> — offload traffic to healthy peers
+      SHED_LOAD <node> <fraction:0-1>  — drop incoming traffic (NOT on critical nodes)
+      NO_OP                           — do nothing
+
+    REWARD PRIORITIES (in order):
+      1. Avoid SLA violations (latency > 200ms or error rate > 5%)
+      2. Keep queues low (growing queues = destabilizing system)
+      3. Don't over-provision (excess capacity costs money)
+
+    SCALE PROACTIVELY — boot delay means reactive scaling arrives too late.
+    Scale back down when safe to save cost.
 
     Return exactly one JSON object:
     {
@@ -162,11 +175,22 @@ def build_user_prompt(task_id: str, step: int, obs: dict, history: List[str], de
     recent = "\n".join(history[-4:]) if history else "None"
     brief = TASK_BRIEFS.get(task_id, "Maintain SLA, stability, and efficient cost.")
     demo_section = f"\n\n{demo_text}" if demo_text else ""
+
+    # Synthesize a 1-line cluster summary from the most important signals
+    cost_hour = obs.get("current_cost_per_hour", 0.0)
+    cost_dev = "low" if cost_hour < 1.2 else ("high" if cost_hour > 1.8 else "baseline")
+    queue_backlog = obs.get("total_queue_backlog", 0.0)
+    queue_trend = "rising" if queue_backlog > 0.3 else ("stable" if queue_backlog < 0.1 else "moderate")
+    sla_violations = obs.get("sla_violations", 0)
+    sla_note = f" ({sla_violations} violations)" if sla_violations > 0 else ""
+    cluster_summary = f"Cost: {cost_dev} (${cost_hour:.2f}/hr) | Queues: {queue_trend}{sla_note}"
+
     return textwrap.dedent(
         f"""
         Task: {task_id}
         Objective: {brief}
         Step: {step}
+        Status: {cluster_summary}
 
         Current state:
         {json.dumps(obs, separators=(",", ":"))}
@@ -183,26 +207,23 @@ def observation_for_model(obs) -> dict:
     """
     Build a compact observation dict for the LLM.
 
-    IMPORTANT: is_vip and importance_weight are deliberately EXCLUDED.
-    The LLM must learn which nodes matter from rewards alone, not from
-    explicit bias signals in the observation.  Including these fields
-    caused the model to fixate on node-0 and ignore nodes 1-4.
+    DESIGN: only raw physical metrics a human SRE sees on their dashboard.
+    Reward decomposition and pre-digested scoring signals are EXCLUDED —
+    the LLM must reason from physics, not reverse-engineer the scorer.
+
+    The scalar reward for past steps is already in the history (correct).
     """
     return {
         "task_id": obs.task_id,
         "mode": getattr(obs.mode, "value", str(obs.mode)),
         "step": obs.step,
         "max_steps": obs.max_steps,
-        "lyapunov_energy": obs.lyapunov_energy,
         "average_latency_ms": obs.average_latency_ms,
         "error_rate": obs.error_rate,
         "total_queue_backlog": obs.total_queue_backlog,
+        "current_cost_per_hour": getattr(obs, "current_cost_per_hour", 0.0),
         "sla_violations": obs.sla_violations,
         "invalid_action_count": obs.invalid_action_count,
-        "reward_drift": getattr(obs, "reward_drift", 0.0),
-        "reward_cost": getattr(obs, "reward_cost", 0.0),
-        "reward_sla": getattr(obs, "reward_sla", 0.0),
-        "reward_barrier": getattr(obs, "reward_barrier", 0.0),
         "nodes": [
             {
                 "node_id": node.node_id,
@@ -214,8 +235,6 @@ def observation_for_model(obs) -> dict:
                 "capacity": getattr(node, "capacity", 0.0),
                 "pending_capacity": getattr(node, "pending_capacity", 0.0),
                 "queue_delta": getattr(node, "queue_delta", 0.0),
-                "sla_proximity": getattr(node, "sla_proximity", 0.0),
-                "node_reward": getattr(node, "node_reward", 0.0),
             }
             for node in obs.nodes
         ],
