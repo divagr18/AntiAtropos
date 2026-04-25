@@ -50,7 +50,7 @@ Check:
 ## 5) Let your agent execute actions
 
 The server accepts `POST /step` with:
-- `action_type`: `NO_OP` | `SCALE_UP` | `SCALE_DOWN`
+- `action_type`: `NO_OP` | `SCALE_UP` | `SCALE_DOWN` | `REROUTE_TRAFFIC` | `SHED_LOAD`
 - `target_node_id`: `node-*`
 - `parameter`: float
 

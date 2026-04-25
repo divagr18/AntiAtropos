@@ -106,8 +106,8 @@ Every "tick" (one step of the simulation), the agent goes through this cycle:
 |---|---|---|
 | `SCALE_UP` | "node-0 needs more capacity" | `KubernetesExecutor` patches `payments` Deployment: `replicas: 2 -> 5` |
 | `SCALE_DOWN` | "node-3 is over-provisioned" | `KubernetesExecutor` patches `cart` Deployment: `replicas: 4 -> 1` |
-| `REROUTE_TRAFFIC` | "Move traffic away from node-2" | Currently simulation-only (no live K8s ingress patching) |
-| `SHED_LOAD` | "Drop 50% of traffic to node-3" | Currently simulation-only (no live K8s traffic shaping) |
+| `REROUTE_TRAFFIC` | "Move traffic away from node-2" | `KubernetesExecutor` scales DOWN target deployment and redistributes replicas to healthy peer deployments |
+| `SHED_LOAD` | "Drop 50% of traffic to node-3" | `KubernetesExecutor` scales DOWN target deployment by `parameter * current_replicas` |
 | `NO_OP` | "Do nothing this tick" | Nothing changes on EKS |
 
 ### The SCALE_UP Flow in Detail

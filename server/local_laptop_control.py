@@ -3,7 +3,7 @@ Lightweight FastAPI control plane for local laptop Kubernetes testing.
 
 Purpose:
 - Accept simple SRE actions over HTTP
-- Execute SCALE_UP / SCALE_DOWN / NO_OP against local deployments
+- Execute SCALE_UP / SCALE_DOWN / REROUTE_TRAFFIC / SHED_LOAD / NO_OP against local deployments
 - Keep a minimal in-memory action history for debugging
 
 Run:
@@ -12,11 +12,15 @@ Run:
 
 from __future__ import annotations
 
+import subprocess
+import threading
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
+
+import os
 
 try:
     from ..control import KubernetesExecutor
@@ -25,7 +29,7 @@ except (ImportError, ModuleNotFoundError):
 
 
 class ActionRequest(BaseModel):
-    action_type: str = Field(description="NO_OP | SCALE_UP | SCALE_DOWN")
+    action_type: str = Field(description="NO_OP | SCALE_UP | SCALE_DOWN | REROUTE_TRAFFIC | SHED_LOAD")
     target_node_id: str = Field(description="node-0 .. node-9")
     parameter: float = Field(default=0.0, ge=0.0, le=10.0)
 
@@ -50,9 +54,111 @@ STATE: dict[str, Any] = {
     "step_count": 0,
     "last_action": None,
     "history": [],
+    "last_trim": None,
 }
 
-_ALLOWED_ACTIONS = {"NO_OP", "SCALE_UP", "SCALE_DOWN"}
+_ALLOWED_ACTIONS = {"NO_OP", "SCALE_UP", "SCALE_DOWN", "REROUTE_TRAFFIC", "SHED_LOAD"}
+
+# Background trim interval (seconds). Default 30 minutes.
+TRIM_INTERVAL_S = int(os.getenv("ANTIATROPOS_TRIM_INTERVAL_S", "1800"))
+
+
+def _run_kubectl_trim() -> dict[str, Any]:
+    """
+    Run the pod-trim logic inline via kubectl subprocess calls.
+
+    Scales every deployment in the namespace back to min_replicas
+    and force-deletes completed / failed / evicted pods.
+    Returns a summary dict.
+    """
+    ns = executor.namespace
+    min_r = executor.min_replicas
+    kubeconfig = executor.kubeconfig
+    result: dict[str, Any] = {
+        "namespace": ns,
+        "min_replicas": min_r,
+        "deployments_scaled": 0,
+        "pods_deleted": 0,
+        "errors": [],
+    }
+
+    def _kubectl(args: list[str]) -> str:
+        env = None
+        if kubeconfig and kubeconfig.lower() not in ("mock", ""):
+            import os as _os
+            env = {**_os.environ, "KUBECONFIG": kubeconfig}
+        try:
+            proc = subprocess.run(
+                ["kubectl"] + args,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                env=env,
+            )
+            return proc.stdout.strip()
+        except Exception as exc:
+            result["errors"].append(str(exc))
+            return ""
+
+    # Scale deployments back to min_replicas
+    deploys = _kubectl(["get", "deploy", "-n", ns, "-o", "jsonpath={.items[*].metadata.name}"])
+    for name in deploys.split():
+        if not name:
+            continue
+        cur = _kubectl(["get", "deploy", name, "-n", ns, "-o", "jsonpath={.spec.replicas}"])
+        try:
+            cur_r = int(cur)
+        except ValueError:
+            continue
+        if cur_r > min_r:
+            _kubectl(["scale", "deploy", name, "-n", ns, "--replicas", str(min_r)])
+            result["deployments_scaled"] += 1
+
+    # Delete completed and failed pods
+    for phase in ("Succeeded", "Failed"):
+        pods = _kubectl([
+            "get", "pods", "-n", ns,
+            "--field-selector", f"status.phase={phase}",
+            "-o", "jsonpath={.items[*].metadata.name}",
+        ])
+        for pod in pods.split():
+            if not pod:
+                continue
+            _kubectl(["delete", "pod", pod, "-n", ns, "--force", "--grace-period=0"])
+            result["pods_deleted"] += 1
+
+    # Delete evicted pods (some k3s versions don't surface these as Failed)
+    evicted = _kubectl([
+        "get", "pods", "-n", ns, "-o",
+        'jsonpath={range .items[?(@.status.reason=="Evicted")]}{.metadata.name}{" "}{end}',
+    ])
+    for pod in evicted.split():
+        if not pod:
+            continue
+        _kubectl(["delete", "pod", pod, "-n", ns, "--force", "--grace-period=0"])
+        result["pods_deleted"] += 1
+
+    return result
+
+
+def _periodic_trim() -> None:
+    """Background thread: trim pods every TRIM_INTERVAL_S seconds."""
+    import time as _time
+    while True:
+        _time.sleep(TRIM_INTERVAL_S)
+        try:
+            if not executor.is_mock:
+                _run_kubectl_trim()
+        except Exception:
+            pass  # best-effort; next cycle will retry
+
+
+@app.on_event("startup")
+def _start_trim_thread() -> None:
+    """Start the background pod-trim thread on FastAPI startup."""
+    if not executor.is_mock:
+        t = threading.Thread(target=_periodic_trim, daemon=True, name="pod-trim")
+        t.start()
 
 
 def _now_utc_iso() -> str:
@@ -68,6 +174,7 @@ def health() -> dict[str, Any]:
         "kubeconfig": executor.kubeconfig,
         "mapped_targets": sorted(list(executor._node_workload_map.keys())),
         "allowed_actions": sorted(list(_ALLOWED_ACTIONS)),
+        "trim_interval_s": TRIM_INTERVAL_S if not executor.is_mock else None,
     }
 
 
@@ -85,8 +192,32 @@ def state() -> dict[str, Any]:
         "step_count": STATE["step_count"],
         "last_action": STATE["last_action"],
         "history_size": len(STATE["history"]),
+        "last_trim": STATE["last_trim"],
         "is_mock": executor.is_mock,
     }
+
+
+@app.post("/trim")
+def trim() -> dict[str, Any]:
+    """
+    On-demand pod trim: scale all deployments to min_replicas
+    and delete completed / failed / evicted pods.
+    """
+    if executor.is_mock:
+        raise HTTPException(
+            status_code=400,
+            detail="KubernetesExecutor is in mock mode. Set KUBECONFIG to enable trimming.",
+        )
+    try:
+        result = _run_kubectl_trim()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Trim failed: {exc}") from exc
+
+    STATE["last_trim"] = {
+        **result,
+        "timestamp_utc": _now_utc_iso(),
+    }
+    return STATE["last_trim"]
 
 
 @app.post("/step", response_model=ActionResponse)

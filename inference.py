@@ -52,7 +52,7 @@ MAX_TOKENS = int(os.getenv("ANTIATROPOS_MAX_TOKENS", "180"))
 SEED = int(os.getenv("ANTIATROPOS_SEED", "42"))
 SUCCESS_SCORE_THRESHOLD = float(os.getenv("ANTIATROPOS_SUCCESS_THRESHOLD", "0.55"))
 EVAL_RUNS = int(os.getenv("ANTIATROPOS_EVAL_RUNS", "3"))  # Num eval runs per task
-TEMPERATURE_SWEEP = [0.0, 0.3, 0.7]  # Fixed temperatures for multi-episode eval
+TEMPERATURE_SWEEP = [0.7, 0.3, 0.7]  # Fixed temperatures for multi-episode eval
 
 TASK_BRIEFS: Dict[str, str] = {
     "task-1": "Traffic increases linearly. Scale proactively to keep latency low and cost efficient.",
@@ -62,7 +62,9 @@ TASK_BRIEFS: Dict[str, str] = {
 
 SYSTEM_PROMPT = textwrap.dedent(
     """
-    You are an autonomous SRE controller managing a ten-node microservice cluster.
+    You are an autonomous SRE controller managing a five-node microservice cluster.
+    node-0 is the payment gateway (higher business priority, receives 2x reward weight).
+    Balance protection of node-0 with the health of all other nodes — do not ignore nodes 1-4.
 
     Return exactly one JSON object:
     {
@@ -178,6 +180,14 @@ def build_user_prompt(task_id: str, step: int, obs: dict, history: List[str], de
 
 
 def observation_for_model(obs) -> dict:
+    """
+    Build a compact observation dict for the LLM.
+
+    IMPORTANT: is_vip and importance_weight are deliberately EXCLUDED.
+    The LLM must learn which nodes matter from rewards alone, not from
+    explicit bias signals in the observation.  Including these fields
+    caused the model to fixate on node-0 and ignore nodes 1-4.
+    """
     return {
         "task_id": obs.task_id,
         "mode": getattr(obs.mode, "value", str(obs.mode)),
@@ -197,8 +207,6 @@ def observation_for_model(obs) -> dict:
             {
                 "node_id": node.node_id,
                 "status": getattr(node.status, "value", str(node.status)),
-                "is_vip": node.is_vip,
-                "importance_weight": node.importance_weight,
                 "queue_depth": node.queue_depth,
                 "latency_ms": node.latency_ms,
                 "incoming_request_rate": node.incoming_request_rate,

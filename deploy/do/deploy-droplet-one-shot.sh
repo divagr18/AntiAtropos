@@ -103,6 +103,7 @@ ANTIATROPOS_K8S_NAMESPACE=prod-sre
 ANTIATROPOS_MIN_REPLICAS=${MIN_REPLICAS}
 ANTIATROPOS_MAX_REPLICAS=${MAX_REPLICAS}
 ANTIATROPOS_SCALE_STEP=${SCALE_STEP}
+ANTIATROPOS_TRIM_INTERVAL_S=1800
 ANTIATROPOS_WORKLOAD_MAP=${WORKLOAD_MAP}
 EOF
   echo "Created ${ENV_FILE}"
@@ -148,6 +149,18 @@ EOF
 
 systemctl daemon-reload
 systemctl enable --now antiatropos-control
+
+# --- Pod trim cron: resets prod-sre deployments to min replicas every 30 min ---
+TRIM_SCRIPT="/usr/local/bin/antiatropos-pod-trim.sh"
+if [[ -f "${REPO_DIR}/deploy/do/antiatropos-pod-trim.sh" ]]; then
+  cp "${REPO_DIR}/deploy/do/antiatropos-pod-trim.sh" "${TRIM_SCRIPT}"
+  chmod +x "${TRIM_SCRIPT}"
+  (crontab -l 2>/dev/null | grep -v 'antiatropos-pod-trim'; echo "*/30 * * * * KUBECONFIG=${KUBECONFIG_PATH} ${TRIM_SCRIPT} ${K8S_NAMESPACE} ${MIN_REPLICAS} >> /var/log/antiatropos-trim.log 2>&1") | crontab -
+  echo "Pod trim cron installed: every 30 min, resets ${K8S_NAMESPACE} deployments to ${MIN_REPLICAS} replicas + prunes stale pods"
+  echo "  Log: /var/log/antiatropos-trim.log"
+else
+  echo "WARNING: antiatropos-pod-trim.sh not found; skipping cron setup"
+fi
 
 echo ""
 echo "Waiting for control API readiness..."

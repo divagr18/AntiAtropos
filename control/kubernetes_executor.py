@@ -30,7 +30,7 @@ class KubernetesExecutor:
         self.scale_step = int(os.getenv("ANTIATROPOS_SCALE_STEP", "3"))
         self._apps_v1_api = None
         self._node_workload_map = self._load_node_workload_map()
-        self._live_supported_actions = {"NO_OP", "SCALE_UP", "SCALE_DOWN"}
+        self._live_supported_actions = {"NO_OP", "SCALE_UP", "SCALE_DOWN", "REROUTE_TRAFFIC", "SHED_LOAD"}
         self.k8s_retry_count = int(os.getenv("ANTIATROPOS_K8S_RETRY_COUNT", "2"))
         self.k8s_retry_backoff_s = float(os.getenv("ANTIATROPOS_K8S_RETRY_BACKOFF_S", "0.2"))
 
@@ -131,6 +131,12 @@ class KubernetesExecutor:
         if action in ("SCALE_UP", "SCALE_DOWN"):
             return self._scale_deployment(action, target, parameter)
 
+        if action == "REROUTE_TRAFFIC":
+            return self._reroute_traffic(target, parameter)
+
+        if action == "SHED_LOAD":
+            return self._shed_load(target, parameter)
+
         return f"Rejected: {action} is not enabled for live Kubernetes execution"
 
     def _mock_execution(self, action_type: str, target: str, parameter: float) -> str:
@@ -175,6 +181,135 @@ class KubernetesExecutor:
         return (
             f"Ack: {action_type} for {target} - deployment {deployment_name} "
             f"in namespace {namespace} scaled {current}->{desired}"
+        )
+
+    def _reroute_traffic(self, target: str, parameter: float) -> str:
+        """
+        Live implementation of REROUTE_TRAFFIC.
+
+        Shifts capacity away from the target node onto healthy peers by:
+          1. Scaling DOWN the target deployment by parameter * current_replicas
+             (min: min_replicas, so at least 1 replica remains).
+          2. Distributing the shed replicas equally across all other healthy
+             deployments as a SCALE_UP (best-effort, capped at max_replicas).
+
+        This reuses the same patch_namespaced_deployment_scale mechanism as
+        SCALE_UP/SCALE_DOWN, ensuring observable cluster mutations.
+        """
+        namespace, deployment_name = self._resolve_workload_target(target)
+        apps_v1 = self._get_apps_v1_api()
+
+        scale_obj = apps_v1.read_namespaced_deployment_scale(
+            name=deployment_name,
+            namespace=namespace,
+        )
+        current_target = int(scale_obj.spec.replicas or self.min_replicas)
+
+        frac = min(1.0, max(0.0, float(parameter)))
+        delta = max(1, int(current_target * frac))
+        new_target = max(self.min_replicas, current_target - delta)
+
+        messages: list[str] = []
+
+        if new_target != current_target:
+            self._patch_deployment_scale_with_retry(
+                apps_v1=apps_v1,
+                deployment_name=deployment_name,
+                namespace=namespace,
+                desired=new_target,
+            )
+            messages.append(
+                f"target {deployment_name} scaled {current_target}->{new_target}"
+            )
+        else:
+            messages.append(
+                f"target {deployment_name} unchanged at {current_target} (already at min)"
+            )
+
+        # Redistribute shed replicas across healthy peers (best-effort)
+        healthy_peers = [
+            (peer_id, peer_info)
+            for peer_id, peer_info in self._node_workload_map.items()
+            if peer_id != target
+        ]
+
+        if healthy_peers and delta > 0:
+            peer_delta = max(1, delta // len(healthy_peers))
+            scaled_peers = 0
+            for peer_id, peer_info in healthy_peers:
+                peer_deployment = peer_info["deployment"]
+                peer_ns = peer_info.get("namespace", self.namespace)
+                try:
+                    peer_scale = apps_v1.read_namespaced_deployment_scale(
+                        name=peer_deployment, namespace=peer_ns,
+                    )
+                    peer_current = int(peer_scale.spec.replicas or self.min_replicas)
+                    peer_desired = peer_current + peer_delta
+                    if self.max_replicas is not None:
+                        peer_desired = min(self.max_replicas, peer_desired)
+                    if peer_desired != peer_current:
+                        self._patch_deployment_scale_with_retry(
+                            apps_v1=apps_v1,
+                            deployment_name=peer_deployment,
+                            namespace=peer_ns,
+                            desired=peer_desired,
+                        )
+                        scaled_peers += 1
+                except Exception:
+                    pass  # best-effort for peers
+
+            if scaled_peers:
+                messages.append(
+                    f"redistributed +{peer_delta} replicas to {scaled_peers} peer(s)"
+                )
+
+        return (
+            f"Ack: REROUTE_TRAFFIC for {target} (frac={frac:.2f}) - "
+            + "; ".join(messages)
+        )
+
+    def _shed_load(self, target: str, parameter: float) -> str:
+        """
+        Live implementation of SHED_LOAD.
+
+        Drops a fraction of capacity from the target node by scaling DOWN
+        its deployment.  The shed fraction decays over time in the simulator,
+        but in live mode the replica reduction is permanent until the agent
+        explicitly scales back up.
+
+        Critical nodes (node-0, node-1, node-2) are guarded by validation
+        before this method is ever called.
+        """
+        namespace, deployment_name = self._resolve_workload_target(target)
+        apps_v1 = self._get_apps_v1_api()
+
+        scale_obj = apps_v1.read_namespaced_deployment_scale(
+            name=deployment_name,
+            namespace=namespace,
+        )
+        current = int(scale_obj.spec.replicas or self.min_replicas)
+
+        frac = min(1.0, max(0.0, float(parameter)))
+        delta = max(1, int(current * frac))
+        desired = max(self.min_replicas, current - delta)
+
+        if desired == current:
+            return (
+                f"Ack: SHED_LOAD for {target} - replicas unchanged at {current} "
+                f"(already at min_replicas={self.min_replicas})"
+            )
+
+        self._patch_deployment_scale_with_retry(
+            apps_v1=apps_v1,
+            deployment_name=deployment_name,
+            namespace=namespace,
+            desired=desired,
+        )
+
+        return (
+            f"Ack: SHED_LOAD for {target} - deployment {deployment_name} "
+            f"in namespace {namespace} scaled {current}->{desired} "
+            f"(shed {delta} replicas, frac={frac:.2f})"
         )
 
     def _patch_deployment_scale_with_retry(self, apps_v1, deployment_name: str, namespace: str, desired: int) -> None:
