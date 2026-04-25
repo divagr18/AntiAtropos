@@ -101,8 +101,12 @@ fi
 echo "Preparing Python environment..."
 python3 -m venv "${PY_VENV_DIR}"
 "${PY_VENV_DIR}/bin/python" -m pip install --upgrade pip
-"${PY_VENV_DIR}/bin/pip" install -r "${REPO_DIR}/server/requirements.txt"
-"${PY_VENV_DIR}/bin/pip" install -e "${REPO_DIR}"
+if [[ -f "${REPO_DIR}/pyproject.toml" ]]; then
+  # Prefer project metadata (uses openenv-core, not legacy openenv package name).
+  "${PY_VENV_DIR}/bin/pip" install -e "${REPO_DIR}"
+else
+  "${PY_VENV_DIR}/bin/pip" install -r "${REPO_DIR}/server/requirements.txt"
+fi
 
 cat > /etc/systemd/system/antiatropos-fastapi.service <<EOF
 [Unit]
