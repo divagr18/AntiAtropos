@@ -111,6 +111,21 @@ class NodeObservation(BaseModel):
         description="How close this node is to SLA violation (0=safe, 1=violating).",
     )
 
+    outflow_rate: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Normalised rate of requests dispatched downstream [0, 1].",
+    )
+    upstream_nodes: list[str] = Field(default_factory=list)
+    downstream_nodes: list[str] = Field(default_factory=list)
+    upstream_pressure: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Mean queue depth of upstream parent nodes (normalised).",
+    )
+
     node_reward: float = Field(
         default=0.0,
         description="Per-node reward contribution for credit assignment.",

@@ -9,9 +9,10 @@ from openenv.core.env_server.types import State
 
 try:
     from ..models import SREAction, ClusterObservation, NodeObservation, NodeStatus, EnvironmentMode
-    from ..simulator import ClusterSimulator, COST_PER_CAPACITY_UNIT_PER_HOUR
+    from ..simulator import ClusterSimulator, COST_PER_CAPACITY_UNIT_PER_HOUR, CLUSTER_TOPOLOGY
     from ..stability import (
         compute_lyapunov,
+        compute_lyapunov_graph,
         compute_reward,
         compute_barrier,
         normalize_reward,
@@ -24,9 +25,10 @@ try:
     from ..control import KubernetesExecutor, ActionValidator
 except ImportError:
     from models import SREAction, ClusterObservation, NodeObservation, NodeStatus, EnvironmentMode  # type: ignore[no-redef]
-    from simulator import ClusterSimulator, COST_PER_CAPACITY_UNIT_PER_HOUR  # type: ignore[no-redef]
+    from simulator import ClusterSimulator, COST_PER_CAPACITY_UNIT_PER_HOUR, CLUSTER_TOPOLOGY  # type: ignore[no-redef]
     from stability import (  # type: ignore[no-redef]
         compute_lyapunov,
+        compute_lyapunov_graph,
         compute_reward,
         compute_barrier,
         normalize_reward,
@@ -161,7 +163,7 @@ class AntiAtroposEnvironment(Environment):
 
         self._nodes_true = self._sim.state(for_agent=False)
         self._nodes_obs  = self._sim.state(for_agent=True)
-        self._prev_lyapunov = compute_lyapunov(self._nodes_true)
+        self._prev_lyapunov = compute_lyapunov_graph(self._nodes_true, CLUSTER_TOPOLOGY)
 
         return self._build_observation()
 
@@ -249,7 +251,7 @@ class AntiAtroposEnvironment(Environment):
             self._sla_violations += 1
 
         # 6. Compute Lyapunov stability metrics from Ground Truth
-        current_lyapunov = compute_lyapunov(self._nodes_true)
+        current_lyapunov = compute_lyapunov_graph(self._nodes_true, CLUSTER_TOPOLOGY)
         
         # 7. Compute scalar reward (with barrier function)
         cost = self._compute_cost(self._nodes_true)
@@ -438,6 +440,22 @@ class AntiAtroposEnvironment(Environment):
             node_latency_norm = min(1.0, max(0.0, float(n["latency_ms"]) / MAX_LATENCY_NORM))
             sla_prox = max(0.0, min(1.0, node_latency_norm / 0.20))  # 0.20 is SLA threshold
 
+            # Topology context for each node
+            node_upstreams = [
+                pid for pid, children in CLUSTER_TOPOLOGY.items()
+                if n["node_id"] in children
+            ]
+            node_downstreams = CLUSTER_TOPOLOGY.get(n["node_id"], [])
+
+            # Upstream pressure: mean normalised queue depth of parent nodes.
+            # Clamp to [0,1] because raw queues can transiently exceed MAX_QUEUE_NORM
+            # (e.g. during surge events), producing normalised values > 1.
+            parent_queues = [
+                min(1.0, max(0.0, float(prev_by_id.get(pid, {}).get("queue_depth", 0)) / MAX_QUEUE_NORM))
+                for pid in node_upstreams
+            ]
+            upstream_pressure = sum(parent_queues) / len(parent_queues) if parent_queues else 0.0
+
             node_obs.append(NodeObservation(
                 node_id=n["node_id"],
                 status=n["status"],
@@ -451,6 +469,10 @@ class AntiAtroposEnvironment(Environment):
                 pending_capacity=float(n.get("pending_capacity_units", 0)) / 5.0,
                 queue_delta=queue_delta,
                 sla_proximity=sla_prox,
+                outflow_rate=min(1.0, float(n.get("outflow_rate", 0.0)) / MAX_REQUEST_RATE_NORM),
+                upstream_nodes=node_upstreams,
+                downstream_nodes=node_downstreams,
+                upstream_pressure=upstream_pressure,
                 node_reward=node_reward_val,
                 done=False,
                 reward=0.0,

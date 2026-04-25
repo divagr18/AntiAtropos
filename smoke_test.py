@@ -172,16 +172,16 @@ def test_simulator_node_count():
     sim = ClusterSimulator(n_nodes=5, task_id="task-1", seed=1)
     nodes = sim.state(for_agent=False)
 
-    record("10 nodes created",
-           PASS if len(nodes) == 10 else FAIL,
+    record("5 nodes created",
+           PASS if len(nodes) == 5 else FAIL,
            f"got {len(nodes)}")
 
     record("node-0 is VIP",
            PASS if nodes[0]["is_vip"] else FAIL,
            f"is_vip={nodes[0]['is_vip']}")
 
-    record("node-0 weight=4.0",
-           PASS if nodes[0]["importance_weight"] == 4.0 else FAIL,
+    record("node-0 weight=2.0",
+           PASS if nodes[0]["importance_weight"] == 2.0 else FAIL,
            f"weight={nodes[0]['importance_weight']}")
 
     non_vip_weights = [n["importance_weight"] for n in nodes[1:]]
@@ -190,8 +190,8 @@ def test_simulator_node_count():
            f"unique weights={set(non_vip_weights)}")
 
     node_ids = [n["node_id"] for n in nodes]
-    expected_ids = [f"node-{i}" for i in range(10)]
-    record("Node IDs 0-9",
+    expected_ids = [f"node-{i}" for i in range(5)]
+    record("Node IDs 0-4",
            PASS if node_ids == expected_ids else FAIL,
            f"ids={node_ids}")
 
@@ -542,8 +542,8 @@ def test_cascade_and_recovery():
     sim = ClusterSimulator(n_nodes=5, task_id="task-1", seed=1)
     sim.reset(task_id="task-1", seed=1)
 
-    # Artificially overload a node to trigger failure
-    node = sim._nodes[5]
+    # Artificially overload node-2 (has children, tests graph cascade)
+    node = sim._nodes[2]
     node.queue_depth = 250.0  # > FATAL_FAIL_THRESHOLD=200
     sim._update_statuses()
     record("Node fails when queue > FATAL_FAIL_THRESHOLD",
