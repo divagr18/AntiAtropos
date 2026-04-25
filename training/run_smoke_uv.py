@@ -36,12 +36,6 @@ subprocess.run(
 
 os.chdir(str(WORKSPACE / "AntiAtropos"))
 
-print("[bootstrap] Upgrading torch to satisfy torchao dependency...")
-subprocess.run(
-    ["uv", "pip", "install", "torch>=2.5.0", "-q"],
-    check=True,
-)
-
 print("[bootstrap] Installing full dependencies...")
 subprocess.run(
     ["uv", "pip", "install", "-r", "training/requirements.txt", "-q"],
