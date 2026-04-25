@@ -84,6 +84,11 @@ SYSTEM_PROMPT = textwrap.dedent(
       2. Keep queues low (growing queues = destabilizing system)
       3. Don't over-provision (excess capacity costs money)
 
+    REWARD SIGNAL: Each step returns a reward [0,1].
+      > 0.5 = good. 0.15–0.5 = acceptable. < 0.15 = you are making things worse.
+      If reward is falling, STOP the current strategy — try a different action or NO_OP.
+      Repeating the same action when reward < 0.1 is always wrong.
+
     Scale when your observations demand it, not preemptively.
     Boot delay is 5 ticks — factor this into your timing.
     Scale back down when safe to save cost.
@@ -192,7 +197,16 @@ def build_user_prompt(task_id: str, step: int, obs: dict, history: List[str], de
     queue_trend = "rising" if queue_backlog > 0.3 else ("stable" if queue_backlog < 0.1 else "moderate")
     sla_violations = obs.get("sla_violations", 0)
     sla_note = f" ({sla_violations} violations)" if sla_violations > 0 else ""
-    cluster_summary = f"Cost: {cost_dev} (${cost_hour:.2f}/hr) | Queues: {queue_trend}{sla_note}"
+    # Reward feedback from recent history
+    recent_rewards = [float(h.split("reward=")[1].split()[0]) for h in history[-3:] if "reward=" in h]
+    if recent_rewards:
+        last_r = recent_rewards[-1]
+        r_tag = "GOOD" if last_r > 0.5 else ("OK" if last_r > 0.2 else ("BAD" if last_r > 0.05 else "STOP-SCALING"))
+        trend = "↓" if len(recent_rewards) > 1 and recent_rewards[-1] < recent_rewards[0] else ("↑" if len(recent_rewards) > 1 and recent_rewards[-1] > recent_rewards[0] else "")
+        reward_feedback = f" | Reward: {last_r:.2f}={r_tag}{trend}"
+    else:
+        reward_feedback = ""
+    cluster_summary = f"Cost: {cost_dev} (${cost_hour:.2f}/hr) | Queues: {queue_trend}{sla_note}{reward_feedback}"
 
     return textwrap.dedent(
         f"""
@@ -343,13 +357,7 @@ async def run_single_task(env: AntiAtroposEnv, client: AsyncOpenAI, task_id: str
             history=history,
             demo_text=demo_text,
         )
-        action_str = _compact_action(action)
-        print(f"[DEBUG] step={step} sending action={action_str}", flush=True)
-        try:
-            result = await env.step(action)
-        except RuntimeError as e:
-            print(f"[DEBUG] step={step} FAILED action={action_str} error={e}", flush=True)
-            raise
+        result = await env.step(action)
         grader.record(result.observation)
 
         reward = float(result.reward or 0.0)
