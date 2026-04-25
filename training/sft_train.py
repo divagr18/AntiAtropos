@@ -38,6 +38,11 @@ import requests
 from pydantic import BaseModel, Field
 from sklearn.model_selection import train_test_split
 
+try:
+    from .chat_utils import render_no_think_chat, tokenize_text_only
+except ImportError:
+    from chat_utils import render_no_think_chat, tokenize_text_only
+
 # ---- Torch-dependent imports (deferred for data-gen-only mode) ----
 # Unsloth MUST be imported before torch/transformers/peft/trl.
 # If torch/CUDA is misconfigured, data generation still works.
@@ -226,6 +231,49 @@ def format_observation(obs_dict, task_id, step, max_steps, reward=0.0, sla_viola
 CRITICAL_NODES = {"node-0", "node-1", "node-2"}
 
 
+def repair_action(action_type, target_node_id, parameter):
+    """Normalize a model action so the control-plane validator accepts it."""
+    at = str(action_type.value if hasattr(action_type, "value") else action_type).upper()
+    nid = str(target_node_id or "node-0")
+
+    if at not in VALID_ACTIONS or nid not in VALID_NODES:
+        return ActionType.NO_OP.value, "node-0", 0.0, "invalid action schema"
+
+    try:
+        param = float(parameter)
+    except (TypeError, ValueError):
+        param = 0.0
+
+    if not math.isfinite(param):
+        param = 0.0
+
+    repair_notes = []
+
+    if at == ActionType.NO_OP.value:
+        return at, "node-0", 0.0, ""
+
+    if at in {ActionType.REROUTE_TRAFFIC.value, ActionType.SHED_LOAD.value}:
+        clamped = min(1.0, max(0.0, param))
+        if clamped != param:
+            repair_notes.append(f"clamped {at} parameter to [0,1]")
+        param = clamped
+
+    if at in {ActionType.SCALE_UP.value, ActionType.SCALE_DOWN.value}:
+        clamped = min(10.0, max(0.0, param))
+        if clamped != param:
+            repair_notes.append(f"clamped {at} parameter to [0,10]")
+        param = clamped
+
+    if at == ActionType.SHED_LOAD.value and nid in CRITICAL_NODES:
+        # The environment rejects shedding on critical nodes. Preserve the
+        # pressure-relief intent as a safe scale-up instead.
+        at = ActionType.SCALE_UP.value
+        param = min(0.8, max(0.3, param or 0.4))
+        repair_notes.append("rewrote critical-node SHED_LOAD to SCALE_UP")
+
+    return at, nid, round(float(param), 4), "; ".join(repair_notes)
+
+
 def heuristic_action(obs_dict, task_id, step=0, max_steps=60, episode_reward=0.0):
     """Task-aware, reward-aware heuristic with balanced action distribution.
 
@@ -393,10 +441,11 @@ def heuristic_action(obs_dict, task_id, step=0, max_steps=60, episode_reward=0.0
 
 def make_assistant_text(action_type, target_node_id, parameter):
     """Build the assistant response: JSON only, matching inference.py format."""
+    at, nid, param, _ = repair_action(action_type, target_node_id, parameter)
     return json.dumps({
-        "action_type": action_type.value,
-        "target_node_id": target_node_id,
-        "parameter": round(float(parameter), 4),
+        "action_type": at,
+        "target_node_id": nid,
+        "parameter": param,
     })
 
 
@@ -747,9 +796,8 @@ def run_training(model, tokenizer, output_dir, args):
 
     # Pre-format into "text" field using chat template
     def apply_template(record):
-        return {"text": tokenizer.apply_chat_template(
-            record["messages"], tokenize=False, add_generation_prompt=False,
-            enable_thinking=False
+        return {"text": render_no_think_chat(
+            tokenizer, record["messages"], add_generation_prompt=False
         )}
 
     train_dataset = Dataset.from_list(train_records).map(apply_template)
@@ -830,11 +878,12 @@ def parse_model_action(text):
         if nid not in VALID_NODES:
             return None, f"invalid target_node_id: {nid}"
         param = float(obj.get("parameter", 0.0))
+        at, nid, param, repair_note = repair_action(at, nid, param)
         return {
             "action_type": at,
             "target_node_id": nid,
             "parameter": param,
-        }, "ok"
+        }, repair_note or "ok"
     except Exception as e:
         return None, str(e)
 
@@ -856,11 +905,10 @@ def run_eval_episode_with_model(hf_space_url, model, tokenizer, task_id, max_ste
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": obs_text},
         ]
-        input_text = tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True,
-            enable_thinking=False
+        input_text = render_no_think_chat(
+            tokenizer, messages, add_generation_prompt=True
         )
-        inputs = tokenizer(input_text, return_tensors="pt").to(model.device)
+        inputs = tokenize_text_only(tokenizer, input_text, model.device)
 
         with torch.no_grad():
             outputs = model.generate(

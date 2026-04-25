@@ -13,6 +13,7 @@ Everything goes through the HTTP API — no local simulator imports needed.
 from __future__ import annotations
 
 import json
+import math
 import re
 import time
 from dataclasses import dataclass, field
@@ -21,6 +22,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 import torch
+
+try:
+    from .chat_utils import render_no_think_chat, tokenize_text_only
+except ImportError:
+    from chat_utils import render_no_think_chat, tokenize_text_only
 
 
 # ────────────────────────────────────────────────
@@ -37,6 +43,7 @@ class ActionType(str, Enum):
 
 VALID_ACTIONS = [a.value for a in ActionType]
 VALID_NODES = ["node-0", "node-1", "node-2", "node-3", "node-4"]
+CRITICAL_NODES = {"node-0", "node-1", "node-2"}
 
 TASK_BRIEFS = {
     "task-1": "Traffic ramps linearly every tick. Scale up proactively — new capacity takes 5 ticks to boot. Keep latency under SLA (200ms) while minimizing cost. Scale down when queues are safe.",
@@ -218,6 +225,47 @@ class ParsedAction:
     parse_error: str = ""
 
 
+def repair_action(action_type: str, target_node_id: str, parameter: float) -> Tuple[str, str, float, str]:
+    """Normalize generated JSON so the environment validator accepts it."""
+    at = str(action_type).upper()
+    nid = str(target_node_id or "node-0")
+
+    if at not in VALID_ACTIONS or nid not in VALID_NODES:
+        return "NO_OP", "node-0", 0.0, "invalid action schema"
+
+    try:
+        param = float(parameter)
+    except (TypeError, ValueError):
+        param = 0.0
+
+    if not math.isfinite(param):
+        param = 0.0
+
+    repair_notes = []
+
+    if at == "NO_OP":
+        return at, "node-0", 0.0, ""
+
+    if at in {"REROUTE_TRAFFIC", "SHED_LOAD"}:
+        clamped = min(1.0, max(0.0, param))
+        if clamped != param:
+            repair_notes.append(f"clamped {at} parameter to [0,1]")
+        param = clamped
+
+    if at in {"SCALE_UP", "SCALE_DOWN"}:
+        clamped = min(10.0, max(0.0, param))
+        if clamped != param:
+            repair_notes.append(f"clamped {at} parameter to [0,10]")
+        param = clamped
+
+    if at == "SHED_LOAD" and nid in CRITICAL_NODES:
+        at = "SCALE_UP"
+        param = min(0.8, max(0.3, param or 0.4))
+        repair_notes.append("rewrote critical-node SHED_LOAD to SCALE_UP")
+
+    return at, nid, round(float(param), 4), "; ".join(repair_notes)
+
+
 def parse_action(text: str) -> ParsedAction:
     """Extract action from model output text."""
     try:
@@ -239,7 +287,8 @@ def parse_action(text: str) -> ParsedAction:
             return ParsedAction("NO_OP", "node-0", 0.0, text,
                                 False, f"invalid target_node_id: {nid}")
 
-        return ParsedAction(at, nid, param, text, True, "")
+        at, nid, param, repair_note = repair_action(at, nid, param)
+        return ParsedAction(at, nid, param, text, True, repair_note)
     except Exception as e:
         return ParsedAction("NO_OP", "node-0", 0.0, text, False, str(e))
 
@@ -320,12 +369,12 @@ def rollout_episode(
             {"role": "user", "content": obs_text},
         ]
 
-        # Tokenize
-        input_text = tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True,
-            enable_thinking=False
+        # Render via the Qwen Jinja template with thinking disabled, then
+        # tokenize explicitly as text so Qwen-VL processors do not load images.
+        input_text = render_no_think_chat(
+            tokenizer, messages, add_generation_prompt=True
         )
-        inputs = tokenizer(input_text, return_tensors="pt").to(model.device)
+        inputs = tokenize_text_only(tokenizer, input_text, model.device)
         input_len = inputs["input_ids"].shape[1]
 
         # Generate
@@ -391,9 +440,6 @@ def rollout_episode(
 # ────────────────────────────────────────────────
 # Heuristic Baseline
 # ────────────────────────────────────────────────
-
-CRITICAL_NODES = {"node-0", "node-1", "node-2"}
-
 
 def heuristic_action(obs_dict: Dict, task_id: str, step: int = 0,
                     max_steps: int = 60,
