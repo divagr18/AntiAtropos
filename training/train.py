@@ -458,6 +458,17 @@ def train(cfg: Dict[str, Any]) -> None:
     else:
         model = attach_lora(model, cfg, seed=seed)
 
+    # Enable gradient checkpointing to cap activation memory during training forward
+    try:
+        model.gradient_checkpointing_enable(
+            gradient_checkpointing_kwargs={"use_reentrant": False}
+        )
+    except TypeError:
+        model.gradient_checkpointing_enable()
+    if hasattr(model, "enable_input_require_grads"):
+        model.enable_input_require_grads()
+    print("[train] Gradient checkpointing enabled")
+
     # ---- Optimizer ----
     lr = cfg.get("learning_rate", 2e-4)
     weight_decay = cfg.get("weight_decay", 0.01)
