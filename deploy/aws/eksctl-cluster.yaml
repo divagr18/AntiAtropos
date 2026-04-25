@@ -29,7 +29,7 @@ addons:
 
 managedNodeGroups:
   - name: linux-nodes
-    instanceType: t3.medium
+    instanceType: t3.micro
     maxPodsPerNode: 110
     desiredCapacity: 2
     minSize: 1
