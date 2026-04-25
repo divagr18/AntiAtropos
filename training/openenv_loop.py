@@ -322,7 +322,8 @@ def rollout_episode(
 
         # Tokenize
         input_text = tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
+            messages, tokenize=False, add_generation_prompt=True,
+            enable_thinking=False
         )
         inputs = tokenizer(input_text, return_tensors="pt").to(model.device)
         input_len = inputs["input_ids"].shape[1]

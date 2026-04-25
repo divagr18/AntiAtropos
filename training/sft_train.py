@@ -748,7 +748,8 @@ def run_training(model, tokenizer, output_dir, args):
     # Pre-format into "text" field using chat template
     def apply_template(record):
         return {"text": tokenizer.apply_chat_template(
-            record["messages"], tokenize=False, add_generation_prompt=False
+            record["messages"], tokenize=False, add_generation_prompt=False,
+            enable_thinking=False
         )}
 
     train_dataset = Dataset.from_list(train_records).map(apply_template)
@@ -856,7 +857,8 @@ def run_eval_episode_with_model(hf_space_url, model, tokenizer, task_id, max_ste
             {"role": "user", "content": obs_text},
         ]
         input_text = tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
+            messages, tokenize=False, add_generation_prompt=True,
+            enable_thinking=False
         )
         inputs = tokenizer(input_text, return_tensors="pt").to(model.device)
 
