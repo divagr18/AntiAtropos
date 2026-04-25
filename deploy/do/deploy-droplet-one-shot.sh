@@ -83,6 +83,19 @@ helm upgrade --install grafana grafana/grafana \
   -n "${MONITORING_NAMESPACE}" \
   -f "${REPO_DIR}/deploy/grafana-helm-values.yaml"
 
+echo "Exposing Grafana on NodePort 30000..."
+kubectl patch svc grafana -n "${MONITORING_NAMESPACE}" --type='merge' -p '{
+  "spec": {
+    "type": "NodePort",
+    "ports": [
+      {"port": 80, "nodePort": 30000, "targetPort": 3000, "name": "service"}
+    ]
+  }
+}' || true
+
+echo "Waiting for Grafana pods to be ready..."
+kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=grafana -n "${MONITORING_NAMESPACE}" --timeout=180s || true
+
 if [[ ! -f "${ENV_FILE}" ]]; then
   cat > "${ENV_FILE}" <<EOF
 KUBECONFIG=/etc/rancher/k3s/k3s.yaml
@@ -157,7 +170,7 @@ echo "Control health:  http://127.0.0.1:${CONTROL_PORT}/health"
 echo "Control step:    http://127.0.0.1:${CONTROL_PORT}/step"
 echo "Prometheus svc:  kubectl -n ${MONITORING_NAMESPACE} get svc prometheus-server"
 echo "Prometheus URL:  ${PROM_URL_DISPLAY}"
-echo "Grafana access:  kubectl -n ${MONITORING_NAMESPACE} port-forward svc/grafana 3000:80"
+echo "Grafana URL:     http://${PUBLIC_IP:-<droplet-ip>}:30000  (admin / antiatropos)"
 echo ""
 echo "Service status command:"
 echo "  systemctl status antiatropos-control --no-pager"

@@ -1,0 +1,38 @@
+version: "3.8"
+
+services:
+  prometheus-local:
+    image: prom/prometheus:v2.55.0
+    container_name: antiatropos-prometheus-local
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/prometheus-docker.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    networks:
+      - antiatropos-local
+
+  grafana-local:
+    image: grafana/grafana:11.3.0
+    container_name: antiatropos-grafana-local
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=antiatropos
+      - GF_SERVER_HTTP_ADDR=0.0.0.0
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/etc/grafana/provisioning/dashboards/json/antiatropos-overview.json
+    volumes:
+      - ./deploy/local/datasource-local.yaml:/etc/grafana/provisioning/datasources/prometheus.yaml:ro
+      - ./deploy/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+    networks:
+      - antiatropos-local
+    depends_on:
+      - prometheus-local
+
+networks:
+  antiatropos-local:
+    driver: bridge
