@@ -260,15 +260,21 @@ def repair_action(action_type: str, target_node_id: str, parameter: float) -> Tu
 
 
 def parse_action(text: str) -> ParsedAction:
-    """Extract action from model output text."""
+    """Extract action from model output text.
+
+    Uses raw_decode so that extra content after the first JSON object
+    (e.g. duplicate actions, trailing text) is silently ignored.
+    """
     try:
         start = text.find("{")
-        end = text.rfind("}")
-        if start == -1 or end == -1 or end < start:
+        if start == -1:
             return ParsedAction("NO_OP", "node-0", 0.0, text,
                                 False, "no JSON found")
 
-        obj = json.loads(text[start:end + 1])
+        # Decode only the first complete JSON value (ignore extra data)
+        decoder = json.JSONDecoder()
+        obj, end_pos = decoder.raw_decode(text, start)
+
         at = str(obj.get("action_type", "")).upper()
         nid = str(obj.get("target_node_id", "") or "node-0")
         param = float(obj.get("parameter") or 0.0)
@@ -281,7 +287,10 @@ def parse_action(text: str) -> ParsedAction:
                                 False, f"invalid target_node_id: {nid}")
 
         at, nid, param, repair_note = repair_action(at, nid, param)
-        return ParsedAction(at, nid, param, text, True, repair_note)
+        extracted = text[start:end_pos]
+        return ParsedAction(at, nid, param, extracted, True, repair_note)
+    except json.JSONDecodeError as e:
+        return ParsedAction("NO_OP", "node-0", 0.0, text, False, str(e))
     except Exception as e:
         return ParsedAction("NO_OP", "node-0", 0.0, text, False, str(e))
 
