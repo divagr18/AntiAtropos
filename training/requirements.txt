@@ -12,6 +12,7 @@ datasets>=3.0.0
 
 # ---- Unsloth (4-bit QLoRA acceleration) ----
 unsloth @ git+https://github.com/unslothai/unsloth.git
+unsloth_zoo
 
 # ---- Config ----
 pyyaml>=6.0
