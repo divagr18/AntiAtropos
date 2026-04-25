@@ -390,6 +390,20 @@ def push_train_metrics(
 # Main Training Loop
 # ────────────────────────────────────────────────────────────
 
+def _log_vram(where: str) -> None:
+    """Print CUDA memory usage at key diagnostic points."""
+    if not torch.cuda.is_available():
+        return
+    free, total = torch.cuda.mem_get_info()
+    alloc = torch.cuda.memory_allocated() / (1024 ** 3)
+    reserved = torch.cuda.memory_reserved() / (1024 ** 3)
+    peak = torch.cuda.max_memory_allocated() / (1024 ** 3)
+    print(f"  [VRAM @{where}]  "
+          f"alloc={alloc:6.2f}GiB  reserved={reserved:6.2f}GiB  "
+          f"peak={peak:6.2f}GiB  free={free/1024**3:.1f}/{total/1024**3:.1f}GiB",
+          flush=True)
+
+
 def train(cfg: Dict[str, Any]) -> None:
     """Main training loop."""
 
@@ -418,6 +432,7 @@ def train(cfg: Dict[str, Any]) -> None:
     # ---- Load model ----
     print("\n[train] Loading model...")
     model, tokenizer = load_base_model(cfg)
+    _log_vram("model_loaded")
 
     # ---- Check for resume ----
     start_iteration = 0
@@ -480,12 +495,10 @@ def train(cfg: Dict[str, Any]) -> None:
     print(f"  Output dir:    {output_dir}")
     print(f"{'='*70}\n")
 
-    # Enable training mode
-    try:
-        from unsloth import FastLanguageModel
-        FastLanguageModel.for_training(model)
-    except (ImportError, AttributeError):
-        model.train()
+    # Keep model in eval mode during rollout to minimise VRAM pressure.
+    # for_training() is called only right before the loss forward pass.
+    model.eval()
+    _log_vram("eval_after_attach")
 
     metrics_buffer: List[Dict] = []
     eval_metrics_history: List[Dict] = []
@@ -497,6 +510,8 @@ def train(cfg: Dict[str, Any]) -> None:
         # ---- Collect rollouts (parallel batch) ----
         task_ids = [tasks[ep_idx % len(tasks)] for ep_idx in range(num_episodes)]
         seeds = [seed + iteration * 1000 + ep_idx for ep_idx in range(num_episodes)]
+
+        _log_vram(f"i{iteration}_pre_rollout")
 
         try:
             use_parallel = cfg.get("parallel_episodes", True)
@@ -531,9 +546,14 @@ def train(cfg: Dict[str, Any]) -> None:
                     t.input_ids = t.input_ids.cpu()
                 if t.attention_mask is not None:
                     t.attention_mask = t.attention_mask.cpu()
+        _log_vram(f"i{iteration}_after_offload")
 
-        # ---- Compute loss ----
-        model.train()
+        # ---- Compute loss (activate training mode right before forward) ----
+        try:
+            from unsloth import FastLanguageModel
+            FastLanguageModel.for_training(model)
+        except (ImportError, AttributeError):
+            model.train()
         loss = loss_fn(model, tokenizer, episodes, cfg)
 
         # ---- Backward + update ----
@@ -548,8 +568,10 @@ def train(cfg: Dict[str, Any]) -> None:
         else:
             grad_norm = 0.0
 
-        # Clear training intermediates before next iteration
+        # Clear training intermediates and return to eval for next rollout
         torch.cuda.empty_cache()
+        model.eval()
+        _log_vram(f"i{iteration}_post_grad")
 
         # ---- Compute iteration metrics ----
         avg_reward = sum(ep.avg_reward for ep in episodes) / len(episodes)

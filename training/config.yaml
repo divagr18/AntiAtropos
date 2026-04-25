@@ -20,7 +20,7 @@ run_id: "exp_001"                    # Unique run identifier (used for Hub paths
 # ---- Environment (OpenEnv) ----
 env_url: "https://pranavkk-antiatropos.hf.space"
 tasks: ["task-1", "task-2", "task-3"]
-max_steps_per_episode: 40            # Reduced from 60 for faster iterations
+max_steps_per_episode: 10            # Reduced for OOM diagnosis (was 40)
 env_mode: "simulated"                # "simulated" | "live" | "hybrid" — set to "live" for real k8s
 
 # ---- Model ----
