@@ -2,10 +2,13 @@ import argparse
 import asyncio
 import inspect
 import json
+import math
 import os
 import random
 import textwrap
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Dict, List, Optional
 from urllib.parse import urlparse
 
@@ -54,6 +57,9 @@ SEED = int(os.getenv("ANTIATROPOS_SEED", "42"))
 SUCCESS_SCORE_THRESHOLD = float(os.getenv("ANTIATROPOS_SUCCESS_THRESHOLD", "0.55"))
 EVAL_RUNS = int(os.getenv("ANTIATROPOS_EVAL_RUNS", "3"))  # Num eval runs per task
 TEMPERATURE_SWEEP = [0.6, 0.3, 0.7]  # Fixed temperatures for multi-episode eval
+
+# Leaderboard weight: task-1 gets more weight (fundamentals)
+LEADERBOARD_WEIGHTS = {"task-1": 0.4, "task-2": 0.3, "task-3": 0.3}
 
 TASK_BRIEFS: Dict[str, str] = {
     "task-1": "Traffic ramps linearly every tick. Scale up proactively — new capacity takes 5 ticks to boot. Keep latency under SLA (200ms) while minimizing cost. Scale down when queues are safe.",
@@ -302,6 +308,15 @@ def _parse_action(payload: dict) -> SREAction:
     )
 
 
+def _action_had_effect(ack_status: str) -> bool:
+    """Determine if an action had measurable effect from the ack status."""
+    if not ack_status:
+        return True
+    if ack_status.startswith("Rejected:") or ack_status.startswith("Error:"):
+        return False
+    return True
+
+
 async def get_model_action(client: AsyncOpenAI, task_id: str, step: int, obs: dict, history: List[str], demo_text: str = "") -> SREAction:
     prompt = build_user_prompt(task_id=task_id, step=step, obs=obs, history=history, demo_text=demo_text)
     try:
@@ -334,7 +349,15 @@ def _compact_action(action: SREAction) -> str:
     return json.dumps(payload, separators=(",", ":"))
 
 
-async def run_single_task(env: AntiAtroposEnv, client: AsyncOpenAI, task_id: str, temperature: float = 0.0, replay_buffer: Optional[EpisodeReplayBuffer] = None, run_seed: Optional[int] = None) -> dict:
+async def run_single_task(
+    env: AntiAtroposEnv,
+    client: AsyncOpenAI,
+    task_id: str,
+    temperature: float = 0.0,
+    replay_buffer: Optional[EpisodeReplayBuffer] = None,
+    run_seed: Optional[int] = None,
+    is_baseline: bool = False,
+) -> dict:
     task_seed = run_seed if run_seed is not None else _task_seed(SEED, task_id)
     result = await env.reset(task_id=task_id, mode=ENV_MODE, seed=task_seed)
 
@@ -344,7 +367,9 @@ async def run_single_task(env: AntiAtroposEnv, client: AsyncOpenAI, task_id: str
     rewards: List[float] = []
     raw_steps: List[dict] = []  # For replay buffer compression
     steps_taken = 0
-    demo_text = replay_buffer.format_demonstrations() if replay_buffer else ""
+    # Baseline mode: no few-shot demonstrations
+    demo_text = "" if is_baseline else (replay_buffer.format_demonstrations() if replay_buffer else "")
+
     for step in range(1, MAX_STEPS_PER_TASK + 1):
         if result.done:
             break
@@ -364,6 +389,19 @@ async def run_single_task(env: AntiAtroposEnv, client: AsyncOpenAI, task_id: str
         rewards.append(reward)
         steps_taken = step
         action_str = _compact_action(action)
+
+        # Determine if action had effect from ack_status
+        ack_status = getattr(result.observation, "action_ack_status", "")
+        had_effect = _action_had_effect(ack_status)
+
+        # Record action for efficiency analysis
+        grader.record_action(
+            action_type=action.action_type.value,
+            target_node_id=action.target_node_id,
+            parameter=float(action.parameter),
+            had_effect=had_effect,
+        )
+
         history.append(f"step={step} action={action_str} reward={reward:.2f}")
 
         # Collect raw step data for replay compression
@@ -380,7 +418,6 @@ async def run_single_task(env: AntiAtroposEnv, client: AsyncOpenAI, task_id: str
             "sla_violation": reward < 0.3,
         })
 
-        ack_status = getattr(result.observation, "action_ack_status", "")
         error = ack_status if ack_status.startswith("Error:") or ack_status.startswith("Rejected:") else None
         log_step(step=step, action=action_str, reward=reward, done=bool(result.done), error=error)
 
@@ -388,8 +425,8 @@ async def run_single_task(env: AntiAtroposEnv, client: AsyncOpenAI, task_id: str
     score = _strict_score(float(grade.composite))
     success = score >= SUCCESS_SCORE_THRESHOLD
 
-    # Store in replay buffer if available
-    if replay_buffer is not None and raw_steps:
+    # Store in replay buffer if available and NOT baseline mode
+    if not is_baseline and replay_buffer is not None and raw_steps:
         trajectory = compress_trajectory(
             steps=raw_steps,
             task_id=task_id,
@@ -400,13 +437,89 @@ async def run_single_task(env: AntiAtroposEnv, client: AsyncOpenAI, task_id: str
         )
         replay_buffer.store(trajectory, score)
 
+    # Serialize grade scores (convert non-serializable types)
+    grade_scores = {}
+    for k, v in grade.scores.items():
+        if isinstance(v, float) and math.isnan(v):
+            grade_scores[k] = None  # NaN → null in JSON
+        else:
+            grade_scores[k] = v
+
     return {
         "task_id": task_id,
         "success": success,
         "score": score,
         "steps": steps_taken,
         "rewards": rewards,
+        "grade_scores": grade_scores,
+        "composite": float(grade.composite),
     }
+
+
+def _compute_aggregates(scores: List[float]) -> Dict[str, float]:
+    """Compute aggregate metrics from a list of per-run composite scores."""
+    if not scores:
+        return {"mean": 0.0, "std": 0.0, "worst_case": 0.0, "pass_rate": 0.0, "consistency": 0.0}
+    mean = sum(scores) / len(scores)
+    std = (sum((s - mean) ** 2 for s in scores) / len(scores)) ** 0.5
+    worst_case = min(scores)
+    pass_rate = sum(1 for s in scores if s >= SUCCESS_SCORE_THRESHOLD) / len(scores)
+    consistency = max(0.0, 1.0 - std / mean) if mean > 0 else 0.0
+    return {
+        "mean": round(mean, 4),
+        "std": round(std, 4),
+        "worst_case": round(worst_case, 4),
+        "pass_rate": round(pass_rate, 4),
+        "consistency": round(consistency, 4),
+    }
+
+
+def _compute_leaderboard(task_composites: Dict[str, float]) -> float:
+    """Weighted leaderboard score across tasks."""
+    total = 0.0
+    for task_id, weight in LEADERBOARD_WEIGHTS.items():
+        total += weight * task_composites.get(task_id, 0.0)
+    return round(total, 4)
+
+
+def _write_eval_report(
+    output_dir: Path,
+    run_mode: str,
+    task_results: Dict[str, dict],
+    leaderboard_score: float,
+) -> Path:
+    """Write structured JSON eval report to disk and return the path."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    filename = f"{run_mode}_{timestamp}.json"
+    filepath = output_dir / filename
+
+    report = {
+        "run_type": run_mode,
+        "timestamp": timestamp,
+        "model": MODEL_NAME,
+        "seed_base": SEED,
+        "leaderboard_score": leaderboard_score,
+        "tasks": task_results,
+    }
+
+    # Check for a previous run of the opposite mode to compute delta
+    opposite_mode = "baseline" if run_mode == "trained" else "trained"
+    existing = sorted(output_dir.glob(f"{opposite_mode}_*.json"))
+    if existing:
+        with open(existing[-1], "r") as f:
+            other = json.load(f)
+        delta = {}
+        for tid in task_results:
+            other_mean = other.get("tasks", {}).get(tid, {}).get("aggregates", {}).get("mean", 0.0)
+            this_mean = task_results[tid].get("aggregates", {}).get("mean", 0.0)
+            delta[tid] = round(this_mean - other_mean, 4)
+        report["delta_from_" + opposite_mode] = delta
+
+    with open(filepath, "w") as f:
+        json.dump(report, f, indent=2, default=str)
+
+    return filepath
 
 
 async def run_all_tasks(overrides: Optional[argparse.Namespace] = None) -> None:
@@ -421,16 +534,28 @@ async def run_all_tasks(overrides: Optional[argparse.Namespace] = None) -> None:
     if not API_KEY:
         raise RuntimeError("Missing API key (API_KEY/HF_TOKEN/OPENAI_API_KEY).")
 
+    # Mode: trained (with replay buffer) or baseline (no demos)
+    is_baseline = getattr(overrides, "mode", "trained") == "baseline"
+    eval_runs_val = getattr(overrides, "eval_runs", None)
+    eval_runs = eval_runs_val if eval_runs_val is not None else EVAL_RUNS
+    output_dir = Path(getattr(overrides, "output_dir", "eval_results"))
+
     client = AsyncOpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+    # Baseline mode: fresh empty replay buffer, never populated
     replay_buffer = EpisodeReplayBuffer()
+
+    # Accumulate results for JSON report
+    task_results: Dict[str, dict] = {}
 
     try:
         async with open_env(MESSAGE_TIMEOUT_S) as env:
             for task in tasks_to_run:
                 task_scores: List[float] = []
+                task_composites: List[float] = []
                 task_successes: List[bool] = []
+                episode_breakdown: List[dict] = []
 
-                for run_idx in range(EVAL_RUNS):
+                for run_idx in range(eval_runs):
                     # Fixed seed per (task, run_idx) so runs are reproducible
                     # and comparable across temperature conditions.
                     run_seed = SEED * 1000 + hash(task) % 100 + run_idx
@@ -439,9 +564,11 @@ async def run_all_tasks(overrides: Optional[argparse.Namespace] = None) -> None:
                     success = False
                     steps = 0
                     score = 0.0
+                    composite = 0.0
                     rewards: List[float] = []
+                    grade_scores: dict = {}
                     task_error: Optional[Exception] = None
-                    log_start(task=f"{task} run={run_idx+1}/{EVAL_RUNS} temp={temperature}", env=BENCHMARK, model=MODEL_NAME)
+                    log_start(task=f"{task} run={run_idx+1}/{eval_runs} temp={temperature} mode={'baseline' if is_baseline else 'trained'}", env=BENCHMARK, model=MODEL_NAME)
                     try:
                         report = await run_single_task(
                             env=env,
@@ -450,13 +577,26 @@ async def run_all_tasks(overrides: Optional[argparse.Namespace] = None) -> None:
                             temperature=temperature,
                             replay_buffer=replay_buffer,
                             run_seed=run_seed,
+                            is_baseline=is_baseline,
                         )
                         success = bool(report["success"])
                         steps = int(report["steps"])
                         score = _strict_score(float(report["score"]))
+                        composite = float(report.get("composite", score))
                         rewards = list(report["rewards"])
+                        grade_scores = report.get("grade_scores", {})
                         task_scores.append(score)
+                        task_composites.append(composite)
                         task_successes.append(success)
+                        episode_breakdown.append({
+                            "run": run_idx + 1,
+                            "temp": temperature,
+                            "composite": round(composite, 4),
+                            "score": round(score, 4),
+                            "steps": steps,
+                            "success": success,
+                            **{k: v for k, v in grade_scores.items() if k not in ("action_distribution", "node_heatmap")},
+                        })
                     except Exception as exc:
                         task_error = exc
                         score = 0.0
@@ -465,17 +605,50 @@ async def run_all_tasks(overrides: Optional[argparse.Namespace] = None) -> None:
                     if task_error is not None:
                         raise InferenceError(f"Task {task} run {run_idx+1} failed.") from task_error
 
-                # Report aggregate stats
-                if task_scores:
-                    mean_score = sum(task_scores) / len(task_scores)
-                    std_score = (sum((s - mean_score) ** 2 for s in task_scores) / len(task_scores)) ** 0.5
-                    print(
-                        f"[AGGREGATE] task={task} mean_score={mean_score:.3f} "
-                        f"std={std_score:.3f} runs={len(task_scores)}",
-                        flush=True,
-                    )
+                # Compute aggregate stats
+                aggregates = _compute_aggregates(task_composites)
+                task_results[task] = {
+                    "aggregates": aggregates,
+                    "episodes": episode_breakdown,
+                }
+
+                print(
+                    f"[AGGREGATE] task={task} mean={aggregates['mean']:.3f} "
+                    f"std={aggregates['std']:.3f} worst={aggregates['worst_case']:.3f} "
+                    f"pass_rate={aggregates['pass_rate']:.2f} consistency={aggregates['consistency']:.3f} "
+                    f"runs={len(task_composites)}",
+                    flush=True,
+                )
+
     finally:
         await client.close()
+
+    # Compute leaderboard score
+    task_means = {tid: task_results[tid]["aggregates"]["mean"] for tid in task_results}
+    leaderboard = _compute_leaderboard(task_means)
+    print(f"\n[LEADERBOARD] score={leaderboard:.3f}", flush=True)
+    for tid, mean in task_means.items():
+        weight = LEADERBOARD_WEIGHTS.get(tid, 0.0)
+        print(f"  {tid}: mean={mean:.3f} (weight={weight})", flush=True)
+
+    # Write JSON report
+    run_mode = "baseline" if is_baseline else "trained"
+    filepath = _write_eval_report(output_dir, run_mode, task_results, leaderboard)
+    print(f"\n[REPORT] written to {filepath}", flush=True)
+
+    # Check for comparison with opposite mode
+    opposite = "baseline" if is_baseline else "trained"
+    existing = sorted(output_dir.glob(f"{opposite}_*.json"))
+    if existing:
+        with open(existing[-1], "r") as f:
+            other = json.load(f)
+        print(f"\n[DELTA] vs {opposite} ({existing[-1].name}):", flush=True)
+        for tid in task_results:
+            other_mean = other.get("tasks", {}).get(tid, {}).get("aggregates", {}).get("mean", 0.0)
+            this_mean = task_results[tid]["aggregates"]["mean"]
+            delta = this_mean - other_mean
+            sign = "+" if delta >= 0 else ""
+            print(f"  {tid}: {sign}{delta:.3f} ({opposite}={other_mean:.3f} → {run_mode}={this_mean:.3f})", flush=True)
 
 
 def main() -> None:
@@ -485,6 +658,24 @@ def main() -> None:
         choices=["task-1", "task-2", "task-3", "all"],
         default="all",
         help="Run a specific task or all tasks (default: all)",
+    )
+    parser.add_argument(
+        "--mode", "-m",
+        choices=["trained", "baseline"],
+        default="trained",
+        help="Evaluation mode: 'trained' uses replay buffer demos, 'baseline' runs without (default: trained)",
+    )
+    parser.add_argument(
+        "--eval-runs", "-n",
+        type=int,
+        default=None,
+        help=f"Number of evaluation runs per task (default: {EVAL_RUNS})",
+    )
+    parser.add_argument(
+        "--output-dir", "-o",
+        type=str,
+        default="eval_results",
+        help="Directory for JSON eval reports (default: eval_results)",
     )
     args = parser.parse_args()
     asyncio.run(run_all_tasks(overrides=args))

@@ -146,6 +146,16 @@ class KubernetesExecutor:
         return f"Ack: {action} for {target} with value {parameter} - Status: Applied"
 
     def _scale_deployment(self, action_type: str, target: str, parameter: float) -> str:
+        """Scale a deployment up or down.
+
+        SCALE_DOWN follows the simulator's pending-first semantics:
+        1. Read deployment status to find unavailable (pending/booting) replicas.
+        2. Reduce spec.replicas to cancel unavailable pods first.
+        3. If delta exceeds unavailable count, also reduce ready replicas.
+
+        This matches simulator.py where SCALE_DOWN pops pending_capacity_queue
+        before reducing active capacity, ensuring cost savings are immediate.
+        """
         namespace, deployment_name = self._resolve_workload_target(target)
         apps_v1 = self._get_apps_v1_api()
 
@@ -162,7 +172,43 @@ class KubernetesExecutor:
             else:
                 desired = min(self.max_replicas, current + delta)
         else:
+            # SCALE_DOWN: pending-first semantics (matches simulator.py)
+            # Query deployment status to distinguish ready vs unavailable replicas.
+            # Unavailable replicas = pods in Pending/ContainerCreating/Failing state
+            # — equivalent to the simulator's pending_capacity_queue.
+            try:
+                dep = apps_v1.read_namespaced_deployment(
+                    name=deployment_name, namespace=namespace,
+                )
+                ready = int(dep.status.ready_replicas or 0)
+                unavailable = current - ready
+            except Exception:
+                ready = current
+                unavailable = 0
+
             desired = max(self.min_replicas, current - delta)
+            cancelled_pending = min(delta, max(0, unavailable))
+            reduced_active = max(0, delta - cancelled_pending)
+
+            if desired == current:
+                upper = "unbounded" if self.max_replicas is None else str(self.max_replicas)
+                return (
+                    f"Ack: SCALE_DOWN for {target} - replicas unchanged at {current} "
+                    f"(bounds {self.min_replicas}-{upper})"
+                )
+
+            self._patch_deployment_scale_with_retry(
+                apps_v1=apps_v1,
+                deployment_name=deployment_name,
+                namespace=namespace,
+                desired=desired,
+            )
+
+            return (
+                f"Ack: SCALE_DOWN for {target} - deployment {deployment_name} "
+                f"in namespace {namespace} scaled {current}->{desired} "
+                f"(cancelled {cancelled_pending} pending, reduced {reduced_active} active)"
+            )
 
         if desired == current:
             upper = "unbounded" if self.max_replicas is None else str(self.max_replicas)
