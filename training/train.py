@@ -672,7 +672,7 @@ def main():
     if args.smoke:
         cfg["num_iterations"] = 10
         cfg["num_episodes_per_iteration"] = 2
-        cfg["max_steps_per_episode"] = 20
+        cfg["max_steps_per_episode"] = 40
         cfg["eval_interval"] = 5
         cfg["checkpoint_interval"] = 5
         cfg["plot_interval"] = 5
@@ -682,7 +682,7 @@ def main():
             cfg["run_id"] = "smoke_test"
         if not args.output_dir:
             cfg["output_dir"] = "/tmp/antiatropos_smoke"
-        print("[SMOKE MODE] 10 iters x 2 episodes x 20 steps — no Hub push")
+        print("[SMOKE MODE] 10 iters x 2 episodes x 40 steps — no Hub push")
 
     # ---- CLI overrides (explicit args beat smoke preset) ----
     if args.num_iterations is not None:

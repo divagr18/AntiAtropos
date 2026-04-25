@@ -900,6 +900,9 @@ def run_eval_episode_with_model(hf_space_url, model, tokenizer, task_id, max_ste
     crashes = 0
     action_log = []
 
+    print(f"  Ep  | Step | Action                      | Reward  | Notes")
+    print(f"  {'-'*60}")
+
     for step in range(1, max_steps + 1):
         obs_text = format_observation(obs_dict, task_id, step, max_steps, episode_reward, sla_violations)
         messages = [
@@ -932,12 +935,15 @@ def run_eval_episode_with_model(hf_space_url, model, tokenizer, task_id, max_ste
         ).strip()
 
         action, err = parse_model_action(generated)
+        notes = ""
         if action is None:
             crashes += 1
-            # Fallback to NO_OP
             action = {"action_type": "NO_OP", "target_node_id": "node-0", "parameter": 0.0}
+            notes = f"INVALID: {err}"
             action_log.append(f"step={step} INVALID ({err})")
         else:
+            repair_note = err if err != "ok" else ""
+            notes = repair_note
             action_log.append(f"step={step} {action['action_type']} {action['target_node_id']} p={action['parameter']:.2f}")
 
         step_resp = env_step(hf_space_url, action["action_type"], action["target_node_id"], action["parameter"])
@@ -947,7 +953,13 @@ def run_eval_episode_with_model(hf_space_url, model, tokenizer, task_id, max_ste
         episode_reward = step_reward
         sla_violations = obs_dict.get("sla_violations", sla_violations)
 
+        queue_sum = sum(obs_dict.get(n, {}).get("queue_depth", 0) if isinstance(obs_dict.get(n), dict) else 0 for n in ["node-0","node-1","node-2","node-3","node-4"])
+
+        action_str = f"{action['action_type']:11s} {action['target_node_id']} p={action['parameter']:.2f}"
+        print(f"  {task_id[-1]}  {step:2d}  | {action_str:30s} | {step_reward:.4f}  | {notes}", flush=True)
+
         if step_resp.get("done", False):
+            print(f"  {'-'*60}")
             break
 
     avg_reward = sum(rewards) / len(rewards) if rewards else 0.0
@@ -968,9 +980,14 @@ def run_eval_episode_with_heuristic(hf_space_url, task_id, max_steps, env_mode):
         action_type, target_node_id, parameter = heuristic_action(obs_dict, task_id)
         step_resp = env_step(hf_space_url, action_type.value, target_node_id, parameter)
         obs_dict = step_resp.get("observation", step_resp)
-        rewards.append(step_resp.get("reward", 0.0))
+        reward = step_resp.get("reward", 0.0)
+        rewards.append(reward)
+
+        action_str = f"{action_type.value:11s} {target_node_id} p={parameter:.2f}"
+        print(f"  H  {step:2d}  | {action_str:30s} | {reward:.4f}  | heuristic", flush=True)
 
         if step_resp.get("done", False):
+            print(f"  {'-'*60}")
             break
 
     avg_reward = sum(rewards) / len(rewards) if rewards else 0.0
@@ -979,20 +996,26 @@ def run_eval_episode_with_heuristic(hf_space_url, task_id, max_steps, env_mode):
 
 def run_quality_gate(hf_space_url, model, tokenizer, eval_episodes, eval_steps, env_mode):
     """Compare SFT model vs heuristic baseline on live episodes."""
-    print(f"\nRunning {eval_episodes} episodes per task ({eval_steps} steps each)...")
+    print(f"\nQUALITY GATE — {eval_episodes} episode(s) per task ({eval_steps} steps each) | mode={env_mode}")
     print(f"{'='*70}")
 
     results = {}
     for task_id in ["task-1", "task-2", "task-3"]:
+        print(f"\n{'='*70}")
+        print(f"  TASK: {task_id}  |  mode={env_mode}")
+        print(f"{'='*70}")
+
         sft_rewards = []
         heuristic_rewards = []
         total_crashes = 0
 
         for ep in range(eval_episodes):
+            print(f"\n--- SFT Model episode {ep+1}/{eval_episodes} ---")
             sft_result = run_eval_episode_with_model(hf_space_url, model, tokenizer, task_id, eval_steps, env_mode)
             sft_rewards.append(sft_result["avg_reward"])
             total_crashes += sft_result["crashes"]
 
+            print(f"\n--- Heuristic episode {ep+1}/{eval_episodes} ---")
             heur_result = run_eval_episode_with_heuristic(hf_space_url, task_id, eval_steps, env_mode)
             heuristic_rewards.append(heur_result["avg_reward"])
 
@@ -1006,26 +1029,20 @@ def run_quality_gate(hf_space_url, model, tokenizer, eval_episodes, eval_steps, 
             "sft_beats_heuristic": sft_avg >= heur_avg,
         }
 
-        status = "SFT WINS" if sft_avg >= heur_avg else "HEURISTIC WINS"
-        print(f"\n{task_id}:")
-        print(f"  SFT avg reward:       {sft_avg:.4f}")
-        print(f"  Heuristic avg reward: {heur_avg:.4f}")
-        print(f"  Result: {status}")
-        print(f"  Crashes: {total_crashes}")
+        status = "SFT WINS  " if sft_avg >= heur_avg else "HEURISTIC WINS"
+        print(f"\n  {'='*50}")
+        print(f"  RESULT: {task_id}  |  {status}  |  SFT={sft_avg:.4f}  Heur={heur_avg:.4f}  Crashes={total_crashes}")
 
     tasks_won = sum(1 for r in results.values() if r["sft_beats_heuristic"])
     total_crashes = sum(r["crashes"] for r in results.values())
 
     print(f"\n{'='*70}")
-    print(f"QUALITY GATE SUMMARY")
-    print(f"{'='*70}")
-    print(f"SFT beats heuristic on: {tasks_won}/3 tasks")
-    print(f"Total crashes: {total_crashes}")
+    print(f"QUALITY GATE SUMMARY: SFT won {tasks_won}/3 tasks, {total_crashes} total crashes")
     gate_pass = total_crashes == 0 and tasks_won >= 2
-    print(f"\nGate results:")
-    print(f"  Zero crashes: {'PASS' if total_crashes == 0 else 'FAIL'}")
-    print(f"  Beat heuristic >= 2/3: {'PASS' if tasks_won >= 2 else 'FAIL'}")
-    print(f"\nOverall: {'GATE PASSED' if gate_pass else 'GATE FAILED — consider more SFT epochs or larger dataset'}")
+    print(f"  Zero crashes:      {'PASS' if total_crashes == 0 else 'FAIL'}")
+    print(f"  Beat heuristic 2/3: {'PASS' if tasks_won >= 2 else 'FAIL'}")
+    print(f"  Overall:           {'GATE PASSED' if gate_pass else 'GATE FAILED — more SFT data needed'}")
+    print(f"{'='*70}")
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -1092,8 +1109,8 @@ def main():
                         help="Skip quality-gate evaluation after training")
     parser.add_argument("--eval-episodes", type=int, default=3,
                         help="Episodes per task for quality gate (default: 3)")
-    parser.add_argument("--qg-max-steps", type=int, default=60,
-                        help="Max steps per quality gate episode (default: 60)")
+    parser.add_argument("--qg-max-steps", type=int, default=40,
+                        help="Max steps per quality gate episode (default: 40)")
 
     # ---- General ----
     parser.add_argument("--output-dir", type=str, default="./sft_output",

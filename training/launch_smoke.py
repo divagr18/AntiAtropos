@@ -47,7 +47,6 @@ def build_job_command() -> str:
         "\n"
         "echo '[bootstrap] Installing dependencies...'\n"
         "pip install --break-system-packages --no-deps torchvision -q\n"
-        "pip install --break-system-packages flash-attn --no-build-isolation -q\n"
         "pip install --break-system-packages -r training/requirements.txt -q\n"
         "\n"
         "echo '[bootstrap] Launching training...'\n"

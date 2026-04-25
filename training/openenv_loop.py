@@ -416,6 +416,16 @@ def rollout_episode(
         done = step_resp.get("done", False)
         sla_violations = obs_dict.get("sla_violations", sla_violations)
 
+        # Per-step log
+        if not action.is_valid:
+            notes = f"INVALID: {action.parse_error}"
+        elif action.repair_note:
+            notes = action.repair_note
+        else:
+            notes = ""
+        action_str = f"{action.action_type:11s} {action.target_node_id} p={action.parameter:.2f}"
+        print(f"  S{step:2d}  | {action_str:30s} | {step_reward:.4f}  | {notes}", flush=True)
+
         # Record transition
         transition = Transition(
             obs_text=obs_text,
