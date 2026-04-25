@@ -38,6 +38,10 @@ os.chdir(str(WORKSPACE / "AntiAtropos"))
 
 print("[bootstrap] Installing full dependencies...")
 subprocess.run(
+    ["uv", "pip", "install", "--no-deps", "torchvision", "-q"],
+    check=True,
+)
+subprocess.run(
     ["uv", "pip", "install", "-r", "training/requirements.txt", "-q"],
     check=True,
 )

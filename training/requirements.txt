@@ -2,11 +2,15 @@
 # Install: pip install -r training/requirements.txt
 
 # ---- Core ML ----
-# NOTE: torch is provided by the Docker base image (pytorch/pytorch:2.11.0).
+# NOTE: torch is provided by the Docker base image (pytorch/pytorch:2.10.0).
 # Do NOT list it here — pip's resolver may downgrade it, breaking torchao.
 # torch>=2.5.0  (pre-installed in base image)
-# torchao is also pre-installed in the 2.11.0 base image and compatible.
-torchvision  # required by unsloth_zoo.vision_utils
+# torchao is also pre-installed in the base image and compatible.
+# torchvision is required by unsloth_zoo.vision_utils but MUST be installed
+# separately via the PyTorch index URL (not via pip resolver) to avoid
+# torch version downgrades. Install before running this file:
+#   pip install torch==X.Y.Z+cuNNN torchvision==A.B.C+cuNNN torchaudio==D.E.F+cuNNN \
+#     --index-url https://download.pytorch.org/whl/cuNNN
 transformers>=4.45.0
 accelerate>=0.34.0
 bitsandbytes>=0.43.0
