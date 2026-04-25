@@ -36,6 +36,7 @@ FASTAPI_PID=$!
     --storage.tsdb.path=/tmp/prometheus-data \
     --web.listen-address=127.0.0.1:9090 \
     --web.route-prefix=/prometheus \
+    --web.external-url=/prometheus \
     &
 PROMETHEUS_PID=$!
 
