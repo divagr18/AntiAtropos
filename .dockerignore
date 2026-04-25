@@ -9,3 +9,6 @@ openenv_AntiAtropos.egg-info/
 .git/
 .venv/
 .DS_Store
+.env
+logs.txt
+_fix_mode.py

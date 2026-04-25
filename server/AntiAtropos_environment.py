@@ -71,7 +71,8 @@ class AntiAtroposEnvironment(Environment):
 
     @staticmethod
     def _parse_mode(raw_mode: str | None) -> EnvironmentMode:
-        candidate = (raw_mode or os.getenv("ANTIATROPOS_ENV_MODE", "simulated")).strip().lower()
+        env_mode = os.getenv("ANTIATROPOS_ENV_MODE", "").strip().lower()
+        candidate = (env_mode or raw_mode or "simulated").strip().lower()
         alias = {
             "prod": "aws",
             "production": "aws",
@@ -240,7 +241,7 @@ class AntiAtroposEnvironment(Environment):
         self._nodes_obs  = self._sim.state(for_agent=True)
 
         # 5. SLA Check (smooth sigmoid penalty instead of binary cliff)
-        avg_latency_norm = self._avg_latency(self._nodes_true) / MAX_LATENCY_NORM
+        avg_latency_norm = min(1.0, max(0.0, self._avg_latency(self._nodes_true) / MAX_LATENCY_NORM))
         error_rate  = self._error_rate(self._nodes_true)
         sla_penalty_step = smooth_sla_penalty(avg_latency_norm, error_rate)
         # Track binary violations for the grader (backward compat)
@@ -383,7 +384,8 @@ class AntiAtroposEnvironment(Environment):
         total_weight = 0.0
         for n in nodes:
             weight = float(n.get("importance_weight", 1.0))
-            latency = MAX_LATENCY_NORM if n["status"] == NodeStatus.FAILED else float(n["latency_ms"])
+            raw_latency = float(n["latency_ms"])
+            latency = min(raw_latency, MAX_LATENCY_NORM)
             weighted_latency += weight * latency
             total_weight += weight
 
