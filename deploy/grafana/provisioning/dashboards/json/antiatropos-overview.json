@@ -76,8 +76,8 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "scalar(avg(last_over_time(antiatropos_reward{mode=\"simulated\"}[1m])))",
-          "legendFormat": "reward (simulated)",
+          "expr": "scalar(avg(last_over_time(antiatropos_reward{mode=~\"live|simulated|hybrid|aws\"}[1m])))",
+          "legendFormat": "reward (all modes)",
           "range": true,
           "refId": "A"
         }
@@ -143,8 +143,8 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "scalar(avg(last_over_time(antiatropos_total_queue_backlog{mode=\"simulated\"}[1m])))",
-          "legendFormat": "queue backlog (simulated)",
+          "expr": "scalar(avg(last_over_time(antiatropos_total_queue_backlog{mode=~\"live|simulated|hybrid|aws\"}[1m])))",
+          "legendFormat": "queue backlog (all modes)",
           "range": true,
           "refId": "A"
         }
@@ -210,8 +210,8 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "scalar(avg(last_over_time(antiatropos_average_latency_norm{mode=\"simulated\"}[1m])))",
-          "legendFormat": "latency (simulated)",
+          "expr": "scalar(avg(last_over_time(antiatropos_average_latency_norm{mode=~\"live|simulated|hybrid|aws\"}[1m])))",
+          "legendFormat": "latency (all modes)",
           "range": true,
           "refId": "A"
         }
@@ -277,8 +277,8 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "scalar(avg(last_over_time(antiatropos_lyapunov_energy{mode=\"simulated\"}[1m])))",
-          "legendFormat": "lyapunov energy (simulated)",
+          "expr": "scalar(avg(last_over_time(antiatropos_lyapunov_energy{mode=~\"live|simulated|hybrid|aws\"}[1m])))",
+          "legendFormat": "lyapunov energy (all modes)",
           "range": true,
           "refId": "A"
         }
@@ -369,14 +369,14 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "antiatropos_reward{mode=\"simulated\"}",
+          "expr": "antiatropos_reward{mode=~\"live|simulated|hybrid|aws\"}",
           "legendFormat": "reward {{task_id}} ({{mode}})",
           "range": true,
           "refId": "A"
         },
         {
           "editorMode": "code",
-          "expr": "antiatropos_lyapunov_energy{mode=\"simulated\"}",
+          "expr": "antiatropos_lyapunov_energy{mode=~\"live|simulated|hybrid|aws\"}",
           "legendFormat": "lyapunov {{task_id}} ({{mode}})",
           "range": true,
           "refId": "B"
@@ -468,14 +468,14 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "antiatropos_total_queue_backlog{mode=\"simulated\"}",
+          "expr": "antiatropos_total_queue_backlog{mode=~\"live|simulated|hybrid|aws\"}",
           "legendFormat": "queue {{task_id}} ({{mode}})",
           "range": true,
           "refId": "A"
         },
         {
           "editorMode": "code",
-          "expr": "antiatropos_average_latency_norm{mode=\"simulated\"}",
+          "expr": "antiatropos_average_latency_norm{mode=~\"live|simulated|hybrid|aws\"}",
           "legendFormat": "latency {{task_id}} ({{mode}})",
           "range": true,
           "refId": "B"
@@ -535,14 +535,14 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum by (task_id, mode) (rate(antiatropos_steps_total{mode=\"simulated\"}[1m]))",
+          "expr": "sum by (task_id, mode) (rate(antiatropos_steps_total{mode=~\"live|simulated|hybrid|aws\"}[1m]))",
           "legendFormat": "steps/sec {{task_id}} ({{mode}})",
           "range": true,
           "refId": "A"
         },
         {
           "editorMode": "code",
-          "expr": "sum by (task_id, mode, action_type) (rate(antiatropos_actions_total{mode=\"simulated\"}[1m]))",
+          "expr": "sum by (task_id, mode, action_type) (rate(antiatropos_actions_total{mode=~\"live|simulated|hybrid|aws\"}[1m]))",
           "legendFormat": "actions/sec {{action_type}} ({{task_id}}, {{mode}})",
           "range": true,
           "refId": "B"
@@ -602,14 +602,14 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum by (mode, error_code) (rate(antiatropos_executor_errors_total{mode=\"simulated\"}[5m]))",
+          "expr": "sum by (mode, error_code) (rate(antiatropos_executor_errors_total{mode=~\"live|simulated|hybrid|aws\"}[5m]))",
           "legendFormat": "executor errors {{error_code}} ({{mode}})",
           "range": true,
           "refId": "A"
         },
         {
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum(rate(antiatropos_executor_latency_ms_bucket{mode=\"simulated\"}[5m])) by (le, mode))",
+          "expr": "histogram_quantile(0.95, sum(rate(antiatropos_executor_latency_ms_bucket{mode=~\"live|simulated|hybrid|aws\"}[5m])) by (le, mode))",
           "legendFormat": "p95 executor latency {{mode}}",
           "range": true,
           "refId": "B"
@@ -640,3 +640,8 @@
   "version": 2,
   "weekStart": ""
 }
+
+
+
+
+

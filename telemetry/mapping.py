@@ -25,9 +25,11 @@ class MetricMapper:
 
         # Safe default mapping for local demos.
         return {
-            "web-node-1": "node-0",
-            "api-node-2": "node-1",
-            "db-node-3": "node-2"
+            "payments": "node-0",
+            "checkout": "node-1",
+            "catalog": "node-2",
+            "cart": "node-3",
+            "auth": "node-4",
         }
 
     def _resolve_node_id(self, labels: Dict[str, Any]) -> Optional[str]:

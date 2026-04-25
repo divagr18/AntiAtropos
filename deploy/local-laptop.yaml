@@ -17,11 +17,63 @@ spec:
     metadata:
       labels:
         app: auth
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
       - name: auth
-        image: alpine:latest
-        command: ["sleep", "infinity"]
+        image: python:3.12-alpine
+        env:
+        - name: NODE_ID
+          value: node-4
+        - name: BASE_QUEUE
+          value: "6"
+        command: ["/bin/sh", "-lc"]
+        args:
+        - |
+          mkdir -p /www
+          echo ok > /www/index.html
+          python -m http.server 8080 --directory /www >/tmp/http.log 2>&1 &
+          req=0; err=0; cpu_total=0
+          while true; do
+            t=$(date +%s)
+            noise=$((t % 11))
+            req=$((req + 30 + noise))
+            q=$((BASE_QUEUE + (t % 20) - 10))
+            if [ "$q" -lt 0 ]; then q=0; fi
+            err=$((err + q / 20))
+            cpu_inc=$((10 + q / 10))
+            cpu_total=$((cpu_total + cpu_inc))
+            lat_ms=$((35 + q * 3))
+            b005=$((req / 5)); b01=$((req / 3)); b025=$((req / 2)); b05=$((req * 3 / 4)); b1=$req; b2=$req
+            lat_sum=$(awk "BEGIN {printf \"%.3f\", $req * $lat_ms / 1000.0}")
+            {
+              echo "# HELP http_requests_total Synthetic request counter"
+              echo "# TYPE http_requests_total counter"
+              echo "http_requests_total{node_id=\"${NODE_ID}\",status=\"200\"} ${req}"
+              echo "http_requests_total{node_id=\"${NODE_ID}\",status=\"500\"} ${err}"
+              echo "# HELP queue_depth Synthetic queue depth"
+              echo "# TYPE queue_depth gauge"
+              echo "queue_depth{node_id=\"${NODE_ID}\"} ${q}"
+              echo "# HELP container_cpu_usage_seconds_total Synthetic CPU counter"
+              echo "# TYPE container_cpu_usage_seconds_total counter"
+              echo "container_cpu_usage_seconds_total{node_id=\"${NODE_ID}\"} ${cpu_total}"
+              echo "# HELP http_request_duration_seconds Synthetic request duration histogram"
+              echo "# TYPE http_request_duration_seconds histogram"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"0.05\"} ${b005}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"0.1\"} ${b01}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"0.25\"} ${b025}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"0.5\"} ${b05}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"1\"} ${b1}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"2\"} ${b2}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"+Inf\"} ${req}"
+              echo "http_request_duration_seconds_count{node_id=\"${NODE_ID}\"} ${req}"
+              echo "http_request_duration_seconds_sum{node_id=\"${NODE_ID}\"} ${lat_sum}"
+            } > /www/metrics
+            sleep 2
+          done
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -37,11 +89,63 @@ spec:
     metadata:
       labels:
         app: cart
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
       - name: cart
-        image: alpine:latest
-        command: ["sleep", "infinity"]
+        image: python:3.12-alpine
+        env:
+        - name: NODE_ID
+          value: node-3
+        - name: BASE_QUEUE
+          value: "14"
+        command: ["/bin/sh", "-lc"]
+        args:
+        - |
+          mkdir -p /www
+          echo ok > /www/index.html
+          python -m http.server 8080 --directory /www >/tmp/http.log 2>&1 &
+          req=0; err=0; cpu_total=0
+          while true; do
+            t=$(date +%s)
+            noise=$((t % 11))
+            req=$((req + 30 + noise))
+            q=$((BASE_QUEUE + (t % 20) - 10))
+            if [ "$q" -lt 0 ]; then q=0; fi
+            err=$((err + q / 20))
+            cpu_inc=$((10 + q / 10))
+            cpu_total=$((cpu_total + cpu_inc))
+            lat_ms=$((35 + q * 3))
+            b005=$((req / 5)); b01=$((req / 3)); b025=$((req / 2)); b05=$((req * 3 / 4)); b1=$req; b2=$req
+            lat_sum=$(awk "BEGIN {printf \"%.3f\", $req * $lat_ms / 1000.0}")
+            {
+              echo "# HELP http_requests_total Synthetic request counter"
+              echo "# TYPE http_requests_total counter"
+              echo "http_requests_total{node_id=\"${NODE_ID}\",status=\"200\"} ${req}"
+              echo "http_requests_total{node_id=\"${NODE_ID}\",status=\"500\"} ${err}"
+              echo "# HELP queue_depth Synthetic queue depth"
+              echo "# TYPE queue_depth gauge"
+              echo "queue_depth{node_id=\"${NODE_ID}\"} ${q}"
+              echo "# HELP container_cpu_usage_seconds_total Synthetic CPU counter"
+              echo "# TYPE container_cpu_usage_seconds_total counter"
+              echo "container_cpu_usage_seconds_total{node_id=\"${NODE_ID}\"} ${cpu_total}"
+              echo "# HELP http_request_duration_seconds Synthetic request duration histogram"
+              echo "# TYPE http_request_duration_seconds histogram"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"0.05\"} ${b005}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"0.1\"} ${b01}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"0.25\"} ${b025}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"0.5\"} ${b05}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"1\"} ${b1}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"2\"} ${b2}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"+Inf\"} ${req}"
+              echo "http_request_duration_seconds_count{node_id=\"${NODE_ID}\"} ${req}"
+              echo "http_request_duration_seconds_sum{node_id=\"${NODE_ID}\"} ${lat_sum}"
+            } > /www/metrics
+            sleep 2
+          done
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -57,11 +161,63 @@ spec:
     metadata:
       labels:
         app: catalog
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
       - name: catalog
-        image: alpine:latest
-        command: ["sleep", "infinity"]
+        image: python:3.12-alpine
+        env:
+        - name: NODE_ID
+          value: node-2
+        - name: BASE_QUEUE
+          value: "20"
+        command: ["/bin/sh", "-lc"]
+        args:
+        - |
+          mkdir -p /www
+          echo ok > /www/index.html
+          python -m http.server 8080 --directory /www >/tmp/http.log 2>&1 &
+          req=0; err=0; cpu_total=0
+          while true; do
+            t=$(date +%s)
+            noise=$((t % 11))
+            req=$((req + 30 + noise))
+            q=$((BASE_QUEUE + (t % 20) - 10))
+            if [ "$q" -lt 0 ]; then q=0; fi
+            err=$((err + q / 20))
+            cpu_inc=$((10 + q / 10))
+            cpu_total=$((cpu_total + cpu_inc))
+            lat_ms=$((35 + q * 3))
+            b005=$((req / 5)); b01=$((req / 3)); b025=$((req / 2)); b05=$((req * 3 / 4)); b1=$req; b2=$req
+            lat_sum=$(awk "BEGIN {printf \"%.3f\", $req * $lat_ms / 1000.0}")
+            {
+              echo "# HELP http_requests_total Synthetic request counter"
+              echo "# TYPE http_requests_total counter"
+              echo "http_requests_total{node_id=\"${NODE_ID}\",status=\"200\"} ${req}"
+              echo "http_requests_total{node_id=\"${NODE_ID}\",status=\"500\"} ${err}"
+              echo "# HELP queue_depth Synthetic queue depth"
+              echo "# TYPE queue_depth gauge"
+              echo "queue_depth{node_id=\"${NODE_ID}\"} ${q}"
+              echo "# HELP container_cpu_usage_seconds_total Synthetic CPU counter"
+              echo "# TYPE container_cpu_usage_seconds_total counter"
+              echo "container_cpu_usage_seconds_total{node_id=\"${NODE_ID}\"} ${cpu_total}"
+              echo "# HELP http_request_duration_seconds Synthetic request duration histogram"
+              echo "# TYPE http_request_duration_seconds histogram"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"0.05\"} ${b005}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"0.1\"} ${b01}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"0.25\"} ${b025}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"0.5\"} ${b05}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"1\"} ${b1}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"2\"} ${b2}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"+Inf\"} ${req}"
+              echo "http_request_duration_seconds_count{node_id=\"${NODE_ID}\"} ${req}"
+              echo "http_request_duration_seconds_sum{node_id=\"${NODE_ID}\"} ${lat_sum}"
+            } > /www/metrics
+            sleep 2
+          done
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -77,11 +233,63 @@ spec:
     metadata:
       labels:
         app: checkout
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
       - name: checkout
-        image: alpine:latest
-        command: ["sleep", "infinity"]
+        image: python:3.12-alpine
+        env:
+        - name: NODE_ID
+          value: node-1
+        - name: BASE_QUEUE
+          value: "24"
+        command: ["/bin/sh", "-lc"]
+        args:
+        - |
+          mkdir -p /www
+          echo ok > /www/index.html
+          python -m http.server 8080 --directory /www >/tmp/http.log 2>&1 &
+          req=0; err=0; cpu_total=0
+          while true; do
+            t=$(date +%s)
+            noise=$((t % 11))
+            req=$((req + 30 + noise))
+            q=$((BASE_QUEUE + (t % 20) - 10))
+            if [ "$q" -lt 0 ]; then q=0; fi
+            err=$((err + q / 20))
+            cpu_inc=$((10 + q / 10))
+            cpu_total=$((cpu_total + cpu_inc))
+            lat_ms=$((35 + q * 3))
+            b005=$((req / 5)); b01=$((req / 3)); b025=$((req / 2)); b05=$((req * 3 / 4)); b1=$req; b2=$req
+            lat_sum=$(awk "BEGIN {printf \"%.3f\", $req * $lat_ms / 1000.0}")
+            {
+              echo "# HELP http_requests_total Synthetic request counter"
+              echo "# TYPE http_requests_total counter"
+              echo "http_requests_total{node_id=\"${NODE_ID}\",status=\"200\"} ${req}"
+              echo "http_requests_total{node_id=\"${NODE_ID}\",status=\"500\"} ${err}"
+              echo "# HELP queue_depth Synthetic queue depth"
+              echo "# TYPE queue_depth gauge"
+              echo "queue_depth{node_id=\"${NODE_ID}\"} ${q}"
+              echo "# HELP container_cpu_usage_seconds_total Synthetic CPU counter"
+              echo "# TYPE container_cpu_usage_seconds_total counter"
+              echo "container_cpu_usage_seconds_total{node_id=\"${NODE_ID}\"} ${cpu_total}"
+              echo "# HELP http_request_duration_seconds Synthetic request duration histogram"
+              echo "# TYPE http_request_duration_seconds histogram"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"0.05\"} ${b005}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"0.1\"} ${b01}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"0.25\"} ${b025}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"0.5\"} ${b05}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"1\"} ${b1}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"2\"} ${b2}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"+Inf\"} ${req}"
+              echo "http_request_duration_seconds_count{node_id=\"${NODE_ID}\"} ${req}"
+              echo "http_request_duration_seconds_sum{node_id=\"${NODE_ID}\"} ${lat_sum}"
+            } > /www/metrics
+            sleep 2
+          done
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -89,7 +297,7 @@ metadata:
   name: payments
   namespace: prod-sre
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: payments
@@ -97,8 +305,61 @@ spec:
     metadata:
       labels:
         app: payments
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
       - name: payments
-        image: alpine:latest
-        command: ["sleep", "infinity"]
+        image: python:3.12-alpine
+        env:
+        - name: NODE_ID
+          value: node-0
+        - name: BASE_QUEUE
+          value: "30"
+        command: ["/bin/sh", "-lc"]
+        args:
+        - |
+          mkdir -p /www
+          echo ok > /www/index.html
+          python -m http.server 8080 --directory /www >/tmp/http.log 2>&1 &
+          req=0; err=0; cpu_total=0
+          while true; do
+            t=$(date +%s)
+            noise=$((t % 11))
+            req=$((req + 30 + noise))
+            q=$((BASE_QUEUE + (t % 20) - 10))
+            if [ "$q" -lt 0 ]; then q=0; fi
+            err=$((err + q / 20))
+            cpu_inc=$((10 + q / 10))
+            cpu_total=$((cpu_total + cpu_inc))
+            lat_ms=$((35 + q * 3))
+            b005=$((req / 5)); b01=$((req / 3)); b025=$((req / 2)); b05=$((req * 3 / 4)); b1=$req; b2=$req
+            lat_sum=$(awk "BEGIN {printf \"%.3f\", $req * $lat_ms / 1000.0}")
+            {
+              echo "# HELP http_requests_total Synthetic request counter"
+              echo "# TYPE http_requests_total counter"
+              echo "http_requests_total{node_id=\"${NODE_ID}\",status=\"200\"} ${req}"
+              echo "http_requests_total{node_id=\"${NODE_ID}\",status=\"500\"} ${err}"
+              echo "# HELP queue_depth Synthetic queue depth"
+              echo "# TYPE queue_depth gauge"
+              echo "queue_depth{node_id=\"${NODE_ID}\"} ${q}"
+              echo "# HELP container_cpu_usage_seconds_total Synthetic CPU counter"
+              echo "# TYPE container_cpu_usage_seconds_total counter"
+              echo "container_cpu_usage_seconds_total{node_id=\"${NODE_ID}\"} ${cpu_total}"
+              echo "# HELP http_request_duration_seconds Synthetic request duration histogram"
+              echo "# TYPE http_request_duration_seconds histogram"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"0.05\"} ${b005}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"0.1\"} ${b01}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"0.25\"} ${b025}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"0.5\"} ${b05}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"1\"} ${b1}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"2\"} ${b2}"
+              echo "http_request_duration_seconds_bucket{node_id=\"${NODE_ID}\",le=\"+Inf\"} ${req}"
+              echo "http_request_duration_seconds_count{node_id=\"${NODE_ID}\"} ${req}"
+              echo "http_request_duration_seconds_sum{node_id=\"${NODE_ID}\"} ${lat_sum}"
+            } > /www/metrics
+            sleep 2
+          done
+

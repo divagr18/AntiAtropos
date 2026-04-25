@@ -84,6 +84,9 @@ def runtime_config():
         except Exception:
             mapped_nodes = []
 
+    raw_max_replicas = os.getenv("ANTIATROPOS_MAX_REPLICAS", "")
+    max_replicas_display = raw_max_replicas if raw_max_replicas.strip() else "unbounded"
+
     return {
         "env_mode": os.getenv("ANTIATROPOS_ENV_MODE", "simulated"),
         "reward_output_mode": os.getenv("ANTIATROPOS_REWARD_OUTPUT_MODE", "normalized"),
@@ -91,7 +94,7 @@ def runtime_config():
         "kubeconfig_configured": bool(os.getenv("KUBECONFIG")),
         "k8s_namespace": os.getenv("ANTIATROPOS_K8S_NAMESPACE", "default"),
         "min_replicas": os.getenv("ANTIATROPOS_MIN_REPLICAS", "1"),
-        "max_replicas": os.getenv("ANTIATROPOS_MAX_REPLICAS", "20"),
+        "max_replicas": max_replicas_display,
         "scale_step": os.getenv("ANTIATROPOS_SCALE_STEP", "3"),
         "strict_real": os.getenv("ANTIATROPOS_STRICT_REAL", "false"),
         "workload_map_configured": bool(raw_map),

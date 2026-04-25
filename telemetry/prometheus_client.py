@@ -1,9 +1,12 @@
 import os
 import random
+import logging
 from typing import Any, Dict, List, Optional
 import requests
 from pydantic import BaseModel
 from .mapping import MetricMapper
+
+logger = logging.getLogger("antiatropos.telemetry")
 
 class TelemetryRecord(BaseModel):
     node_id: str
@@ -49,7 +52,7 @@ class PrometheusClient:
             'sum(queue_depth) by (pod)'
         )
         
-    def fetch_latest_metrics(self, node_ids: List[str]) -> Dict[str, TelemetryRecord]:
+    def fetch_latest_metrics(self, node_ids: List[str]) -> Dict[str, Any]:
         """
         Query Prometheus for the latest metrics for the given nodes.
         Returns a mapping from node_id to TelemetryRecord.
@@ -65,9 +68,9 @@ class PrometheusClient:
                 raise
             return self._generate_mock_metrics(node_ids)
 
-    def _fetch_real_metrics(self, node_ids: List[str]) -> Dict[str, TelemetryRecord]:
+    def _fetch_real_metrics(self, node_ids: List[str]) -> Dict[str, Any]:
         """Fetches node telemetry from Prometheus instant queries."""
-        metrics: Dict[str, TelemetryRecord] = {}
+        metrics: Dict[str, Any] = {}
         saw_any_real_signal = False
 
         req_by_node = self._collect_metric_values("request_rate", self.request_rate_query, node_ids)
@@ -85,18 +88,34 @@ class PrometheusClient:
 
             if any(v is not None for v in (req_rate, lat_ms, err_rate, cpu, q_depth)):
                 saw_any_real_signal = True
+            else:
+                # No usable sample for this node this cycle; skip reconciliation
+                # so simulator dynamics are preserved instead of being collapsed
+                # toward zero by synthetic defaults.
+                continue
 
-            metrics[node_id] = TelemetryRecord(
-                node_id=node_id,
-                latency_ms=float(lat_ms if lat_ms is not None else 20.0),
-                request_rate=float(req_rate if req_rate is not None else 0.0),
-                error_rate=max(0.0, min(1.0, float(err_rate if err_rate is not None else 0.0))),
-                cpu_utilization=max(0.0, min(1.0, float(cpu if cpu is not None else 0.0))),
-                queue_depth=max(0.0, float(q_depth if q_depth is not None else 0.0)),
-            )
+            node_payload: Dict[str, float] = {}
+            if lat_ms is not None:
+                node_payload["latency_ms"] = float(lat_ms)
+            if req_rate is not None:
+                node_payload["request_rate"] = float(req_rate)
+            if err_rate is not None:
+                node_payload["error_rate"] = max(0.0, min(1.0, float(err_rate)))
+            if cpu is not None:
+                node_payload["cpu_utilization"] = max(0.0, min(1.0, float(cpu)))
+            if q_depth is not None:
+                node_payload["queue_depth"] = max(0.0, float(q_depth))
+            if node_payload:
+                metrics[node_id] = node_payload
 
         if self.strict_real and not saw_any_real_signal:
             raise RuntimeError("Prometheus returned no usable real telemetry for requested node IDs.")
+
+        if not saw_any_real_signal:
+            logger.warning(
+                "No per-node Prometheus samples found for configured queries; "
+                "skipping telemetry reconciliation for this step."
+            )
 
         return metrics
 

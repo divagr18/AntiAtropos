@@ -54,7 +54,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (action_type, ack_class) (rate(antiatropos_actions_total{task_id=~\"$task\",mode=~\"$mode\"}[1m]))",
+          "expr": "sum by (action_type, ack_class) (rate(antiatropos_actions_total{task_id=~\"$task\",mode=~\"$mode\"}[5m]))",
           "legendFormat": "{{action_type}} {{ack_class}}",
           "refId": "A"
         }
@@ -261,7 +261,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(antiatropos_executor_latency_ms_bucket{mode=~\"$mode\"}[2m])) by (le, mode))",
+          "expr": "histogram_quantile(0.95, sum(rate(antiatropos_executor_latency_ms_bucket{mode=~\"$mode\"}[5m])) by (le, mode))",
           "legendFormat": "p95 {{mode}}",
           "refId": "A"
         },

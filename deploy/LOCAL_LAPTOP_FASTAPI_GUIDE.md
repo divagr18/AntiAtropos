@@ -24,7 +24,7 @@ The controller requires `KUBECONFIG` and `ANTIATROPOS_WORKLOAD_MAP`.
 $env:KUBECONFIG = "$HOME/.kube/config"
 $env:ANTIATROPOS_K8S_NAMESPACE = "prod-sre"
 $env:ANTIATROPOS_MIN_REPLICAS = "1"
-$env:ANTIATROPOS_MAX_REPLICAS = "6"
+$env:ANTIATROPOS_MAX_REPLICAS = ""   # empty => unbounded scale-up
 $env:ANTIATROPOS_SCALE_STEP = "3"
 $env:ANTIATROPOS_WORKLOAD_MAP = '{"node-0":{"deployment":"payments","namespace":"prod-sre"},"node-1":{"deployment":"checkout","namespace":"prod-sre"},"node-2":{"deployment":"catalog","namespace":"prod-sre"},"node-3":{"deployment":"cart","namespace":"prod-sre"},"node-4":{"deployment":"auth","namespace":"prod-sre"}}'
 ```

@@ -18,11 +18,33 @@ class KubernetesExecutor:
         self.is_mock = not self.kubeconfig or self.kubeconfig.lower() == "mock"
         self.namespace = os.getenv("ANTIATROPOS_K8S_NAMESPACE", "default")
         self.min_replicas = int(os.getenv("ANTIATROPOS_MIN_REPLICAS", "1"))
-        self.max_replicas = int(os.getenv("ANTIATROPOS_MAX_REPLICAS", "20"))
+        self.max_replicas = self._parse_max_replicas(os.getenv("ANTIATROPOS_MAX_REPLICAS"))
         self.scale_step = int(os.getenv("ANTIATROPOS_SCALE_STEP", "3"))
         self._apps_v1_api = None
         self._node_workload_map = self._load_node_workload_map()
         self._live_supported_actions = {"NO_OP", "SCALE_UP", "SCALE_DOWN"}
+
+    @staticmethod
+    def _parse_max_replicas(raw: Optional[str]) -> Optional[int]:
+        """
+        Parse optional max replicas.
+
+        Returns:
+          - int when a positive explicit cap is provided
+          - None when scale-up should be unbounded
+        """
+        if raw is None:
+            return None
+        value = str(raw).strip().lower()
+        if value in ("", "none", "unbounded", "inf", "infinite"):
+            return None
+        try:
+            parsed = int(value)
+        except ValueError:
+            return None
+        if parsed <= 0:
+            return None
+        return parsed
 
     @staticmethod
     def _normalize_action_type(action_type) -> str:
@@ -116,14 +138,18 @@ class KubernetesExecutor:
         current = int(scale_obj.spec.replicas or self.min_replicas)
         delta = max(1, int(float(parameter) * self.scale_step))
         if action_type == "SCALE_UP":
-            desired = min(self.max_replicas, current + delta)
+            if self.max_replicas is None:
+                desired = current + delta
+            else:
+                desired = min(self.max_replicas, current + delta)
         else:
             desired = max(self.min_replicas, current - delta)
 
         if desired == current:
+            upper = "unbounded" if self.max_replicas is None else str(self.max_replicas)
             return (
                 f"Ack: {action_type} for {target} - replicas unchanged at {current} "
-                f"(bounds {self.min_replicas}-{self.max_replicas})"
+                f"(bounds {self.min_replicas}-{upper})"
             )
 
         apps_v1.patch_namespaced_deployment_scale(
