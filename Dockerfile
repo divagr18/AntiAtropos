@@ -18,7 +18,13 @@ ENV DEBIAN_FRONTEND=noninteractive \
     ANTIATROPOS_SCALE_STEP=3 \
     ANTIATROPOS_CONTROL_PLANE_URL=http://206.189.136.21:8010 \
     PROMETHEUS_URL=http://206.189.136.21:30090 \
-    ANTIATROPOS_WORKLOAD_MAP={"node-0":{"deployment":"payments","namespace":"prod-sre"},"node-1":{"deployment":"checkout","namespace":"prod-sre"},"node-2":{"deployment":"catalog","namespace":"prod-sre"},"node-3":{"deployment":"cart","namespace":"prod-sre"},"node-4":{"deployment":"auth","namespace":"prod-sre"}}
+    ANTIATROPOS_WORKLOAD_MAP={"node-0":{"deployment":"payments","namespace":"prod-sre"},"node-1":{"deployment":"checkout","namespace":"prod-sre"},"node-2":{"deployment":"catalog","namespace":"prod-sre"},"node-3":{"deployment":"cart","namespace":"prod-sre"},"node-4":{"deployment":"auth","namespace":"prod-sre"}} \
+    ANTIATROPOS_LABEL_NODE_MAP={"payments":"node-0","checkout":"node-1","catalog":"node-2","cart":"node-3","auth":"node-4"} \
+    ANTIATROPOS_PROM_QUERY_REQUEST_RATE="sum(rate(http_requests_total[1m])) by (node_id)" \
+    ANTIATROPOS_PROM_QUERY_LATENCY_MS="histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[1m])) by (node_id, le)) * 1000" \
+    ANTIATROPOS_PROM_QUERY_ERROR_RATE="sum(rate(http_requests_total{status=~\"5..\"}[1m])) by (node_id) / clamp_min(sum(rate(http_requests_total[1m])) by (node_id), 1)" \
+    ANTIATROPOS_PROM_QUERY_CPU="avg(rate(container_cpu_usage_seconds_total[1m])) by (node_id)" \
+    ANTIATROPOS_PROM_QUERY_QUEUE_DEPTH="avg(queue_depth) by (node_id)" 
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
