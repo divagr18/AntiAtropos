@@ -49,6 +49,10 @@ ALPHA: float = 0.002   # Weight on Lyapunov energy drift DeltaV(s)
 BETA:  float = 0.3     # Weight on infrastructure cost (increased so cost signal is visible)
 GAMMA: float = 6.0     # Weight on per-step SLA violation indicator (dominant but not overwhelming)
 DELTA: float = 0.1     # Weight on control-barrier function penalty (queue safety zone)
+ZETA:  float = 0.01    # Weight on action-repetition penalty (discourages degenerate fixations)
+
+# How many repeated identical actions before the quadratic penalty kicks in hard
+REPETITION_SOFT_LIMIT = 3
 
 MAX_QUEUE_NORM = 200.0
 MAX_LATENCY_NORM = 1000.0

@@ -58,7 +58,7 @@ T3_SURGE_CYCLE:        int   = 60   # Cycle length (ticks)
 T3_SURGE_BASE_START:   int   = 30   # Nominal start of surge within cycle
 T3_SURGE_BASE_END:     int   = 40   # Nominal end of surge within cycle
 T3_SURGE_JITTER:       int   = 10   # ±jitter applied to start/end each episode
-T3_SURGE_MAGNITUDE:    float = 140.0 # Extra req/tick added to node-1 and node-2
+T3_SURGE_MAGNITUDE:    float = 60.0  # Extra req/tick added to node-1 and node-2 (4 SCALE_UPs at delta=1 covers it: 5x15=75 = 15 DAG + 60 surge)
 
 # Hardening: Critical infrastructure that CANNOT be shed
 # In Task 3, these receive the surge. Forcing the agent to SCALE.

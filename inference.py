@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import inspect
 import json
@@ -56,19 +57,26 @@ TEMPERATURE_SWEEP = [0.6, 0.3, 0.7]  # Fixed temperatures for multi-episode eval
 
 TASK_BRIEFS: Dict[str, str] = {
     "task-1": "Traffic ramps linearly every tick. Scale up proactively — new capacity takes 5 ticks to boot. Keep latency under SLA (200ms) while minimizing cost. Scale down when queues are safe.",
-    "task-2": "A node fails randomly. Detect quickly and recover with reroute/scale actions.",
-    "task-3": "Protect VIP node-0 under surges. Keep VIP healthy without invalid actions.",
+    "task-2": "One node will fail permanently (any of node-1 through node-4, never node-0). STEP 1: scan all nodes and find which has status=FAILED and outflow=0. STEP 2: if the failed node has children, scale those children up (they are starved). STEP 3: reroute traffic from THE FAILED NODE (not its parent!) to healthy peers. If node-4 failed (independent), scale up node-0 to compensate.",
+    "task-3": "Periodic surge hits node-1 and node-2 as a side-channel. node-0 is the primary ingress — never starve it below 3 units. Scale nodes 1/2 to absorb the burst (2-4 times max), then watch: if queues drop, STOP scaling. Over-provisioning wastes cost and starves other nodes. Reroute from the surge nodes if scaling alone doesn't help.",
 }
 
 SYSTEM_PROMPT = textwrap.dedent(
     """
     You are an autonomous SRE controller managing a five-node microservice cluster.
 
+    CLUSTER TOPOLOGY (traffic flows parent → children):
+      node-0 → node-1, node-2
+      node-2 → node-3
+      node-4 (independent ingress)
+    FAILED nodes have outflow=0 — their children are starved.
+    Backpressure: overloaded children reduce parent capacity.
+
     ACTIONS (new capacity takes 5 ticks to boot):
-      SCALE_UP <node> <amount:0-1>   — add capacity, clears DEGRADED status
-      SCALE_DOWN <node> <amount:0-1>  — remove capacity (min 1 unit)
-      REROUTE_TRAFFIC <node> <fraction:0-1> — offload traffic to healthy peers
-      SHED_LOAD <node> <fraction:0-1>  — drop incoming traffic (NOT on critical nodes)
+      SCALE_UP <node> <amount>   — add capacity (0.3-0.5 normal, 0.6-0.8 heavy surge), clears DEGRADED
+      SCALE_DOWN <node> <amount>  — remove capacity (0.2-0.4 safe, 0.5-0.7 aggressive)
+      REROUTE_TRAFFIC <node> <fraction> — reduce THIS node capacity, redistribute to peers (0.3-0.5)
+      SHED_LOAD <node> <fraction>  — drop incoming traffic (0.3-0.5), NOT on critical nodes
       NO_OP                           — do nothing
 
     REWARD PRIORITIES (in order):
@@ -213,11 +221,25 @@ def observation_for_model(obs) -> dict:
 
     The scalar reward for past steps is already in the history (correct).
     """
+    # Derive summary lists from per-node status fields (feature engineering,
+    # same principle as total_queue_backlog — the agent could compute these
+    # from raw per-node data but having them pre-computed speeds up reasoning).
+    failed_nodes = []
+    degraded_nodes = []
+    for node in obs.nodes:
+        s = str(getattr(node.status, "value", str(node.status)))
+        if s == "failed":
+            failed_nodes.append(node.node_id)
+        elif s == "degraded":
+            degraded_nodes.append(node.node_id)
+
     return {
         "task_id": obs.task_id,
         "mode": getattr(obs.mode, "value", str(obs.mode)),
         "step": obs.step,
         "max_steps": obs.max_steps,
+        "failed_nodes": failed_nodes,
+        "degraded_nodes": degraded_nodes,
         "average_latency_ms": obs.average_latency_ms,
         "error_rate": obs.error_rate,
         "total_queue_backlog": obs.total_queue_backlog,
@@ -276,9 +298,9 @@ async def get_model_action(client: AsyncOpenAI, task_id: str, step: int, obs: di
             ],
             temperature=TEMPERATURE,
             max_tokens=MAX_TOKENS,
+            presence_penalty=0.3,
             response_format={"type": "json_object"},
             timeout=MODEL_TIMEOUT_S,
-            seed=SEED,
         )
         content = completion.choices[0].message.content or ""
         if not content.strip():
@@ -372,12 +394,15 @@ async def run_single_task(env: AntiAtroposEnv, client: AsyncOpenAI, task_id: str
     }
 
 
-async def run_all_tasks() -> None:
+async def run_all_tasks(overrides: Optional[argparse.Namespace] = None) -> None:
     _seed_everything(SEED)
     all_tasks = ["task-1", "task-2", "task-3"]
-    run_single = os.getenv("ANTIATROPOS_RUN_SINGLE_TASK", "false").lower() == "true"
-    task_id = TASK_NAME if TASK_NAME in set(all_tasks) else "task-1"
-    tasks_to_run = [task_id] if run_single else all_tasks
+    if overrides and overrides.task != "all":
+        tasks_to_run = [overrides.task]
+    else:
+        run_single = os.getenv("ANTIATROPOS_RUN_SINGLE_TASK", "false").lower() == "true"
+        task_id = TASK_NAME if TASK_NAME in set(all_tasks) else "task-1"
+        tasks_to_run = [task_id] if run_single else all_tasks
     if not API_KEY:
         raise RuntimeError("Missing API key (API_KEY/HF_TOKEN/OPENAI_API_KEY).")
 
@@ -439,7 +464,15 @@ async def run_all_tasks() -> None:
 
 
 def main() -> None:
-    asyncio.run(run_all_tasks())
+    parser = argparse.ArgumentParser(description="AntiAtropos SRE inference")
+    parser.add_argument(
+        "--task", "-t",
+        choices=["task-1", "task-2", "task-3", "all"],
+        default="all",
+        help="Run a specific task or all tasks (default: all)",
+    )
+    args = parser.parse_args()
+    asyncio.run(run_all_tasks(overrides=args))
 
 
 if __name__ == "__main__":
