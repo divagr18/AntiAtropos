@@ -18,6 +18,8 @@ class KubernetesExecutor:
         self.kubeconfig = kubeconfig or os.getenv("KUBECONFIG")
         self.remote_control_url = os.getenv("ANTIATROPOS_CONTROL_PLANE_URL", "").strip().rstrip("/")
         self.remote_timeout_s = float(os.getenv("ANTIATROPOS_CONTROL_TIMEOUT_S", "5.0"))
+        self.remote_retry_count = int(os.getenv("ANTIATROPOS_CONTROL_RETRY_COUNT", "2"))
+        self.remote_retry_backoff_s = float(os.getenv("ANTIATROPOS_CONTROL_RETRY_BACKOFF_S", "0.25"))
         self.is_mock = (
             not self.remote_control_url
             and (not self.kubeconfig or self.kubeconfig.lower() == "mock")
@@ -29,6 +31,8 @@ class KubernetesExecutor:
         self._apps_v1_api = None
         self._node_workload_map = self._load_node_workload_map()
         self._live_supported_actions = {"NO_OP", "SCALE_UP", "SCALE_DOWN"}
+        self.k8s_retry_count = int(os.getenv("ANTIATROPOS_K8S_RETRY_COUNT", "2"))
+        self.k8s_retry_backoff_s = float(os.getenv("ANTIATROPOS_K8S_RETRY_BACKOFF_S", "0.2"))
 
     @staticmethod
     def _parse_max_replicas(raw: Optional[str]) -> Optional[int]:
@@ -161,16 +165,45 @@ class KubernetesExecutor:
                 f"(bounds {self.min_replicas}-{upper})"
             )
 
-        apps_v1.patch_namespaced_deployment_scale(
-            name=deployment_name,
+        self._patch_deployment_scale_with_retry(
+            apps_v1=apps_v1,
+            deployment_name=deployment_name,
             namespace=namespace,
-            body={"spec": {"replicas": desired}},
+            desired=desired,
         )
 
         return (
             f"Ack: {action_type} for {target} - deployment {deployment_name} "
             f"in namespace {namespace} scaled {current}->{desired}"
         )
+
+    def _patch_deployment_scale_with_retry(self, apps_v1, deployment_name: str, namespace: str, desired: int) -> None:
+        """
+        Patch deployment replicas with retries for transient API server errors.
+        """
+        from kubernetes.client.rest import ApiException
+
+        max_attempts = max(1, self.k8s_retry_count + 1)
+        for attempt in range(1, max_attempts + 1):
+            try:
+                apps_v1.patch_namespaced_deployment_scale(
+                    name=deployment_name,
+                    namespace=namespace,
+                    body={"spec": {"replicas": desired}},
+                )
+                return
+            except ApiException as exc:
+                retryable = exc.status in (409, 429, 500, 502, 503, 504)
+                if (not retryable) or attempt >= max_attempts:
+                    raise
+                sleep_s = self.k8s_retry_backoff_s * (2 ** (attempt - 1))
+                logger.warning(
+                    "Retrying deployment scale patch after ApiException status=%s attempt=%s/%s",
+                    exc.status,
+                    attempt,
+                    max_attempts,
+                )
+                time.sleep(sleep_s)
 
     def _remote_execution(self, action: str, target: str, parameter: float) -> str:
         """
@@ -180,6 +213,9 @@ class KubernetesExecutor:
           - POST /step
           - Request: {action_type, target_node_id, parameter}
           - Success response includes ack_status and starts with "Ack:"
+
+        This contract matches server.local_laptop_control and is the only
+        supported remote control-plane format.
         """
         if not self.remote_control_url:
             raise ValueError("ANTIATROPOS_CONTROL_PLANE_URL is not configured")
@@ -192,27 +228,7 @@ class KubernetesExecutor:
         }
         payload = action_payload
 
-        try:
-            response = requests.post(endpoint, json=payload, timeout=self.remote_timeout_s)
-        except requests.RequestException as exc:
-            raise RuntimeError(f"Remote control-plane request failed: {exc}") from exc
-
-        if response.status_code == 422:
-            # OpenEnv server.app expects {"action": {...}} shape on /step.
-            try:
-                body = response.json()
-                detail = str(body.get("detail", body))
-            except Exception:
-                detail = response.text.strip()
-            if "body" in detail and "action" in detail:
-                try:
-                    response = requests.post(
-                        endpoint,
-                        json={"action": action_payload},
-                        timeout=self.remote_timeout_s,
-                    )
-                except requests.RequestException as exc:
-                    raise RuntimeError(f"Remote control-plane retry failed: {exc}") from exc
+        response = self._post_with_retry(endpoint=endpoint, payload=payload)
 
         if response.status_code >= 400:
             detail = ""
@@ -221,6 +237,12 @@ class KubernetesExecutor:
                 detail = str(body.get("detail", body))
             except Exception:
                 detail = response.text.strip()
+            if response.status_code == 422 and "action" in detail:
+                detail = (
+                    f"{detail}. Expected lightweight control-plane contract at "
+                    f"{endpoint}: "
+                    '{"action_type":"SCALE_UP","target_node_id":"node-0","parameter":1.0}'
+                )
             raise RuntimeError(
                 f"Remote control-plane rejected action ({response.status_code}): {detail}"
             )
@@ -235,6 +257,47 @@ class KubernetesExecutor:
             action_id = str(data.get("action_id", "")).strip() or "remote"
             return f"Ack: {action} for {target} via remote control-plane ({action_id})"
         return ack
+
+    def _post_with_retry(self, endpoint: str, payload: dict) -> requests.Response:
+        """
+        POST helper with retries for transient HTTP/network failures.
+        """
+        max_attempts = max(1, self.remote_retry_count + 1)
+        last_exc: Optional[Exception] = None
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                response = requests.post(endpoint, json=payload, timeout=self.remote_timeout_s)
+            except requests.RequestException as exc:
+                last_exc = exc
+                if attempt >= max_attempts:
+                    break
+                sleep_s = self.remote_retry_backoff_s * (2 ** (attempt - 1))
+                logger.warning(
+                    "Retrying remote control-plane POST after network error attempt=%s/%s: %s",
+                    attempt,
+                    max_attempts,
+                    exc,
+                )
+                time.sleep(sleep_s)
+                continue
+
+            if response.status_code >= 500 and attempt < max_attempts:
+                sleep_s = self.remote_retry_backoff_s * (2 ** (attempt - 1))
+                logger.warning(
+                    "Retrying remote control-plane POST after HTTP %s attempt=%s/%s",
+                    response.status_code,
+                    attempt,
+                    max_attempts,
+                )
+                time.sleep(sleep_s)
+                continue
+
+            return response
+
+        if last_exc is not None:
+            raise RuntimeError(f"Remote control-plane request failed: {last_exc}") from last_exc
+        raise RuntimeError("Remote control-plane request failed after retries")
 
     def _get_apps_v1_api(self):
         if self._apps_v1_api is not None:

@@ -5,7 +5,7 @@ set -euo pipefail
 # - Installs k3s with kubelet max-pods=250
 # - Deploys workloads + Prometheus + Grafana
 # - Creates env file for live Kubernetes scaling
-# - Starts FastAPI server via systemd (antiatropos-fastapi)
+# - Starts lightweight control-plane API via systemd (antiatropos-control)
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Run as root: sudo bash deploy/do/deploy-droplet-one-shot.sh"
@@ -14,8 +14,8 @@ fi
 
 REPO_DIR="${REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 KUBECONFIG_PATH="${KUBECONFIG_PATH:-/etc/rancher/k3s/k3s.yaml}"
-FASTAPI_PORT="${FASTAPI_PORT:-8000}"
-FASTAPI_HOST="${FASTAPI_HOST:-0.0.0.0}"
+CONTROL_PORT="${CONTROL_PORT:-8010}"
+CONTROL_HOST="${CONTROL_HOST:-0.0.0.0}"
 K8S_NAMESPACE="${K8S_NAMESPACE:-prod-sre}"
 MONITORING_NAMESPACE="${MONITORING_NAMESPACE:-monitoring}"
 PY_VENV_DIR="${PY_VENV_DIR:-${REPO_DIR}/.venv-droplet}"
@@ -28,7 +28,7 @@ WORKLOAD_MAP="${WORKLOAD_MAP:-{\"node-0\":{\"deployment\":\"payments\",\"namespa
 echo "=== AntiAtropos Droplet One-Shot Deploy ==="
 echo "Repo:        ${REPO_DIR}"
 echo "Kubeconfig:  ${KUBECONFIG_PATH}"
-echo "FastAPI:     ${FASTAPI_HOST}:${FASTAPI_PORT}"
+echo "Control API: ${CONTROL_HOST}:${CONTROL_PORT}"
 echo ""
 
 if [[ ! -f "${REPO_DIR}/deploy/local-laptop.yaml" ]]; then
@@ -85,7 +85,6 @@ helm upgrade --install grafana grafana/grafana \
 
 if [[ ! -f "${ENV_FILE}" ]]; then
   cat > "${ENV_FILE}" <<EOF
-ANTIATROPOS_ENV_MODE=live
 KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 ANTIATROPOS_K8S_NAMESPACE=prod-sre
 ANTIATROPOS_MIN_REPLICAS=${MIN_REPLICAS}
@@ -108,9 +107,16 @@ else
   "${PY_VENV_DIR}/bin/pip" install -r "${REPO_DIR}/server/requirements.txt"
 fi
 
-cat > /etc/systemd/system/antiatropos-fastapi.service <<EOF
+# Hard cleanup: remove legacy VM OpenEnv service if it exists.
+if systemctl list-unit-files | grep -q '^antiatropos-fastapi\.service'; then
+  echo "Disabling legacy service antiatropos-fastapi..."
+  systemctl disable --now antiatropos-fastapi >/dev/null 2>&1 || true
+  rm -f /etc/systemd/system/antiatropos-fastapi.service
+fi
+
+cat > /etc/systemd/system/antiatropos-control.service <<EOF
 [Unit]
-Description=AntiAtropos FastAPI Server
+Description=AntiAtropos Droplet Control API
 After=network-online.target k3s.service
 Wants=network-online.target
 
@@ -119,7 +125,7 @@ Type=simple
 User=root
 WorkingDirectory=${REPO_DIR}
 EnvironmentFile=${ENV_FILE}
-ExecStart=${PY_VENV_DIR}/bin/uvicorn server.app:app --host ${FASTAPI_HOST} --port ${FASTAPI_PORT}
+ExecStart=${PY_VENV_DIR}/bin/uvicorn server.local_laptop_control:app --host ${CONTROL_HOST} --port ${CONTROL_PORT}
 Restart=always
 RestartSec=3
 
@@ -128,12 +134,12 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable --now antiatropos-fastapi
+systemctl enable --now antiatropos-control
 
 echo ""
-echo "Waiting for app readiness..."
+echo "Waiting for control API readiness..."
 for _ in {1..30}; do
-  if curl -fsS "http://127.0.0.1:${FASTAPI_PORT}/config/runtime" >/dev/null 2>&1; then
+  if curl -fsS "http://127.0.0.1:${CONTROL_PORT}/health" >/dev/null 2>&1; then
     break
   fi
   sleep 2
@@ -147,15 +153,18 @@ PROM_URL_DISPLAY="http://${PUBLIC_IP:-<droplet-ip>}:30090"
 
 echo ""
 echo "=== Deploy Complete ==="
-echo "FastAPI runtime: http://127.0.0.1:${FASTAPI_PORT}/config/runtime"
-echo "FastAPI health:  http://127.0.0.1:${FASTAPI_PORT}/state"
+echo "Control health:  http://127.0.0.1:${CONTROL_PORT}/health"
+echo "Control step:    http://127.0.0.1:${CONTROL_PORT}/step"
 echo "Prometheus svc:  kubectl -n ${MONITORING_NAMESPACE} get svc prometheus-server"
 echo "Prometheus URL:  ${PROM_URL_DISPLAY}"
 echo "Grafana access:  kubectl -n ${MONITORING_NAMESPACE} port-forward svc/grafana 3000:80"
 echo ""
 echo "Service status command:"
-echo "  systemctl status antiatropos-fastapi --no-pager"
+echo "  systemctl status antiatropos-control --no-pager"
 echo ""
-echo "If needed, edit env and restart:"
+echo "If needed, edit env and restart control service:"
 echo "  ${ENV_FILE}"
-echo "  systemctl restart antiatropos-fastapi"
+echo "  systemctl restart antiatropos-control"
+echo ""
+echo "Verify remote scaling path:"
+echo "  watch -n 1 'kubectl -n prod-sre get deploy -o custom-columns=NAME:.metadata.name,DESIRED:.spec.replicas,READY:.status.readyReplicas'"

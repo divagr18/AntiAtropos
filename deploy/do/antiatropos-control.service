@@ -1,0 +1,16 @@
+[Unit]
+Description=AntiAtropos Droplet Control API
+After=network-online.target k3s.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/Anti-Atropos
+EnvironmentFile=/root/Anti-Atropos/.env.droplet
+ExecStart=/root/Anti-Atropos/.venv-droplet/bin/uvicorn server.local_laptop_control:app --host 0.0.0.0 --port 8010
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
