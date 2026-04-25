@@ -52,7 +52,7 @@ def gpu_scaled_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
         overrides["lora_alpha"] = 48
         overrides["per_device_train_batch_size"] = 4
     elif tier == "a10g":
-        overrides["max_seq_length"] = 1024
+        overrides["max_seq_length"] = 512   # Must stay low: Qwen3.5 vocab=151936, logits at 1024 = 20 GB
         overrides["lora_rank"] = 32
         overrides["lora_alpha"] = 32
         overrides["per_device_train_batch_size"] = 2

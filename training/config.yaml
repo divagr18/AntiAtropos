@@ -46,7 +46,7 @@ loss_type: "reinforce_baseline"       # reinforce | reinforce_baseline | grpo
 num_episodes_per_iteration: 2         # Keep low to avoid OOM (3+ risks CUDA OOM on A10G at seq_len=512)
 num_iterations: 500                   # Total training iterations
 parallel_episodes: true               # Batch generation across episodes (10x faster)
-loss_batch_size: 32                   # Transitions per forward pass in loss (was 1!)
+loss_batch_size: 8                    # Transitions per forward pass in loss (Qwen3.5 logits = 8×512×151936×4 = 2.5 GB)
 learning_rate: 2.0e-4
 per_device_train_batch_size: 2        # A10G can handle 2 with seq_len=1024
 gradient_accumulation_steps: 4        # Effective batch = 2*4 = 8 transitions

@@ -192,7 +192,10 @@ def reinforce_baseline_loss_fn(
         attention_mask = torch.stack(padded_masks)
 
         # Forward pass WITH gradient (critical for REINFORCE)
-        outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+        outputs = model(
+            input_ids=input_ids.to(model.device),
+            attention_mask=attention_mask.to(model.device),
+        )
         logits = outputs.logits  # (batch, seq_len, vocab_size)
 
         # Shift for next-token prediction
@@ -312,7 +315,10 @@ def grpo_loss_fn(
         attention_mask = torch.stack(padded_masks)
 
         # Forward pass WITH gradient
-        outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+        outputs = model(
+            input_ids=input_ids.to(model.device),
+            attention_mask=attention_mask.to(model.device),
+        )
         logits = outputs.logits
         shift_logits = logits[:, :-1, :]
         shift_labels = input_ids[:, 1:]
@@ -513,6 +519,16 @@ def train(cfg: Dict[str, Any]) -> None:
         except Exception as e:
             print(f"  [iter {iteration}] Batch rollout failed: {e}")
             continue
+
+        # ---- Clear VRAM before loss (generation KV-cache fragmente GPU) ----
+        torch.cuda.empty_cache()
+        # Move rollout tensors to CPU — loss will move them back in batches
+        for ep in episodes:
+            for t in ep.transitions:
+                if t.input_ids is not None:
+                    t.input_ids = t.input_ids.cpu()
+                if t.attention_mask is not None:
+                    t.attention_mask = t.attention_mask.cpu()
 
         # ---- Compute loss ----
         model.train()

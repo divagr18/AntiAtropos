@@ -28,47 +28,69 @@ AntiAtropos simulates a 5-node cluster with high-fidelity operational dynamics:
 
 ---
 
+## 🛠️ OpenEnv Specification Compliance
+
+AntiAtropos implements typed OpenEnv interfaces using Pydantic models and an OpenEnv-compatible FastAPI server:
+
+- **Action Model**: `SREAction` in `models.py` (Typed fields for action type, node ID, and parameter).
+- **Observation Model**: `ClusterObservation` + `NodeObservation` in `models.py` (High-fidelity telemetry).
+- **Standard API**: Implements `reset()`, `step(action)`, and `state` according to the OpenEnv specification.
+- **Manifest**: `openenv.yaml` at the root defines the runtime (`fastapi`), app entrypoint (`server.app:app`), and port (`7860`).
+
+### Action Space (`SREAction`)
+- `NO_OP`: Hold position (essential for cost discipline).
+- `SCALE_UP`: Expand node capacity (triggering a cold-start delay).
+- `SCALE_DOWN`: Remove capacity (prioritizing pending/booting pods).
+- `REROUTE_TRAFFIC`: Shift load from target to healthy peers.
+- `SHED_LOAD`: Drop traffic fraction (Safety-guarded; forbidden on VIP nodes).
+
+### Observation Space (`ClusterObservation`)
+- **Global**: Step count, Average Latency, Error Rate, Total Backlog, Cost per Hour, Lyapunov Energy.
+- **Per-Node**: Queue depth, Status (HEALTHY/DEGRADED/FAILED), CPU Util, Capacity, Inflow/Outflow rates.
+
+---
+
+## 🏗️ Cluster Architecture & Control Plane
+
+AntiAtropos models a 5-node production DAG with a centralized control plane.
+
+### Topology (The Directed Graph)
+Traffic flows through a hierarchical structure, enabling realistic cascading failure simulations:
+```
+node-0 (VIP Ingress) ──┬──► node-1 (Checkout)
+                       └──► node-2 (Catalog) ──► node-3 (Database)
+node-4 (Auth Ingress) ──┘
+```
+- **node-0**: The VIP Payment Gateway. Business-critical; load shedding is forbidden.
+- **node-4**: Independent ingress for Auth services.
+- **Backpressure propagation**: If `node-3` overflows, it throttles `node-2`, which in turn throttles `node-0`.
+
+### The Live K8s Bridge
+The environment includes a `KubernetesExecutor` that allows the same agent logic to control a live cluster:
+- **Binding**: Uses `ANTIATROPOS_WORKLOAD_MAP` to map simulator "nodes" to real K8s Deployments.
+- **Execution**: Translates high-level actions into `patch_namespaced_deployment_scale` calls with transient retry logic.
+- **Reconciliation**: Ingests live Prometheus metrics to align simulator state with real infrastructure reality.
+
+---
+
 ## 🏆 Reward Engineering: The Differentiable SRE
 
-Our reward function is grounded in Neely’s **Drift-Plus-Penalty** framework, providing a dense, informative signal for learning.
+Our reward function is grounded in Neely’s **Drift-Plus-Penalty** framework, providing a dense, informative signal:
 
-1.  **Lyapunov Drift ($\Delta V$)**: Measures the direction of travel. Negative drift means the cluster is stabilizing.
-2.  **Smooth Sigmoid SLA**: Dual sigmoids (Latency and Error Rate) provide gradient **before** a violation. The agent learns the pre-scale window demanded by pod cold-starts.
+1.  **Lyapunov Drift ($\Delta V$)**: Measures the one-tick change in system energy. Negative drift means the cluster is stabilizing.
+2.  **Smooth Sigmoid SLA**: Dual sigmoids (Latency and Error Rate) provide gradient **before** a violation.
 3.  **Three-Tier Economics**: Distinguishes between "Paid-for" Baseline capacity, "Justified" scaling, and "Idle Waste" (penalized 20x).
 4.  **Control-Barrier Function**: A quadratic "Danger Zone" penalty that fires near catastrophic failure ($Q > 150$).
 
 ---
 
-## 📊 Task Curriculum
+## 📊 Task Curriculum & Results
 
-AntiAtropos features a three-stage curriculum designed to graduate agents from reactive to predictive control:
-
-| Task | Category | Objective | Weight |
-|---|---|---|---|
-| **task-1** | **Capacity Ramp** | Scale up proactively to beat the 5-tick boot delay as traffic ramps linearly. | 40% |
-| **task-2** | **Fault Tolerance** | Detect permanent node failure, reroute traffic, and scale up starved children. | 30% |
-| **task-3** | **Surge Stability** | Manage a side-channel burst surge while respecting `SHED_LOAD` bans on critical nodes. | 30% |
-
----
-
-## 🛠️ Production-Ready Integration
-
-AntiAtropos isn't just a simulator—it's a bridge to real infrastructure.
-
-- **Live K8s Bridge**: The `KubernetesExecutor` translates simulator actions (`SCALE_UP`, `REROUTE_TRAFFIC`) into real-world cluster mutations via the Kubernetes API.
-- **Prometheus Telemetry**: The `TelemetryClient` ingests live metrics and reconciles them into the simulator physics, enabling **Hybrid Autonomy**.
-- **Observability Stack**: Ships with a pre-provisioned Prometheus and Grafana stack, providing a "Command Center" view of agent actions and reward trajectories.
-
----
-
-## 📈 Results
-
-After training on **Qwen3.5-4B** using **Unsloth** and **HF TRL**, our agent demonstrated a massive leap in operational judgment:
-
-| Scenario | Base LLM | AntiAtropos Agent | Delta |
-| :--- | :---: | :---: | :---: |
-| **task-1 (Ramp)** | 0.69 | **0.88** | +27% |
-| **task-3 (Surge)** | 0.21 | **0.94** | **+347%** |
+| Task | Category | Weight | Mean Score (Baseline) | Mean Score (Trained) |
+|---|---|---|:---:|:---:|
+| **task-1** | **Capacity Ramp** | 40% | 0.69 | **0.88** |
+| **task-2** | **Fault Tolerance** | 30% | 0.70 | **0.82** |
+| **task-3** | **Surge Stability** | 30% | 0.21 | **0.94** |
 
 ---
 
@@ -80,29 +102,12 @@ pip install -e .
 uvicorn server.app:app --host 0.0.0.0 --port 7860
 ```
 
-### Docker (Includes Prometheus/Grafana)
+### Evaluation
 ```bash
-docker build -t antiatropos .
-docker run -p 7860:7860 antiatropos
-```
-
-### OpenEnv Evaluation
-```bash
-# Set your API key and run the evaluation harness
+# Set your API key and run the evaluation harness (inference.py)
 set OPENAI_API_KEY=your_key
 python inference.py --task all --mode trained
 ```
-
----
-
-## 📂 Project Structure
-
-- `simulator.py`: Fluid Queue physics, backpressure, and task dynamics.
-- `stability.py`: Lyapunov math, Drift-Plus-Penalty, and Reward normalisation.
-- `control/`: Kubernetes executor and action validation.
-- `telemetry/`: Prometheus ingestion and metric mapping.
-- `inference.py`: OpenAI-compatible evaluation harness with Episode Replay Buffer.
-- `grader.py`: Deterministic episode scoring and composite grading.
 
 ---
 
