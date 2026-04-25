@@ -19,6 +19,15 @@ trap cleanup INT TERM EXIT
 
 cd /app
 
+# Source HF Spaces live-mode config if present (overrides Dockerfile defaults)
+if [[ -f /app/.env.hf ]]; then
+  echo "Loading .env.hf..."
+  set -a
+  # shellcheck source=/dev/null
+  source /app/.env.hf
+  set +a
+fi
+
 uvicorn server.app:app --host 127.0.0.1 --port 8000 &
 FASTAPI_PID=$!
 

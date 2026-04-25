@@ -6,7 +6,19 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PROMETHEUS_VERSION=3.5.1 \
     GRAFANA_VERSION=12.3.1 \
     PROMETHEUS_ARCH=linux-amd64 \
-    GRAFANA_ARCH=linux-amd64
+    GRAFANA_ARCH=linux-amd64 \
+    ANTIATROPOS_ENV_MODE=live \
+    ANTIATROPOS_REWARD_OUTPUT_MODE=normalized \
+    ANTIATROPOS_CONTROL_TIMEOUT_S=8.0 \
+    ANTIATROPOS_PROM_TIMEOUT_S=5.0 \
+    ANTIATROPOS_STRICT_REAL=false \
+    ANTIATROPOS_METRIC_AGGREGATION=sum \
+    ANTIATROPOS_K8S_NAMESPACE=prod-sre \
+    ANTIATROPOS_MIN_REPLICAS=1 \
+    ANTIATROPOS_SCALE_STEP=3 \
+    ANTIATROPOS_CONTROL_PLANE_URL=http://206.189.136.21:8010 \
+    PROMETHEUS_URL=http://206.189.136.21:30090 \
+    ANTIATROPOS_WORKLOAD_MAP={"node-0":{"deployment":"payments","namespace":"prod-sre"},"node-1":{"deployment":"checkout","namespace":"prod-sre"},"node-2":{"deployment":"catalog","namespace":"prod-sre"},"node-3":{"deployment":"cart","namespace":"prod-sre"},"node-4":{"deployment":"auth","namespace":"prod-sre"}}
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
