@@ -419,8 +419,8 @@ def rollout_episode(
         # Per-step log
         if not action.is_valid:
             notes = f"INVALID: {action.parse_error}"
-        elif action.repair_note:
-            notes = action.repair_note
+        elif action.parse_error:
+            notes = action.parse_error
         else:
             notes = ""
         action_str = f"{action.action_type:11s} {action.target_node_id} p={action.parameter:.2f}"
