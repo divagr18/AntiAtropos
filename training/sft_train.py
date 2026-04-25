@@ -34,16 +34,29 @@ from collections import Counter
 from enum import Enum
 from pathlib import Path
 
-# Unsloth MUST be imported before torch/transformers/peft/trl
-import unsloth  # noqa: F401
-from unsloth import FastLanguageModel  # noqa: F401 — import at top to avoid warning
-
 import requests
-import torch
-from datasets import Dataset
 from pydantic import BaseModel, Field
 from sklearn.model_selection import train_test_split
-from trl import SFTConfig, SFTTrainer
+
+# ---- Torch-dependent imports (deferred for data-gen-only mode) ----
+# Unsloth MUST be imported before torch/transformers/peft/trl.
+# If torch/CUDA is misconfigured, data generation still works.
+try:
+    import unsloth  # noqa: F401 — patches torch before trl/peft
+    from unsloth import FastLanguageModel  # noqa: F401
+    import torch
+    from datasets import Dataset
+    from trl import SFTConfig, SFTTrainer
+    _TORCH_OK = True
+    _TORCH_ERR = None
+except ImportError as _e:
+    _TORCH_OK = False
+    _TORCH_ERR = str(_e)
+    torch = None  # type: ignore[assignment]
+    FastLanguageModel = None  # type: ignore[assignment]
+    Dataset = None  # type: ignore[assignment]
+    SFTTrainer = None  # type: ignore[assignment]
+    SFTConfig = None  # type: ignore[assignment]
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -65,6 +78,8 @@ TASK_BRIEFS = {
 
 SYSTEM_PROMPT = textwrap.dedent("""
     You are an autonomous SRE controller managing a five-node microservice cluster.
+
+    CRITICAL: /no_think mode. DO NOT use <think> or </think> tags. NO reasoning blocks. Output ONLY your action directly as plain text.
 
     CLUSTER TOPOLOGY (traffic flows parent → children):
       node-0 → node-1, node-2
@@ -665,6 +680,14 @@ def generate_dataset(hf_space_url, output_dir, seed, episodes_per_task, max_step
 
 def load_model(model_name, max_seq_length, lora_rank, lora_alpha, load_in_4bit, seed):
     """Load base model + attach LoRA adapters via Unsloth."""
+    if not _TORCH_OK:
+        raise ImportError(
+            f"Cannot load model — torch/unsloth import failed:\n"
+            f"  {_TORCH_ERR}\n"
+            f"Ensure torch+torchvision are installed with matching CUDA version, e.g.:\n"
+            f"  pip install torch==X.Y.Z+cuNNN torchvision==A.B.C+cuNNN "
+            f"--index-url https://download.pytorch.org/whl/cuNNN"
+        )
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name=model_name,
         max_seq_length=max_seq_length,
@@ -690,7 +713,7 @@ def load_model(model_name, max_seq_length, lora_rank, lora_alpha, load_in_4bit, 
     # VRAM report
     if torch.cuda.is_available():
         vram_used = torch.cuda.memory_allocated() / 1e9
-        vram_total = torch.cuda.get_device_properties(0).total_mem / 1e9
+        vram_total = torch.cuda.get_device_properties(0).total_memory / 1e9
         print(f"VRAM used: {vram_used:.2f} GiB / {vram_total:.2f} GiB")
         print(f"VRAM free: {vram_total - vram_used:.2f} GiB")
 
@@ -849,6 +872,13 @@ def run_eval_episode_with_model(hf_space_url, model, tokenizer, task_id, max_ste
             outputs[0][inputs["input_ids"].shape[1]:],
             skip_special_tokens=True,
         )
+
+        # Strip TRACE if present
+        import re
+        generated = re.sub(
+            '\x3cthink\x3e.*?\x3c/think\x3e', '',
+            generated, flags=re.DOTALL
+        ).strip()
 
         action, err = parse_model_action(generated)
         if action is None:
@@ -1021,9 +1051,13 @@ def main():
 
     # ---- Setup ----
     random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(args.seed)
+    if _TORCH_OK:
+        torch.manual_seed(args.seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(args.seed)
+    else:
+        print(f"WARNING: torch not available ({_TORCH_ERR})")
+        print("  Data generation will work, but model training requires torch+unsloth.")
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)

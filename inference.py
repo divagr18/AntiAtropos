@@ -71,6 +71,8 @@ SYSTEM_PROMPT = textwrap.dedent(
     """
     You are an autonomous SRE controller managing a five-node microservice cluster.
 
+    CRITICAL: NO-THINK mode (/no_think). DO NOT output ` response` or ` ➤` tags. DO NOT use reply or reasoning blocks. Output ONLY your action directly as plain text. NO markdown formatting.
+
     CLUSTER TOPOLOGY (traffic flows parent → children):
       node-0 → node-1, node-2
       node-2 → node-3

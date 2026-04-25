@@ -46,6 +46,11 @@ TASK_BRIEFS = {
 
 SYSTEM_PROMPT = """You are an autonomous SRE controller managing a five-node microservice cluster.
 
+CRITICAL: You are running in NO-THINK mode (/no_think). DO NOT output `</think>` or ` 
+` tags. DO NOT generate reasoning blocks. DO NOT use  
+ 
+ or . Output ONLY your action directly as plain text.
+
 CLUSTER TOPOLOGY (traffic flows parent → children):
   node-0 → node-1, node-2
   node-2 → node-3
@@ -335,6 +340,12 @@ def rollout_episode(
         generated_text = tokenizer.decode(
             outputs[0][input_len:], skip_special_tokens=True
         )
+
+        # Strip TRACE
+        generated_text = re.sub(
+            '\x3cthink\x3e.*?\x3c/think\x3e', '',
+            generated_text, flags=re.DOTALL
+        ).strip()
 
         # Parse action
         action = parse_action(generated_text)
