@@ -39,8 +39,11 @@ BACKPRESSURE_MAX_FACTOR: float = 0.4   # Maximum service rate reduction (40%)
 SENSOR_DROPOUT_PROB:  float = 0.05    # P(node.queue, latency reports 0 or -1.0)
 NODE_FAILURE_PROB:    float = 0.00    # P(node fails naturally) — largely driven by task profile
 
-# Cost model constants
-COST_PER_CAPACITY_UNIT_PER_HOUR: float = 0.05
+# Cost model -- two-tier: cheap for capacity needed to handle current
+# traffic, expensive for idling excess (punishes over-provisioning
+# without discouraging necessary scaling).
+COST_PER_CAPACITY_UNIT_PER_HOUR: float = 0.05     # Base rate for needed capacity
+OVERPROVISION_COST_PER_UNIT:     float = 1.0      # Penalty rate for excess (20x base)
 
 # Task Profiles (Domain Randomization)
 # Task 1: Start at 92-99% of ingress capacity (randomised in _randomize_domain).

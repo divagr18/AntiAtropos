@@ -58,7 +58,7 @@ TEMPERATURE_SWEEP = [0.6, 0.3, 0.7]  # Fixed temperatures for multi-episode eval
 TASK_BRIEFS: Dict[str, str] = {
     "task-1": "Traffic ramps linearly every tick. Scale up proactively — new capacity takes 5 ticks to boot. Keep latency under SLA (200ms) while minimizing cost. Scale down when queues are safe.",
     "task-2": "One node will fail permanently (any of node-1 through node-4, never node-0). STEP 1: scan all nodes and find which has status=FAILED and outflow=0. STEP 2: if the failed node has children, scale those children up (they are starved). STEP 3: reroute traffic from THE FAILED NODE (not its parent!) to healthy peers. If node-4 failed (independent), scale up node-0 to compensate.",
-    "task-3": "Periodic surge hits node-1 and node-2 as a side-channel. node-0 is the primary ingress — never starve it below 3 units. Scale nodes 1/2 to absorb the burst (2-4 times max), then watch: if queues drop, STOP scaling. Over-provisioning wastes cost and starves other nodes. Reroute from the surge nodes if scaling alone doesn't help.",
+    "task-3": "A surge (~75 req/tick) hits node-1 and node-2 via a side channel bypassing node-0. This is a REACTIVE scenario — monitor queue_depth on node-1 and node-2: when queues climb sharply, scale those nodes up. 3-4 SCALE_UPs on each is sufficient (5 replicas handles the burst at equilibrium). If queues don't drop after 4 SCALE_UPs, STOP scaling and try REROUTE instead. Scale down after queues return to safe levels to save cost.",
 }
 
 SYSTEM_PROMPT = textwrap.dedent(

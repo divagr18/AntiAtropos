@@ -9,7 +9,7 @@ from openenv.core.env_server.types import State
 
 try:
     from ..models import SREAction, ClusterObservation, NodeObservation, NodeStatus, EnvironmentMode
-    from ..simulator import ClusterSimulator, COST_PER_CAPACITY_UNIT_PER_HOUR, CLUSTER_TOPOLOGY
+    from ..simulator import ClusterSimulator, COST_PER_CAPACITY_UNIT_PER_HOUR, OVERPROVISION_COST_PER_UNIT, CLUSTER_TOPOLOGY
     from ..stability import (
         compute_lyapunov,
         compute_lyapunov_graph,
@@ -25,7 +25,7 @@ try:
     from ..control import KubernetesExecutor, ActionValidator
 except ImportError:
     from models import SREAction, ClusterObservation, NodeObservation, NodeStatus, EnvironmentMode  # type: ignore[no-redef]
-    from simulator import ClusterSimulator, COST_PER_CAPACITY_UNIT_PER_HOUR, CLUSTER_TOPOLOGY  # type: ignore[no-redef]
+    from simulator import ClusterSimulator, COST_PER_CAPACITY_UNIT_PER_HOUR, OVERPROVISION_COST_PER_UNIT, CLUSTER_TOPOLOGY  # type: ignore[no-redef]
     from stability import (  # type: ignore[no-redef]
         compute_lyapunov,
         compute_lyapunov_graph,
@@ -39,6 +39,7 @@ except ImportError:
     )
     from telemetry import PrometheusClient, get_observability_tracker  # type: ignore[no-redef]
     from control import KubernetesExecutor, ActionValidator  # type: ignore[no-redef]
+import math
 
 
 # ---------------------------------------------------------------------------
@@ -370,14 +371,27 @@ class AntiAtroposEnvironment(Environment):
         return False, f"Unsupported environment mode: {self._mode}"
 
     def _compute_cost(self, nodes_true: list[dict]) -> float:
-        """Calculates current running infra cost using provisioned capacity units."""
-        total_capacity_units = 0
+        """Two-tier cost: cheap for needed capacity, expensive for idling excess.
+
+        Needed capacity = ceil(incoming_rate / 15.0) — the minimum replicas
+        required to service current traffic.  Excess beyond that is idling
+        waste and costs OVERPROVISION_COST_PER_UNIT (20x base rate).
+        """
+        total_cost = 0.0
         for node in nodes_true:
             if node["status"] == NodeStatus.FAILED:
                 continue
-            total_capacity_units += int(node.get("capacity_units", 0))
-            total_capacity_units += int(node.get("pending_capacity_units", 0))
-        return total_capacity_units * COST_PER_CAPACITY_UNIT_PER_HOUR
+            capacity = int(node.get("capacity_units", 0)) + int(node.get("pending_capacity_units", 0))
+            if capacity <= 0:
+                continue
+            incoming = float(node.get("incoming_request_rate", 0.0))
+            needed = max(1, int(math.ceil(incoming / 15.0)))
+            if capacity <= needed:
+                total_cost += capacity * COST_PER_CAPACITY_UNIT_PER_HOUR
+            else:
+                total_cost += needed * COST_PER_CAPACITY_UNIT_PER_HOUR
+                total_cost += (capacity - needed) * OVERPROVISION_COST_PER_UNIT
+        return total_cost
 
     def _avg_latency(self, nodes: list[dict]) -> float:
         """Computes importance-weighted mean latency across the cluster."""
