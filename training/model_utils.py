@@ -24,7 +24,7 @@ def detect_gpu_tier() -> str:
     if not torch.cuda.is_available():
         print("[model_utils] No CUDA detected — will be extremely slow")
         return "t4"
-    vram_gb = torch.cuda.get_device_properties(0).total_mem / 1e9
+    vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
     name = torch.cuda.get_device_name(0).lower()
     if "a100" in name or vram_gb >= 70:
         return "a100"
@@ -134,7 +134,7 @@ def attach_lora(model, cfg: Dict[str, Any], seed: int = 42):
 
     if torch.cuda.is_available():
         vram_used = torch.cuda.memory_allocated() / 1e9
-        vram_total = torch.cuda.get_device_properties(0).total_mem / 1e9
+        vram_total = torch.cuda.get_device_properties(0).total_memory / 1e9
         print(f"[model_utils] VRAM: {vram_used:.2f} / {vram_total:.2f} GiB")
 
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
