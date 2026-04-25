@@ -332,7 +332,7 @@ def heuristic_action(obs_dict, task_id, step=0, max_steps=60, episode_reward=0.0
             return ActionType.NO_OP, "node-0", 0.0
 
         # Moderate stress: scale up downstream
-        if avg_latency > 0.04 or total_queue > 100:
+        if avg_latency > 0.04 or total_queue > 400:
             downstream = [n for n in nodes
                           if n["node_id"] != "node-0"
                           and n.get("status") != "FAILED"]
@@ -364,18 +364,18 @@ def heuristic_action(obs_dict, task_id, step=0, max_steps=60, episode_reward=0.0
                 return ActionType.SHED_LOAD, nid, 0.4
 
         # Scale down node-1/2 when overprovisioned and queues safe
-        if avg_latency < 0.04 and total_queue < 80:
+        if avg_latency < 0.04 and total_queue < 350:
             for nid in ["node-1", "node-2"]:
                 n = node_map.get(nid, {})
                 if n.get("capacity", 0) > 0.8:
                     return ActionType.SCALE_DOWN, nid, 0.3
 
         # NO_OP when stable
-        if episode_reward > 0.5 or (avg_latency < 0.04 and total_queue < 80):
+        if episode_reward > 0.5 or (avg_latency < 0.04 and total_queue < 350):
             return ActionType.NO_OP, "node-0", 0.0
 
         # Mild stress on downstream
-        if total_queue > 60:
+        if total_queue > 300:
             for nid in ["node-1", "node-2"]:
                 n = node_map.get(nid, {})
                 if n.get("queue_depth", 0) > 0.15 and n.get("status") != "FAILED":
@@ -386,22 +386,22 @@ def heuristic_action(obs_dict, task_id, step=0, max_steps=60, episode_reward=0.0
     # ── TASK-1: Traffic ramp (general) ────────────────────────────────
 
     # Early phase: traffic is still low → NO_OP
-    if early and avg_latency < 0.03 and total_queue < 60:
+    if early and avg_latency < 0.03 and total_queue < 300:
         return ActionType.NO_OP, "node-0", 0.0
 
     # High reward → cluster is healthy, NO_OP or SCALE_DOWN
-    if episode_reward > 0.55 and avg_latency < 0.04 and total_queue < 100:
+    if episode_reward > 0.55 and avg_latency < 0.04 and total_queue < 400:
         non_vips = [n for n in nodes
                     if not n.get("is_vip", False)
                     and n.get("status") != "FAILED"]
         overprov = [n for n in non_vips if n.get("capacity", 0) > 0.7]
-        if overprov and total_queue < 60:
+        if overprov and total_queue < 300:
             target = max(overprov, key=lambda n: n.get("capacity", 0))
             return ActionType.SCALE_DOWN, target["node_id"], 0.3
         return ActionType.NO_OP, "node-0", 0.0
 
     # Late phase: traffic plateaued, consider SCALE_DOWN
-    if late and avg_latency < 0.035 and total_queue < 80:
+    if late and avg_latency < 0.035 and total_queue < 350:
         non_vips = [n for n in nodes
                     if not n.get("is_vip", False)
                     and n.get("status") != "FAILED"]
@@ -421,16 +421,22 @@ def heuristic_action(obs_dict, task_id, step=0, max_steps=60, episode_reward=0.0
         target = non_critical_overloaded[0]
         return ActionType.SHED_LOAD, target["node_id"], 0.4
 
-    # SCALE_UP — prefer downstream nodes, NOT node-0
-    if avg_latency > 0.04 or total_queue > 100:
+    # SCALE_UP — prefer downstream nodes, rotate among stressed
+    if avg_latency > 0.04 or total_queue > 400:
         downstream = [n for n in nodes
                       if n["node_id"] != "node-0"
                       and n.get("status") != "FAILED"]
         if downstream:
-            target = max(downstream, key=lambda n: (
-                n.get("status") == "DEGRADED",
-                n["queue_depth"],
-            ))
+            # Rotate among top 3 stressed nodes to avoid monotony
+            stressed = [n for n in downstream
+                       if n.get("queue_depth", 0) > 0.15 or n.get("status") == "DEGRADED"]
+            if stressed:
+                # Round-robin by step: pick different node each time
+                idx = step % len(stressed)
+                stressed.sort(key=lambda n: n.get("queue_depth", 0), reverse=True)
+                target = stressed[idx]
+            else:
+                target = max(downstream, key=lambda n: n.get("queue_depth", 0))
         else:
             # Only node-0 left — scale as last resort
             target = node_map.get("node-0", nodes[0])
