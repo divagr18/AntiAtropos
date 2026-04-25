@@ -28,10 +28,15 @@ import os
 import random
 import re
 import sys
+import textwrap
 import time
 from collections import Counter
 from enum import Enum
 from pathlib import Path
+
+# Unsloth MUST be imported before torch/transformers/peft/trl
+import unsloth  # noqa: F401
+from unsloth import FastLanguageModel  # noqa: F401 — import at top to avoid warning
 
 import requests
 import torch
@@ -52,39 +57,50 @@ MAX_LATENCY_NORM = 1000.0
 MAX_REQUEST_RATE_NORM = 100.0
 
 
-SYSTEM_PROMPT = """You are an autonomous SRE controller managing a five-node microservice cluster.
+TASK_BRIEFS = {
+    "task-1": "Traffic ramps linearly every tick. Scale up proactively — new capacity takes 5 ticks to boot. Keep latency under SLA (200ms) while minimizing cost. Scale down when queues are safe.",
+    "task-2": "One node (node-1 through node-4) will fail permanently. Wait until you SEE a FAILED node — do NOT pre-scale. Once a node shows status=FAILED: reroute traffic FROM the failed node to healthy peers, and scale up any starved children. Do NOT scale node-0 unless node-4 failed independently. SCALE_DOWN cancels pending boots and reduces cost. If reward is falling, stop scaling.",
+    "task-3": "A surge (~75 req/tick) will hit node-1 and node-2 via a side channel bypassing node-0. Do NOT scale node-0 — it is NOT affected. ONLY scale node-1 or node-2 when their queue_depth rises. Do NOT pre-scale. 3-4 SCALE_UPs on each is sufficient. SCALE_DOWN cancels pending boots and reduces cost — use it when queues are safe. If reward is falling, STOP scaling and SCALE_DOWN to recover.",
+}
 
-CLUSTER TOPOLOGY (traffic flows parent -> children):
-  node-0 (VIP payment gateway) -> node-1, node-2
-  node-2 (catalog) -> node-3 (inventory)
-  node-4 (auth, independent ingress)
-FAILED nodes have outflow=0 — their children are starved.
-Backpressure: overloaded children reduce parent capacity.
+SYSTEM_PROMPT = textwrap.dedent("""
+    You are an autonomous SRE controller managing a five-node microservice cluster.
 
-ACTIONS (new capacity takes 5 ticks to boot):
-  SCALE_UP <node> <amount>   — add capacity (0.3-0.5 normal, 0.6-0.8 heavy surge)
-  SCALE_DOWN <node> <amount>  — remove capacity (0.2-0.4 safe, 0.5-0.7 aggressive)
-  REROUTE_TRAFFIC <node> <fraction> — move traffic AWAY from this node to healthy peers (0.3-0.7)
-  SHED_LOAD <node> <fraction>  — drop incoming traffic (0.3-0.5), NEVER on node-0 (VIP)
-  NO_OP — do nothing when cluster is healthy
+    CLUSTER TOPOLOGY (traffic flows parent → children):
+      node-0 → node-1, node-2
+      node-2 → node-3
+      node-4 (independent ingress)
+    FAILED nodes have outflow=0 — their children are starved.
+    Backpressure: overloaded children reduce parent capacity.
 
-CRITICAL RULES:
-  - node-0 is the VIP payment gateway — NEVER shed its traffic
-  - REROUTE_TRAFFIC moves traffic AWAY FROM the target node
-  - SCALE_UP clears DEGRADED status on the target node
-  - Boot delay is 5 ticks — plan ahead for scaling
-  - Use English for reasoning, JSON for the action
+    ACTIONS (new capacity takes 5 ticks to boot):
+      SCALE_UP <node> <amount>   — add capacity (0.3-0.5 normal, 0.6-0.8 heavy surge), clears DEGRADED
+      SCALE_DOWN <node> <amount>  — cancel pending boots first, then remove active capacity (0.2-0.4 safe, 0.5-0.7 aggressive)
+      REROUTE_TRAFFIC <node> <fraction> — reduce THIS node capacity, redistribute to peers (0.3-0.5)
+      SHED_LOAD <node> <fraction>  — drop incoming traffic (0.3-0.5), NEVER on node-0 (payment gateway)
+      NO_OP                           — do nothing
 
-REWARD PRIORITIES (in order):
-  1. Avoid SLA violations (latency > 200ms or error rate > 5%)
-  2. Keep queues low (growing queues = destabilizing system)
-  3. Don't over-provision (excess capacity costs money)
+    REWARD PRIORITIES (in order):
+      1. Avoid SLA violations (latency > 200ms or error rate > 5%)
+      2. Keep queues low (growing queues = destabilizing system)
+      3. Don't over-provision (excess capacity costs money)
 
-You MUST respond with one sentence of English reasoning, then a JSON action.
-The JSON must use EXACTLY these keys: action_type, target_node_id, parameter.
-action_type must be one of: SCALE_UP, SCALE_DOWN, REROUTE_TRAFFIC, SHED_LOAD, NO_OP.
-target_node_id must be one of: node-0, node-1, node-2, node-3, node-4.
-parameter must be a float between 0.0 and 10.0."""
+    REWARD SIGNAL: Each step returns a reward [0,1].
+      > 0.5 = good. 0.15–0.5 = acceptable. < 0.15 = you are making things worse.
+      If reward is falling, STOP the current strategy — try a different action or NO_OP.
+      Repeating the same action when reward < 0.1 is always wrong.
+
+    Scale when your observations demand it, not preemptively.
+    Boot delay is 5 ticks — factor this into your timing.
+    Scale back down when safe to save cost.
+
+    Return exactly one JSON object:
+    {
+      "action_type": "SCALE_UP" | "SCALE_DOWN" | "REROUTE_TRAFFIC" | "SHED_LOAD" | "NO_OP",
+      "target_node_id": "node-0" | "node-1" | "node-2" | "node-3" | "node-4",
+      "parameter": 0.0
+    }
+""").strip()
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -133,103 +149,240 @@ def env_step(hf_space_url, action_type, target_node_id, parameter):
 # ════════════════════════════════════════════════════════════════════════════════
 
 def format_observation(obs_dict, task_id, step, max_steps, reward=0.0, sla_violations=0):
-    """Convert API observation dict to natural-language string."""
-    lines = [f"Task: {task_id}  Step: {step}/{max_steps}  Reward: {reward:.3f}  SLA violations: {sla_violations}"]
-    lines.append("")
-    lines.append("Node states:")
+    """Build user prompt aligned with inference.py: task brief + compact JSON observation."""
+    brief = TASK_BRIEFS.get(task_id, "Maintain SLA, stability, and efficient cost.")
+
+    # Synthesize cluster summary (matches inference.py build_user_prompt)
+    cost_hour = obs_dict.get("current_cost_per_hour", 0.0)
+    cost_dev = "low" if cost_hour < 1.2 else ("high" if cost_hour > 1.8 else "baseline")
+    queue_backlog = obs_dict.get("total_queue_backlog", 0.0)
+    queue_trend = "rising" if queue_backlog > 0.3 else ("stable" if queue_backlog < 0.1 else "moderate")
+    sla_note = f" ({sla_violations} violations)" if sla_violations > 0 else ""
+    r_tag = "GOOD" if reward > 0.5 else ("OK" if reward > 0.2 else ("BAD" if reward > 0.05 else "STOP-SCALING"))
+    cluster_summary = f"Cost: {cost_dev} (${cost_hour:.2f}/hr) | Queues: {queue_trend}{sla_note} | Reward: {reward:.2f}={r_tag}"
+
+    # Build compact observation dict (mirrors inference.py observation_for_model)
+    nodes_data = []
     for n in obs_dict.get("nodes", []):
-        vip = " (VIP)" if n.get("is_vip") else ""
-        status = n.get("status", "HEALTHY")
-        q = n.get("queue_depth", 0) * 200
-        cap = n.get("capacity", 0) * 5
-        pending = n.get("pending_capacity", 0) * 5
-        inc = n.get("incoming_request_rate", 0) * 100
-        lat = n.get("latency_ms", 0) * 1000
-        outflow = n.get("outflow_rate", 0) * 100
-        failed = " [FAILED, outflow=0]" if status == "FAILED" else ""
-        degraded = " [DEGRADED]" if status == "DEGRADED" else ""
-        pending_str = f" (+{pending:.0f} booting)" if pending > 0 else ""
-        lines.append(
-            f"  {n['node_id']}{vip}: queue={int(q)}, capacity={cap:.0f}{pending_str}, "
-            f"incoming={inc:.0f}, latency={lat:.0f}ms, outflow={outflow:.0f}{failed}{degraded}"
-        )
-    return "\n".join(lines)
+        nodes_data.append({
+            "node_id": n.get("node_id"),
+            "status": n.get("status", "HEALTHY"),
+            "queue_depth": n.get("queue_depth", 0),
+            "latency_ms": n.get("latency_ms", 0),
+            "incoming_request_rate": n.get("incoming_request_rate", 0),
+            "cpu_utilization": n.get("cpu_utilization", 0),
+            "capacity": n.get("capacity", 0),
+            "pending_capacity": n.get("pending_capacity", 0),
+            "outflow_rate": n.get("outflow_rate", 0),
+            "upstream_pressure": n.get("upstream_pressure", 0),
+        })
+
+    obs_compact = {
+        "task_id": task_id,
+        "step": step,
+        "max_steps": max_steps,
+        "failed_nodes": [n["node_id"] for n in obs_dict.get("nodes", []) if n.get("status") == "FAILED"],
+        "degraded_nodes": [n["node_id"] for n in obs_dict.get("nodes", []) if n.get("status") == "DEGRADED"],
+        "average_latency_ms": obs_dict.get("average_latency_ms", 0),
+        "error_rate": obs_dict.get("error_rate", 0),
+        "total_queue_backlog": obs_dict.get("total_queue_backlog", 0),
+        "current_cost_per_hour": obs_dict.get("current_cost_per_hour", 0),
+        "sla_violations": sla_violations,
+        "nodes": nodes_data,
+    }
+
+    return textwrap.dedent(f"""
+        Task: {task_id}
+        Objective: {brief}
+        Step: {step}
+        Status: {cluster_summary}
+
+        Current state:
+        {json.dumps(obs_compact, separators=(',',':'))}
+
+        Choose the next SRE action.
+        """).strip()
 
 
 # ════════════════════════════════════════════════════════════════════════════════
 # Heuristic policy
 # ════════════════════════════════════════════════════════════════════════════════
 
-def heuristic_action(obs_dict, task_id):
-    """Enhanced heuristic that covers all action types. Works with normalized API data."""
+CRITICAL_NODES = {"node-0", "node-1", "node-2"}
+
+
+def heuristic_action(obs_dict, task_id, step=0, max_steps=60, episode_reward=0.0):
+    """Task-aware, reward-aware heuristic with balanced action distribution.
+
+    Key design principles:
+    - Task-specific: task-2 generates REROUTE_TRAFFIC on failures,
+      task-3 targets node-1/node-2 for surges, NOT node-0.
+    - Phase-aware: early steps tend to NO_OP, late steps tend to SCALE_DOWN.
+    - Reward-aware: high reward → NO_OP/SCALE_DOWN, low reward → active fix.
+    - Node-balanced: prefer downstream nodes for SCALE_UP, reserve node-0
+      for last resort.
+    """
     nodes = obs_dict.get("nodes", [])
+    if not nodes:
+        return ActionType.NO_OP, "node-0", 0.0
+    node_map = {n["node_id"]: n for n in nodes}
 
+    # Aggregate metrics
     total_queue = sum(n["queue_depth"] * 200 for n in nodes)
-    avg_latency = sum(n["latency_ms"] for n in nodes) / len(nodes) if nodes else 0
+    avg_latency = sum(n["latency_ms"] for n in nodes) / len(nodes)
+    error_rate = obs_dict.get("error_rate", 0)
+    cost_per_hour = obs_dict.get("current_cost_per_hour", 0)
     failed_nodes = [n for n in nodes if n.get("status") == "FAILED"]
+    degraded_nodes = [n for n in nodes if n.get("status") == "DEGRADED"]
 
-    # PRIORITY 1: REROUTE away from FAILED nodes
-    if failed_nodes:
-        target = failed_nodes[0]
-        return ActionType.REROUTE_TRAFFIC, target["node_id"], 0.7
+    # Phase detection (0-1 progress through episode)
+    progress = step / max_steps if max_steps > 0 else 0
+    early = progress < 0.15
+    late = progress > 0.65
 
-    # PRIORITY 2: SHED_LOAD on non-critical overloaded nodes
-    non_critical_overloaded = [
-        n for n in nodes
-        if n["queue_depth"] > 0.6 and n["node_id"] != "node-0"
-        and n.get("status") != "FAILED"
-    ]
-    if non_critical_overloaded and avg_latency > 0.05:
-        shed_candidates = [n for n in non_critical_overloaded if n["node_id"] in ["node-3", "node-4"]]
-        target = shed_candidates[0] if shed_candidates else non_critical_overloaded[0]
-        return ActionType.SHED_LOAD, target["node_id"], 0.4
+    # ── TASK-2: Fault tolerance ──────────────────────────────────────
+    if task_id == "task-2":
+        if failed_nodes:
+            fn = failed_nodes[0]
+            # Alternate between REROUTE (drain failed) and SCALE_UP (feed children)
+            starved_children = [
+                n for n in nodes
+                if n.get("status") == "DEGRADED"
+                and n["node_id"] not in CRITICAL_NODES
+            ]
+            if starved_children and step % 3 != 0:
+                target = max(starved_children, key=lambda n: n["queue_depth"])
+                return ActionType.SCALE_UP, target["node_id"], 0.5
+            return ActionType.REROUTE_TRAFFIC, fn["node_id"], 0.7
 
-    # PRIORITY 3: SCALE_UP stressed nodes
-    if avg_latency > 0.03 or total_queue > 200:
-        target = max(nodes, key=lambda n: n["queue_depth"])
-        param = 0.6 if target["queue_depth"] > 0.75 else 0.4
-        return ActionType.SCALE_UP, target["node_id"], param
+        # Reward is good and no failures → wind down excess capacity
+        if episode_reward > 0.5 and avg_latency < 0.04:
+            non_vips = [n for n in nodes
+                        if not n.get("is_vip", False)
+                        and n.get("status") != "FAILED"]
+            overprov = [n for n in non_vips if n.get("capacity", 0) > 0.7]
+            if overprov:
+                target = max(overprov, key=lambda n: n.get("capacity", 0))
+                return ActionType.SCALE_DOWN, target["node_id"], 0.3
+            return ActionType.NO_OP, "node-0", 0.0
 
-    # PRIORITY 4: SCALE_DOWN idle/overprovisioned nodes
-    non_vips = [n for n in nodes if not n.get("is_vip", False) and n.get("status") != "FAILED"]
-    if non_vips and avg_latency < 0.025 and total_queue < 50:
-        overprov = [n for n in non_vips if n.get("capacity", 0) > 0.6]
+        # Moderate stress: scale up downstream
+        if avg_latency > 0.04 or total_queue > 100:
+            downstream = [n for n in nodes
+                          if n["node_id"] != "node-0"
+                          and n.get("status") != "FAILED"]
+            if downstream:
+                target = max(downstream, key=lambda n: (
+                    n.get("status") == "DEGRADED", n["queue_depth"]))
+                return ActionType.SCALE_UP, target["node_id"], 0.4
+
+        return ActionType.NO_OP, "node-0", 0.0
+
+    # ── TASK-3: Surge on node-1/2 (NOT node-0) ──────────────────────
+    if task_id == "task-3":
+        n1 = node_map.get("node-1", {})
+        n2 = node_map.get("node-2", {})
+        n3 = node_map.get("node-3", {})
+        n4 = node_map.get("node-4", {})
+
+        # Scale up node-1/2 when their queues rise
+        if n1.get("queue_depth", 0) > 0.3:
+            param = 0.6 if n1["queue_depth"] > 0.7 else 0.4
+            return ActionType.SCALE_UP, "node-1", param
+        if n2.get("queue_depth", 0) > 0.3:
+            param = 0.6 if n2["queue_depth"] > 0.7 else 0.4
+            return ActionType.SCALE_UP, "node-2", param
+
+        # Shed load on overloaded non-critical downstream
+        for nid, nd in [("node-3", n3), ("node-4", n4)]:
+            if nd.get("queue_depth", 0) > 0.5 and nd.get("status") != "FAILED":
+                return ActionType.SHED_LOAD, nid, 0.4
+
+        # Scale down node-1/2 when overprovisioned and queues safe
+        if avg_latency < 0.04 and total_queue < 80:
+            for nid in ["node-1", "node-2"]:
+                n = node_map.get(nid, {})
+                if n.get("capacity", 0) > 0.8:
+                    return ActionType.SCALE_DOWN, nid, 0.3
+
+        # NO_OP when stable
+        if episode_reward > 0.5 or (avg_latency < 0.04 and total_queue < 80):
+            return ActionType.NO_OP, "node-0", 0.0
+
+        # Mild stress on downstream
+        if total_queue > 60:
+            for nid in ["node-1", "node-2"]:
+                n = node_map.get(nid, {})
+                if n.get("queue_depth", 0) > 0.15 and n.get("status") != "FAILED":
+                    return ActionType.SCALE_UP, nid, 0.3
+
+        return ActionType.NO_OP, "node-0", 0.0
+
+    # ── TASK-1: Traffic ramp (general) ────────────────────────────────
+
+    # Early phase: traffic is still low → NO_OP
+    if early and avg_latency < 0.03 and total_queue < 60:
+        return ActionType.NO_OP, "node-0", 0.0
+
+    # High reward → cluster is healthy, NO_OP or SCALE_DOWN
+    if episode_reward > 0.55 and avg_latency < 0.04 and total_queue < 100:
+        non_vips = [n for n in nodes
+                    if not n.get("is_vip", False)
+                    and n.get("status") != "FAILED"]
+        overprov = [n for n in non_vips if n.get("capacity", 0) > 0.7]
+        if overprov and total_queue < 60:
+            target = max(overprov, key=lambda n: n.get("capacity", 0))
+            return ActionType.SCALE_DOWN, target["node_id"], 0.3
+        return ActionType.NO_OP, "node-0", 0.0
+
+    # Late phase: traffic plateaued, consider SCALE_DOWN
+    if late and avg_latency < 0.035 and total_queue < 80:
+        non_vips = [n for n in nodes
+                    if not n.get("is_vip", False)
+                    and n.get("status") != "FAILED"]
+        overprov = [n for n in non_vips if n.get("capacity", 0) > 0.7]
         if overprov:
             target = max(overprov, key=lambda n: n.get("capacity", 0))
             return ActionType.SCALE_DOWN, target["node_id"], 0.3
+        return ActionType.NO_OP, "node-0", 0.0
 
-    # PRIORITY 5: NO_OP when healthy
-    target = max(nodes, key=lambda n: n["queue_depth"])
-    return ActionType.NO_OP, target["node_id"], 0.0
+    # SHED_LOAD on non-critical overloaded nodes
+    non_critical_overloaded = [
+        n for n in nodes
+        if n["queue_depth"] > 0.5 and n["node_id"] not in CRITICAL_NODES
+        and n.get("status") != "FAILED"
+    ]
+    if non_critical_overloaded and avg_latency > 0.05:
+        target = non_critical_overloaded[0]
+        return ActionType.SHED_LOAD, target["node_id"], 0.4
 
-
-def generate_reasoning(action_type, target_node_id, parameter, obs_dict, task_id):
-    """Generate an English reasoning sentence for the chosen action."""
-    nodes = obs_dict.get("nodes", [])
-    node_map = {n["node_id"]: n for n in nodes}
-    target = node_map.get(target_node_id, {})
-    q = target.get("queue_depth", 0) * 200
-
-    if action_type == ActionType.SCALE_UP:
-        if q > 150:
-            return f"Node {target_node_id} is near FATAL with queue={int(q)}, scaling up immediately to prevent cascading failure."
-        elif q > 80:
-            return f"Node {target_node_id} is DEGRADED with queue={int(q)}, scaling up to restore service capacity."
+    # SCALE_UP — prefer downstream nodes, NOT node-0
+    if avg_latency > 0.04 or total_queue > 100:
+        downstream = [n for n in nodes
+                      if n["node_id"] != "node-0"
+                      and n.get("status") != "FAILED"]
+        if downstream:
+            target = max(downstream, key=lambda n: (
+                n.get("status") == "DEGRADED",
+                n["queue_depth"],
+            ))
         else:
-            return f"Node {target_node_id} queue={int(q)} is rising, proactively scaling up to stay ahead of demand."
-    elif action_type == ActionType.SCALE_DOWN:
-        return f"Cluster is stable with low queues, scaling down {target_node_id} to reduce infrastructure cost."
-    elif action_type == ActionType.REROUTE_TRAFFIC:
-        status = target.get("status", "HEALTHY")
-        if status == "FAILED":
-            return f"Node {target_node_id} has FAILED with outflow=0, rerouting its traffic to healthy peers to prevent request loss."
-        else:
-            return f"Node {target_node_id} is overloaded with queue={int(q)}, rerouting traffic to healthy peers to reduce pressure."
-    elif action_type == ActionType.SHED_LOAD:
-        return f"Node {target_node_id} is overloaded but non-critical, shedding {parameter:.0%} of incoming traffic to protect cluster stability."
-    elif action_type == ActionType.NO_OP:
-        return "All nodes are healthy with low queues, no intervention needed."
-    return "Taking action based on current cluster state."
+            # Only node-0 left — scale as last resort
+            target = node_map.get("node-0", nodes[0])
+        param = 0.6 if target["queue_depth"] > 0.75 else 0.4
+        return ActionType.SCALE_UP, target["node_id"], param
+
+    # DEFAULT: NO_OP when healthy
+    return ActionType.NO_OP, "node-0", 0.0
+
+
+def make_assistant_text(action_type, target_node_id, parameter):
+    """Build the assistant response: JSON only, matching inference.py format."""
+    return json.dumps({
+        "action_type": action_type.value,
+        "target_node_id": target_node_id,
+        "parameter": round(float(parameter), 4),
+    })
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -242,97 +395,78 @@ def build_expert_examples():
     # Expert: REROUTE_TRAFFIC on FAILED node (task-2 scenario)
     examples.append({
         "system": SYSTEM_PROMPT,
-        "user": """Task: task-2  Step: 25/60  Reward: 0.320  SLA violations: 3
-
-Node states:
-  node-0 (VIP): queue=55, capacity=3, incoming=47, latency=25ms, outflow=45
-  node-1: queue=0, capacity=0, incoming=23, latency=inf, outflow=0 [FAILED, outflow=0]
-  node-2: queue=18, capacity=3, incoming=23, latency=22ms, outflow=23
-  node-3: queue=2, capacity=3, incoming=12, latency=20ms, outflow=12
-  node-4: queue=12, capacity=3, incoming=47, latency=21ms, outflow=45""",
-        "assistant": 'Node node-1 has FAILED with outflow=0, rerouting its traffic to healthy peers to prevent request loss. {"action_type": "REROUTE_TRAFFIC", "target_node_id": "node-1", "parameter": 0.7}',
-    })
-
-    examples.append({
-        "system": SYSTEM_PROMPT,
-        "user": """Task: task-2  Step: 30/60  Reward: 0.280  SLA violations: 5
-
-Node states:
-  node-0 (VIP): queue=65, capacity=3, incoming=47, latency=28ms, outflow=43
-  node-1: queue=0, capacity=0, incoming=24, latency=inf, outflow=0 [FAILED, outflow=0]
-  node-2: queue=90, capacity=3, incoming=24, latency=35ms, outflow=24
-  node-3: queue=5, capacity=3, incoming=12, latency=21ms, outflow=12
-  node-4: queue=15, capacity=3, incoming=47, latency=22ms, outflow=45""",
-        "assistant": 'Node node-1 is FAILED and node-0 is still sending 50% traffic to it, rerouting away from node-1 to save that wasted traffic. {"action_type": "REROUTE_TRAFFIC", "target_node_id": "node-1", "parameter": 0.8}',
+        "user": "Task: task-2\nObjective: " + TASK_BRIEFS["task-2"] + "\nStep: 25\nStatus: Cost: baseline ($1.50/hr) | Queues: moderate (3 violations) | Reward: 0.32=BAD\n\nCurrent state:\n{\"task_id\":\"task-2\",\"step\":25,\"max_steps\":60,\"failed_nodes\":[\"node-1\"],\"degraded_nodes\":[],\"nodes\":[{\"node_id\":\"node-0\",\"status\":\"HEALTHY\",\"queue_depth\":0.275,\"capacity\":0.6,\"incoming_request_rate\":0.47,\"latency_ms\":0.025,\"outflow_rate\":0.45},{\"node_id\":\"node-1\",\"status\":\"FAILED\",\"queue_depth\":0.0,\"capacity\":0.0,\"incoming_request_rate\":0.23,\"latency_ms\":1.0,\"outflow_rate\":0.0},{\"node_id\":\"node-2\",\"status\":\"HEALTHY\",\"queue_depth\":0.09,\"capacity\":0.6,\"incoming_request_rate\":0.23,\"latency_ms\":0.022,\"outflow_rate\":0.23},{\"node_id\":\"node-3\",\"status\":\"HEALTHY\",\"queue_depth\":0.01,\"capacity\":0.6,\"incoming_request_rate\":0.12,\"latency_ms\":0.02,\"outflow_rate\":0.12},{\"node_id\":\"node-4\",\"status\":\"HEALTHY\",\"queue_depth\":0.06,\"capacity\":0.6,\"incoming_request_rate\":0.47,\"latency_ms\":0.021,\"outflow_rate\":0.45}]}\n\nChoose the next SRE action.",
+        "assistant": '{"action_type": "REROUTE_TRAFFIC", "target_node_id": "node-1", "parameter": 0.7}',
     })
 
     # Expert: SHED_LOAD on non-critical node (task-3 surge)
     examples.append({
         "system": SYSTEM_PROMPT,
-        "user": """Task: task-3  Step: 35/60  Reward: 0.250  SLA violations: 4
-
-Node states:
-  node-0 (VIP): queue=10, capacity=3, incoming=30, latency=20ms, outflow=30
-  node-1: queue=45, capacity=3, incoming=75, latency=22ms, outflow=45
-  node-2: queue=160, capacity=3, incoming=75, latency=55ms, outflow=45
-  node-3: queue=140, capacity=3, incoming=45, latency=48ms, outflow=45
-  node-4: queue=5, capacity=3, incoming=30, latency=20ms, outflow=30""",
-        "assistant": 'Node node-3 (inventory) is non-critical and overloaded at queue=140, shedding 40% of its traffic to prevent cascade while scaling handles the surge upstream. {"action_type": "SHED_LOAD", "target_node_id": "node-3", "parameter": 0.4}',
+        "user": "Task: task-3\nObjective: " + TASK_BRIEFS["task-3"] + "\nStep: 35\nStatus: Cost: baseline ($1.50/hr) | Queues: rising (4 violations) | Reward: 0.25=BAD\n\nCurrent state:\n{\"task_id\":\"task-3\",\"step\":35,\"max_steps\":60,\"failed_nodes\":[],\"degraded_nodes\":[\"node-2\",\"node-3\"],\"nodes\":[{\"node_id\":\"node-0\",\"status\":\"HEALTHY\",\"queue_depth\":0.05,\"capacity\":0.6,\"incoming_request_rate\":0.3,\"latency_ms\":0.02,\"outflow_rate\":0.3},{\"node_id\":\"node-1\",\"status\":\"HEALTHY\",\"queue_depth\":0.225,\"capacity\":0.6,\"incoming_request_rate\":0.75,\"latency_ms\":0.022,\"outflow_rate\":0.45},{\"node_id\":\"node-2\",\"status\":\"DEGRADED\",\"queue_depth\":0.8,\"capacity\":0.6,\"incoming_request_rate\":0.75,\"latency_ms\":0.055,\"outflow_rate\":0.45},{\"node_id\":\"node-3\",\"status\":\"DEGRADED\",\"queue_depth\":0.7,\"capacity\":0.6,\"incoming_request_rate\":0.45,\"latency_ms\":0.048,\"outflow_rate\":0.45},{\"node_id\":\"node-4\",\"status\":\"HEALTHY\",\"queue_depth\":0.025,\"capacity\":0.6,\"incoming_request_rate\":0.3,\"latency_ms\":0.02,\"outflow_rate\":0.3}]}\n\nChoose the next SRE action.",
+        "assistant": '{"action_type": "SHED_LOAD", "target_node_id": "node-3", "parameter": 0.4}',
     })
 
+    # Expert: SCALE_UP on downstream bottleneck (not node-0)
     examples.append({
         "system": SYSTEM_PROMPT,
-        "user": """Task: task-3  Step: 38/60  Reward: 0.220  SLA violations: 6
-
-Node states:
-  node-0 (VIP): queue=8, capacity=3, incoming=30, latency=20ms, outflow=30
-  node-1: queue=50, capacity=5, incoming=80, latency=21ms, outflow=75
-  node-2: queue=170, capacity=4, incoming=80, latency=62ms, outflow=60
-  node-3: queue=155, capacity=3, incoming=60, latency=52ms, outflow=45
-  node-4: queue=130, capacity=3, incoming=75, latency=35ms, outflow=45""",
-        "assistant": 'Node node-4 (auth) is independent and overloaded at queue=130, shedding 35% of its incoming traffic since it is not on the critical DAG path. {"action_type": "SHED_LOAD", "target_node_id": "node-4", "parameter": 0.35}',
+        "user": "Task: task-1\nObjective: " + TASK_BRIEFS["task-1"] + "\nStep: 45\nStatus: Cost: baseline ($1.50/hr) | Queues: rising (2 violations) | Reward: 0.35=BAD\n\nCurrent state:\n{\"task_id\":\"task-1\",\"step\":45,\"max_steps\":100,\"failed_nodes\":[],\"degraded_nodes\":[\"node-2\",\"node-3\"],\"nodes\":[{\"node_id\":\"node-0\",\"status\":\"HEALTHY\",\"queue_depth\":0.15,\"capacity\":0.6,\"incoming_request_rate\":0.44,\"latency_ms\":0.021,\"outflow_rate\":0.42},{\"node_id\":\"node-1\",\"status\":\"HEALTHY\",\"queue_depth\":0.04,\"capacity\":0.6,\"incoming_request_rate\":0.22,\"latency_ms\":0.02,\"outflow_rate\":0.22},{\"node_id\":\"node-2\",\"status\":\"DEGRADED\",\"queue_depth\":0.925,\"capacity\":0.6,\"incoming_request_rate\":0.22,\"latency_ms\":0.075,\"outflow_rate\":0.22},{\"node_id\":\"node-3\",\"status\":\"DEGRADED\",\"queue_depth\":0.85,\"capacity\":0.6,\"incoming_request_rate\":0.22,\"latency_ms\":0.065,\"outflow_rate\":0.22},{\"node_id\":\"node-4\",\"status\":\"HEALTHY\",\"queue_depth\":0.05,\"capacity\":0.6,\"incoming_request_rate\":0.43,\"latency_ms\":0.02,\"outflow_rate\":0.43}]}\n\nChoose the next SRE action.",
+        "assistant": '{"action_type": "SCALE_UP", "target_node_id": "node-2", "parameter": 0.6}',
     })
 
     # Expert: SCALE_DOWN on idle node
     examples.append({
         "system": SYSTEM_PROMPT,
-        "user": """Task: task-1  Step: 80/100  Reward: 0.650  SLA violations: 0
-
-Node states:
-  node-0 (VIP): queue=5, capacity=5, incoming=35, latency=20ms, outflow=35
-  node-1: queue=3, capacity=4, incoming=18, latency=20ms, outflow=18
-  node-2: queue=4, capacity=5, incoming=18, latency=20ms, outflow=18
-  node-3: queue=2, capacity=4, incoming=9, latency=20ms, outflow=9
-  node-4: queue=3, capacity=6, incoming=35, latency=20ms, outflow=35""",
-        "assistant": 'Cluster is very stable with all queues under 10, scaling down node-4 which has 6 capacity units but only needs 3 for its traffic. {"action_type": "SCALE_DOWN", "target_node_id": "node-4", "parameter": 0.4}',
-    })
-
-    # Expert: DAG bottleneck — scale downstream, not ingress
-    examples.append({
-        "system": SYSTEM_PROMPT,
-        "user": """Task: task-1  Step: 45/100  Reward: 0.350  SLA violations: 2
-
-Node states:
-  node-0 (VIP): queue=30, capacity=3, incoming=44, latency=21ms, outflow=42
-  node-1: queue=8, capacity=3, incoming=22, latency=20ms, outflow=22
-  node-2: queue=185, capacity=3, incoming=22, latency=75ms, outflow=22
-  node-3: queue=170, capacity=3, incoming=22, latency=65ms, outflow=22
-  node-4: queue=10, capacity=3, incoming=43, latency=20ms, outflow=43""",
-        "assistant": 'The bottleneck is downstream at node-2 (queue=185) and node-3 (queue=170), not at ingress node-0. Backpressure from node-2/3 is throttling node-0. Scaling up node-2 to break the backpressure chain. {"action_type": "SCALE_UP", "target_node_id": "node-2", "parameter": 0.6}',
+        "user": "Task: task-1\nObjective: " + TASK_BRIEFS["task-1"] + "\nStep: 80\nStatus: Cost: high ($2.40/hr) | Queues: stable | Reward: 0.65=GOOD\n\nCurrent state:\n{\"task_id\":\"task-1\",\"step\":80,\"max_steps\":100,\"failed_nodes\":[],\"degraded_nodes\":[],\"nodes\":[{\"node_id\":\"node-0\",\"status\":\"HEALTHY\",\"queue_depth\":0.025,\"capacity\":1.0,\"incoming_request_rate\":0.35,\"latency_ms\":0.02,\"outflow_rate\":0.35},{\"node_id\":\"node-1\",\"status\":\"HEALTHY\",\"queue_depth\":0.015,\"capacity\":0.8,\"incoming_request_rate\":0.18,\"latency_ms\":0.02,\"outflow_rate\":0.18},{\"node_id\":\"node-2\",\"status\":\"HEALTHY\",\"queue_depth\":0.02,\"capacity\":1.0,\"incoming_request_rate\":0.18,\"latency_ms\":0.02,\"outflow_rate\":0.18},{\"node_id\":\"node-3\",\"status\":\"HEALTHY\",\"queue_depth\":0.01,\"capacity\":0.8,\"incoming_request_rate\":0.09,\"latency_ms\":0.02,\"outflow_rate\":0.09},{\"node_id\":\"node-4\",\"status\":\"HEALTHY\",\"queue_depth\":0.015,\"capacity\":1.2,\"incoming_request_rate\":0.35,\"latency_ms\":0.02,\"outflow_rate\":0.35}]}\n\nChoose the next SRE action.",
+        "assistant": '{"action_type": "SCALE_DOWN", "target_node_id": "node-4", "parameter": 0.4}',
     })
 
     # Expert: NO_OP on healthy cluster
     examples.append({
         "system": SYSTEM_PROMPT,
-        "user": """Task: task-1  Step: 10/100  Reward: 0.700  SLA violations: 0
+        "user": "Task: task-1\nObjective: " + TASK_BRIEFS["task-1"] + "\nStep: 10\nStatus: Cost: baseline ($1.50/hr) | Queues: stable | Reward: 0.70=GOOD\n\nCurrent state:\n{\"task_id\":\"task-1\",\"step\":10,\"max_steps\":100,\"failed_nodes\":[],\"degraded_nodes\":[],\"nodes\":[{\"node_id\":\"node-0\",\"status\":\"HEALTHY\",\"queue_depth\":0.04,\"capacity\":0.6,\"incoming_request_rate\":0.42,\"latency_ms\":0.02,\"outflow_rate\":0.42},{\"node_id\":\"node-1\",\"status\":\"HEALTHY\",\"queue_depth\":0.025,\"capacity\":0.6,\"incoming_request_rate\":0.21,\"latency_ms\":0.02,\"outflow_rate\":0.21},{\"node_id\":\"node-2\",\"status\":\"HEALTHY\",\"queue_depth\":0.03,\"capacity\":0.6,\"incoming_request_rate\":0.21,\"latency_ms\":0.02,\"outflow_rate\":0.21},{\"node_id\":\"node-3\",\"status\":\"HEALTHY\",\"queue_depth\":0.015,\"capacity\":0.6,\"incoming_request_rate\":0.1,\"latency_ms\":0.02,\"outflow_rate\":0.1},{\"node_id\":\"node-4\",\"status\":\"HEALTHY\",\"queue_depth\":0.035,\"capacity\":0.6,\"incoming_request_rate\":0.42,\"latency_ms\":0.02,\"outflow_rate\":0.42}]}\n\nChoose the next SRE action.",
+        "assistant": '{"action_type": "NO_OP", "target_node_id": "node-0", "parameter": 0.0}',
+    })
 
-Node states:
-  node-0 (VIP): queue=8, capacity=3, incoming=42, latency=20ms, outflow=42
-  node-1: queue=5, capacity=3, incoming=21, latency=20ms, outflow=21
-  node-2: queue=6, capacity=3, incoming=21, latency=20ms, outflow=21
-  node-3: queue=3, capacity=3, incoming=10, latency=20ms, outflow=10
-  node-4: queue=7, capacity=3, incoming=42, latency=20ms, outflow=42""",
-        "assistant": 'All nodes are healthy with low queues and normal latency, no intervention needed. {"action_type": "NO_OP", "target_node_id": "node-0", "parameter": 0.0}',
+    # Expert: REROUTE_TRAFFIC on failed node-2 (task-2)
+    examples.append({
+        "system": SYSTEM_PROMPT,
+        "user": "Task: task-2\nObjective: " + TASK_BRIEFS["task-2"] + "\nStep: 20\nStatus: Cost: baseline ($1.50/hr) | Queues: rising (2 violations) | Reward: 0.38=BAD\n\nCurrent state:\n{\"task_id\":\"task-2\",\"step\":20,\"max_steps\":60,\"failed_nodes\":[\"node-2\"],\"degraded_nodes\":[\"node-3\"],\"nodes\":[{\"node_id\":\"node-0\",\"status\":\"HEALTHY\",\"queue_depth\":0.18,\"capacity\":0.6,\"incoming_request_rate\":0.45,\"latency_ms\":0.024,\"outflow_rate\":0.43},{\"node_id\":\"node-1\",\"status\":\"HEALTHY\",\"queue_depth\":0.05,\"capacity\":0.6,\"incoming_request_rate\":0.23,\"latency_ms\":0.02,\"outflow_rate\":0.23},{\"node_id\":\"node-2\",\"status\":\"FAILED\",\"queue_depth\":0.0,\"capacity\":0.0,\"incoming_request_rate\":0.23,\"latency_ms\":1.0,\"outflow_rate\":0.0},{\"node_id\":\"node-3\",\"status\":\"DEGRADED\",\"queue_depth\":0.45,\"capacity\":0.6,\"incoming_request_rate\":0.23,\"latency_ms\":0.038,\"outflow_rate\":0.15},{\"node_id\":\"node-4\",\"status\":\"HEALTHY\",\"queue_depth\":0.04,\"capacity\":0.6,\"incoming_request_rate\":0.42,\"latency_ms\":0.02,\"outflow_rate\":0.42}]}\n\nChoose the next SRE action.",
+        "assistant": '{"action_type": "REROUTE_TRAFFIC", "target_node_id": "node-2", "parameter": 0.7}',
+    })
+
+    # Expert: SHED_LOAD on node-4 during surge (task-3)
+    examples.append({
+        "system": SYSTEM_PROMPT,
+        "user": "Task: task-3\nObjective: " + TASK_BRIEFS["task-3"] + "\nStep: 30\nStatus: Cost: high ($1.80/hr) | Queues: rising (5 violations) | Reward: 0.22=BAD\n\nCurrent state:\n{\"task_id\":\"task-3\",\"step\":30,\"max_steps\":60,\"failed_nodes\":[],\"degraded_nodes\":[\"node-4\"],\"nodes\":[{\"node_id\":\"node-0\",\"status\":\"HEALTHY\",\"queue_depth\":0.05,\"capacity\":0.6,\"incoming_request_rate\":0.3,\"latency_ms\":0.02,\"outflow_rate\":0.3},{\"node_id\":\"node-1\",\"status\":\"HEALTHY\",\"queue_depth\":0.15,\"capacity\":0.8,\"incoming_request_rate\":0.75,\"latency_ms\":0.022,\"outflow_rate\":0.6},{\"node_id\":\"node-2\",\"status\":\"HEALTHY\",\"queue_depth\":0.12,\"capacity\":0.8,\"incoming_request_rate\":0.75,\"latency_ms\":0.021,\"outflow_rate\":0.6},{\"node_id\":\"node-3\",\"status\":\"HEALTHY\",\"queue_depth\":0.08,\"capacity\":0.6,\"incoming_request_rate\":0.45,\"latency_ms\":0.02,\"outflow_rate\":0.45},{\"node_id\":\"node-4\",\"status\":\"DEGRADED\",\"queue_depth\":0.65,\"capacity\":0.6,\"incoming_request_rate\":0.55,\"latency_ms\":0.045,\"outflow_rate\":0.4}]}\n\nChoose the next SRE action.",
+        "assistant": '{"action_type": "SHED_LOAD", "target_node_id": "node-4", "parameter": 0.4}',
+    })
+
+    # Expert: SCALE_DOWN on node-1 when overprovisioned (task-1 late)
+    examples.append({
+        "system": SYSTEM_PROMPT,
+        "user": "Task: task-1\nObjective: " + TASK_BRIEFS["task-1"] + "\nStep: 75\nStatus: Cost: high ($2.20/hr) | Queues: stable | Reward: 0.68=GOOD\n\nCurrent state:\n{\"task_id\":\"task-1\",\"step\":75,\"max_steps\":100,\"failed_nodes\":[],\"degraded_nodes\":[],\"nodes\":[{\"node_id\":\"node-0\",\"status\":\"HEALTHY\",\"queue_depth\":0.02,\"capacity\":1.0,\"incoming_request_rate\":0.35,\"latency_ms\":0.02,\"outflow_rate\":0.35},{\"node_id\":\"node-1\",\"status\":\"HEALTHY\",\"queue_depth\":0.01,\"capacity\":1.0,\"incoming_request_rate\":0.18,\"latency_ms\":0.02,\"outflow_rate\":0.18},{\"node_id\":\"node-2\",\"status\":\"HEALTHY\",\"queue_depth\":0.015,\"capacity\":0.8,\"incoming_request_rate\":0.18,\"latency_ms\":0.02,\"outflow_rate\":0.18},{\"node_id\":\"node-3\",\"status\":\"HEALTHY\",\"queue_depth\":0.01,\"capacity\":0.6,\"incoming_request_rate\":0.09,\"latency_ms\":0.02,\"outflow_rate\":0.09},{\"node_id\":\"node-4\",\"status\":\"HEALTHY\",\"queue_depth\":0.02,\"capacity\":0.8,\"incoming_request_rate\":0.35,\"latency_ms\":0.02,\"outflow_rate\":0.35}]}\n\nChoose the next SRE action.",
+        "assistant": '{"action_type": "SCALE_DOWN", "target_node_id": "node-1", "parameter": 0.3}',
+    })
+
+    # Expert: SCALE_UP on node-3 (downstream child, not node-0)
+    examples.append({
+        "system": SYSTEM_PROMPT,
+        "user": "Task: task-1\nObjective: " + TASK_BRIEFS["task-1"] + "\nStep: 50\nStatus: Cost: baseline ($1.50/hr) | Queues: rising (3 violations) | Reward: 0.30=BAD\n\nCurrent state:\n{\"task_id\":\"task-1\",\"step\":50,\"max_steps\":100,\"failed_nodes\":[],\"degraded_nodes\":[\"node-3\"],\"nodes\":[{\"node_id\":\"node-0\",\"status\":\"HEALTHY\",\"queue_depth\":0.1,\"capacity\":0.8,\"incoming_request_rate\":0.5,\"latency_ms\":0.021,\"outflow_rate\":0.48},{\"node_id\":\"node-1\",\"status\":\"HEALTHY\",\"queue_depth\":0.05,\"capacity\":0.6,\"incoming_request_rate\":0.25,\"latency_ms\":0.02,\"outflow_rate\":0.25},{\"node_id\":\"node-2\",\"status\":\"HEALTHY\",\"queue_depth\":0.08,\"capacity\":0.8,\"incoming_request_rate\":0.25,\"latency_ms\":0.022,\"outflow_rate\":0.23},{\"node_id\":\"node-3\",\"status\":\"DEGRADED\",\"queue_depth\":0.6,\"capacity\":0.6,\"incoming_request_rate\":0.23,\"latency_ms\":0.042,\"outflow_rate\":0.2},{\"node_id\":\"node-4\",\"status\":\"HEALTHY\",\"queue_depth\":0.04,\"capacity\":0.6,\"incoming_request_rate\":0.48,\"latency_ms\":0.02,\"outflow_rate\":0.48}]}\n\nChoose the next SRE action.",
+        "assistant": '{"action_type": "SCALE_UP", "target_node_id": "node-3", "parameter": 0.5}',
+    })
+
+    # Expert: NO_OP on healthy task-2 cluster (no failures visible)
+    examples.append({
+        "system": SYSTEM_PROMPT,
+        "user": "Task: task-2\nObjective: " + TASK_BRIEFS["task-2"] + "\nStep: 8\nStatus: Cost: baseline ($1.50/hr) | Queues: stable | Reward: 0.72=GOOD\n\nCurrent state:\n{\"task_id\":\"task-2\",\"step\":8,\"max_steps\":60,\"failed_nodes\":[],\"degraded_nodes\":[],\"nodes\":[{\"node_id\":\"node-0\",\"status\":\"HEALTHY\",\"queue_depth\":0.035,\"capacity\":0.6,\"incoming_request_rate\":0.47,\"latency_ms\":0.02,\"outflow_rate\":0.45},{\"node_id\":\"node-1\",\"status\":\"HEALTHY\",\"queue_depth\":0.02,\"capacity\":0.6,\"incoming_request_rate\":0.23,\"latency_ms\":0.02,\"outflow_rate\":0.23},{\"node_id\":\"node-2\",\"status\":\"HEALTHY\",\"queue_depth\":0.025,\"capacity\":0.6,\"incoming_request_rate\":0.23,\"latency_ms\":0.02,\"outflow_rate\":0.23},{\"node_id\":\"node-3\",\"status\":\"HEALTHY\",\"queue_depth\":0.01,\"capacity\":0.6,\"incoming_request_rate\":0.12,\"latency_ms\":0.02,\"outflow_rate\":0.12},{\"node_id\":\"node-4\",\"status\":\"HEALTHY\",\"queue_depth\":0.03,\"capacity\":0.6,\"incoming_request_rate\":0.47,\"latency_ms\":0.02,\"outflow_rate\":0.45}]}\n\nChoose the next SRE action.",
+        "assistant": '{"action_type": "NO_OP", "target_node_id": "node-0", "parameter": 0.0}',
+    })
+
+    # Expert: SCALE_DOWN on node-2 when overprovisioned in task-3
+    examples.append({
+        "system": SYSTEM_PROMPT,
+        "user": "Task: task-3\nObjective: " + TASK_BRIEFS["task-3"] + "\nStep: 50\nStatus: Cost: high ($2.10/hr) | Queues: stable | Reward: 0.62=GOOD\n\nCurrent state:\n{\"task_id\":\"task-3\",\"step\":50,\"max_steps\":60,\"failed_nodes\":[],\"degraded_nodes\":[],\"nodes\":[{\"node_id\":\"node-0\",\"status\":\"HEALTHY\",\"queue_depth\":0.03,\"capacity\":0.6,\"incoming_request_rate\":0.3,\"latency_ms\":0.02,\"outflow_rate\":0.3},{\"node_id\":\"node-1\",\"status\":\"HEALTHY\",\"queue_depth\":0.02,\"capacity\":1.0,\"incoming_request_rate\":0.55,\"latency_ms\":0.02,\"outflow_rate\":0.55},{\"node_id\":\"node-2\",\"status\":\"HEALTHY\",\"queue_depth\":0.015,\"capacity\":1.0,\"incoming_request_rate\":0.55,\"latency_ms\":0.02,\"outflow_rate\":0.55},{\"node_id\":\"node-3\",\"status\":\"HEALTHY\",\"queue_depth\":0.01,\"capacity\":0.6,\"incoming_request_rate\":0.28,\"latency_ms\":0.02,\"outflow_rate\":0.28},{\"node_id\":\"node-4\",\"status\":\"HEALTHY\",\"queue_depth\":0.02,\"capacity\":0.6,\"incoming_request_rate\":0.3,\"latency_ms\":0.02,\"outflow_rate\":0.3}]}\n\nChoose the next SRE action.",
+        "assistant": '{"action_type": "SCALE_DOWN", "target_node_id": "node-2", "parameter": 0.3}',
     })
 
     return examples
@@ -362,15 +496,11 @@ def generate_dataset(hf_space_url, output_dir, seed, episodes_per_task, max_step
 
             for step in range(1, max_steps + 1):
                 obs_text = format_observation(obs_dict, task_id, step, max_steps, episode_reward, sla_violations)
-                action_type, target_node_id, parameter = heuristic_action(obs_dict, task_id)
-                reasoning = generate_reasoning(action_type, target_node_id, parameter, obs_dict, task_id)
-
-                action_json = json.dumps({
-                    "action_type": action_type.value,
-                    "target_node_id": target_node_id,
-                    "parameter": round(float(parameter), 4),
-                })
-                assistant_text = f"{reasoning} {action_json}"
+                action_type, target_node_id, parameter = heuristic_action(
+                    obs_dict, task_id, step=step, max_steps=max_steps,
+                    episode_reward=episode_reward,
+                )
+                assistant_text = make_assistant_text(action_type, target_node_id, parameter)
 
                 all_examples.append({
                     "system": SYSTEM_PROMPT,
@@ -418,6 +548,33 @@ def generate_dataset(hf_space_url, output_dir, seed, episodes_per_task, max_step
             node_counts[tn_match.group(1)] += 1
 
     print(f"After expert augmentation: {len(all_examples)} examples")
+
+    # ---- Oversample underrepresented action types ----
+    total = len(all_examples)
+    target_min_pct = 0.05  # Each action type should be ≥5% of dataset
+    target_min_count = max(20, int(total * target_min_pct))
+    for at in VALID_ACTIONS:
+        existing = [e for e in all_examples if e["action_type"] == at]
+        if len(existing) < target_min_count and existing:
+            multiplier = target_min_count // len(existing)
+            remainder = target_min_count % len(existing)
+            oversampled = existing * multiplier + random.sample(existing, remainder)
+            all_examples.extend(oversampled)
+            print(f"Oversampled {at}: {len(existing)} → {len(existing) + len(oversampled)}")
+
+    # ---- Oversample underrepresented target nodes ----
+    target_node_min_pct = 0.08  # Each node should be ≥8% of dataset
+    target_node_min_count = max(20, int(len(all_examples) * target_node_min_pct))
+    for nid in VALID_NODES:
+        existing = [e for e in all_examples if e["target_node_id"] == nid]
+        if len(existing) < target_node_min_count and existing:
+            multiplier = target_node_min_count // len(existing)
+            remainder = target_node_min_count % len(existing)
+            oversampled = existing * multiplier + random.sample(existing, remainder)
+            all_examples.extend(oversampled)
+            print(f"Oversampled {nid}: {len(existing)} → {len(existing) + len(oversampled)}")
+
+    print(f"After oversampling: {len(all_examples)} examples")
 
     # ---- Filter: cap NO_OP ----
     noop_examples = [e for e in all_examples if e["action_type"] == "NO_OP"]
@@ -484,7 +641,7 @@ def generate_dataset(hf_space_url, output_dir, seed, episodes_per_task, max_step
     for at in VALID_ACTIONS:
         cnt = final_action_counts.get(at, 0)
         pct = 100 * cnt / total if total > 0 else 0
-        flag = " <-- UNDERREPRESENTED" if pct < 3 and at != "NO_OP" else ""
+        flag = " <-- UNDERREPRESENTED" if pct < 5 else ""
         print(f"  {at:20s}: {cnt:5d} ({pct:5.1f}%){flag}")
 
     print(f"\nTarget node distribution:")
@@ -508,8 +665,6 @@ def generate_dataset(hf_space_url, output_dir, seed, episodes_per_task, max_step
 
 def load_model(model_name, max_seq_length, lora_rank, lora_alpha, load_in_4bit, seed):
     """Load base model + attach LoRA adapters via Unsloth."""
-    from unsloth import FastLanguageModel
-
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name=model_name,
         max_seq_length=max_seq_length,
@@ -662,7 +817,6 @@ def parse_model_action(text):
 
 def run_eval_episode_with_model(hf_space_url, model, tokenizer, task_id, max_steps, episode_reward=0.0):
     """Run one evaluation episode using the SFT model via HF Space API."""
-    from unsloth import FastLanguageModel
     FastLanguageModel.for_inference(model)
 
     reset_resp = env_reset(hf_space_url, task_id=task_id, seed=None)

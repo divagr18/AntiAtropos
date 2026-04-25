@@ -29,15 +29,13 @@ from pathlib import Path
 
 TRAINING_DIR = Path(__file__).resolve().parent
 
-DOCKER_IMAGE = "pytorch/pytorch:2.11.0-cuda12.8-cudnn9-devel"
+DOCKER_IMAGE = "pytorch/pytorch:2.10.0-cuda12.6-cudnn9-devel"
 
 
 def build_job_command() -> str:
     """Build the shell script that runs INSIDE the HF Job container."""
     return (
         "set -e\n"
-        "# Use conda env which has pip + torch pre-installed\n"
-        "source /opt/conda/etc/profile.d/conda.sh && conda activate base\n"
         "\n"
         "echo '[bootstrap] Installing git...'\n"
         "apt-get update -qq && apt-get install -y -qq git > /dev/null 2>&1\n"
@@ -48,7 +46,10 @@ def build_job_command() -> str:
         "cd /workspace/AntiAtropos\n"
         "\n"
         "echo '[bootstrap] Installing dependencies...'\n"
-        "pip install -r training/requirements.txt -q\n"
+        "pip install --break-system-packages \\\n"
+        "  torch==2.10.0+cu124 torchvision==0.20.0+cu124 torchaudio==2.10.0+cu124 \\\n"
+        "  --index-url https://download.pytorch.org/whl/cu124 -q\n"
+        "pip install --break-system-packages -r training/requirements.txt -q\n"
         "\n"
         "echo '[bootstrap] Launching training...'\n"
         "python training/train.py "

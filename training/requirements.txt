@@ -6,6 +6,7 @@
 # Do NOT list it here — pip's resolver may downgrade it, breaking torchao.
 # torch>=2.5.0  (pre-installed in base image)
 # torchao is also pre-installed in the 2.11.0 base image and compatible.
+torchvision  # required by unsloth_zoo.vision_utils
 transformers>=4.45.0
 accelerate>=0.34.0
 bitsandbytes>=0.43.0
