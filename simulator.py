@@ -60,9 +60,11 @@ T3_SURGE_BASE_END:     int   = 40   # Nominal end of surge within cycle
 T3_SURGE_JITTER:       int   = 10   # ±jitter applied to start/end each episode
 T3_SURGE_MAGNITUDE:    float = 60.0  # Extra req/tick added to node-1 and node-2 (4 SCALE_UPs at delta=1 covers it: 5x15=75 = 15 DAG + 60 surge)
 
-# Hardening: Critical infrastructure that CANNOT be shed
-# In Task 3, these receive the surge. Forcing the agent to SCALE.
-CRITICAL_NODES: list[str] = ["node-0", "node-1", "node-2"]
+# Only the VIP payment gateway (node-0) is hard-protected from shedding --
+# this is a safety guardrail, not a learned behavior.  The agent must learn
+# from the reward signal (error_rate -> sla_penalty at gamma=6.0) that
+# shedding surge nodes (node-1/2) is rarely optimal.
+CRITICAL_NODES: list[str] = ["node-0"]
 
 # VIP / business-critical node weights.
 # node-0 is the payment portal, so its queue growth or failure matters more.

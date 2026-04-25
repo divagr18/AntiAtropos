@@ -76,7 +76,7 @@ SYSTEM_PROMPT = textwrap.dedent(
       SCALE_UP <node> <amount>   — add capacity (0.3-0.5 normal, 0.6-0.8 heavy surge), clears DEGRADED
       SCALE_DOWN <node> <amount>  — remove capacity (0.2-0.4 safe, 0.5-0.7 aggressive)
       REROUTE_TRAFFIC <node> <fraction> — reduce THIS node capacity, redistribute to peers (0.3-0.5)
-      SHED_LOAD <node> <fraction>  — drop incoming traffic (0.3-0.5), NOT on critical nodes
+      SHED_LOAD <node> <fraction>  — drop incoming traffic (0.3-0.5), NEVER on node-0 (payment gateway)
       NO_OP                           — do nothing
 
     REWARD PRIORITIES (in order):
