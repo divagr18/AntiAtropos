@@ -36,7 +36,10 @@ def build_job_command() -> str:
     """Build the shell script that runs INSIDE the HF Job container."""
     return (
         "set -e\n"
-        "echo '[bootstrap] Cloning $REPO...'\n"
+        "echo '[bootstrap] Installing git...'\n"
+        "apt-get update -qq && apt-get install -y -qq git > /dev/null 2>&1\n"
+        "\n"
+        "echo '[bootstrap] Cloning '$REPO'...'\n"
         "mkdir -p /workspace\n"
         "git clone --depth 1 https://hf:${HF_TOKEN}@huggingface.co/$REPO /workspace/AntiAtropos\n"
         "cd /workspace/AntiAtropos\n"
