@@ -33,6 +33,8 @@ FATAL_FAIL_THRESHOLD: int   = 200     # Hard cap on queue depth (catastrophic fa
 CASCADE_WINDOW_TICKS: int = 3     # Ticks after a failure to check for cascade effects
 CASCADE_QUEUE_MULTIPLIER: float = 1.2  # Queue must exceed FATAL_FAIL_THRESHOLD * this to cascade
 NODE_RECOVERY_TICKS: int   = 20      # Ticks before a FAILED node auto-recovers
+BACKPRESSURE_THRESHOLD: float = 60.0   # Queue depth that triggers backpressure
+BACKPRESSURE_MAX_FACTOR: float = 0.4   # Maximum service rate reduction (40%)
 
 SENSOR_DROPOUT_PROB:  float = 0.05    # P(node.queue, latency reports 0 or -1.0)
 NODE_FAILURE_PROB:    float = 0.00    # P(node fails naturally) — largely driven by task profile
@@ -41,13 +43,13 @@ NODE_FAILURE_PROB:    float = 0.00    # P(node fails naturally) — largely driv
 COST_PER_CAPACITY_UNIT_PER_HOUR: float = 0.05
 
 # Task Profiles (Domain Randomization)
-# Task 1: Start very near capacity so reward/state react earlier.
-# Default μ_total = 10 nodes × 3 capacity × 15 = 450 req/tick.
-# λ_initial randomized close to saturation to avoid long flat early phases.
-T1_INITIAL_LAMBDA: float = 390.0
-T1_RAMP_SLOPE:     float = 2.0   # +2 req per tick globally (doubled for 10 nodes)
-# Task 2: lambda ≈ 460 means 46/node (102% util) — creates dynamic queue pressure for RL signal.
-T2_INITIAL_LAMBDA: float = 460.0
+# Task 1: Start at 92-99% of ingress capacity (randomised in _randomize_domain).
+# DAG ingress capacity = 2 ingress nodes * DEFAULT_CAPACITY * 15 = 90 req/tick.
+# lambda_init ≈ 83-89 so each ingress node sees ~41-44 req/tick (just under 45 capacity).
+T1_INITIAL_LAMBDA: float = 86.0   # midpoint of [82.8, 89.1]; overridden by _randomize_domain
+T1_RAMP_SLOPE:     float = 0.5    # +0.5 req/tick globally per tick
+# Task 2: lambda at 100-110% of ingress capacity — guarantees immediate ingress overload.
+T2_INITIAL_LAMBDA: float = 95.0   # midpoint of [90, 99]; overridden by _randomize_domain
 T2_FAIL_TICK:      int   = 20
 T3_INITIAL_LAMBDA: float = 60.0
 
@@ -70,6 +72,41 @@ CRITICAL_NODES: list[str] = ["node-0", "node-1", "node-2"]
 VIP_NODE_WEIGHTS: dict[str, float] = {
     "node-0": 2.0,
 }
+
+# ---------------------------------------------------------------------------
+# Graph Topology (DAG — fixed 5-node cluster architecture)
+# ---------------------------------------------------------------------------
+
+# Directed edges: parent -> list of direct children.
+# node-0 (payments/VIP) is the primary ingress; node-4 (auth) is independent.
+CLUSTER_TOPOLOGY: dict[str, list[str]] = {
+    "node-0": ["node-1", "node-2"],
+    "node-1": [],
+    "node-2": ["node-3"],
+    "node-3": [],
+    "node-4": [],
+}
+
+# Nodes that receive raw external traffic directly.
+EXTERNAL_TRAFFIC_NODES: set[str] = {"node-0", "node-4"}
+
+# 50/50 external λ split between the two ingress nodes.
+# node-0 (payments/VIP) and node-4 (auth) each receive half of total_lambda.
+# total_lambda is the cluster-wide external arrival rate (req/tick).
+# Each ingress node therefore sees total_lambda * 0.5 req/tick at its input.
+EXTERNAL_LAMBDA_FRACTION: float = 0.5
+
+# Default upstream-to-downstream routing weights (parent → child splits).
+# These represent the baseline traffic split before agent rerouting.
+DEFAULT_ROUTING_SPLIT: dict[str, dict[str, float]] = {
+    "node-0": {"node-1": 0.5, "node-2": 0.5},
+    "node-2": {"node-3": 1.0},
+}
+
+# Pre-computed topological order (Kahn's BFS on CLUSTER_TOPOLOGY).
+# Ensures parents are always processed before their children in _inject_traffic().
+# Order: node-0, node-4 (roots) → node-1, node-2 (node-0 children) → node-3 (node-2 child).
+_TOPOLOGICAL_ORDER: tuple[str, ...] = ("node-0", "node-4", "node-1", "node-2", "node-3")
 
 
 class NodeStatus(str, Enum):
@@ -98,6 +135,7 @@ class NodeState:
     pending_capacity_queue: list[int] = field(default_factory=list)
     recovery_timer: int = 0          # Countdown to auto-recovery from FAILED status
     is_scripted_failure: bool = False  # True if failed due to task scripting (no auto-recovery)
+    outflow_rate: float = 0.0         # Requests/tick actually dispatched downstream (DAG edge signal)
 
     # Derived (recomputed whenever capacity or status changes)
     @property
@@ -124,6 +162,7 @@ class NodeState:
             "pending_capacity_units": int(len(self.pending_capacity_queue)),
             "recovery_timer": self.recovery_timer,
             "is_scripted_failure": self.is_scripted_failure,
+            "outflow_rate": round(self.outflow_rate, 2),
         }
 
 
@@ -166,15 +205,22 @@ class ClusterSimulator:
     def _randomize_domain(self) -> None:
         """Apply domain randomization for RL robustness across tasks."""
         self._t1_ramp_slope = self._rng.uniform(0.8, 2.0)
-        # Task 1: start between 92–99 % of default cluster capacity so
-        # the system is responsive early (less flat reward plateaus).
-        default_mu_total = self._n_nodes * DEFAULT_CAPACITY * 15.0  # 225
+        # DAG calibration: total_lambda is split across 2 ingress nodes (node-0, node-4).
+        # Each ingress node's capacity is DEFAULT_CAPACITY * 15 req/tick.
+        # Ingress cluster capacity = len(EXTERNAL_TRAFFIC_NODES) * DEFAULT_CAPACITY * 15 = 90.
+        # Task 1: start between 92-99% of ingress capacity so the ingress nodes are
+        # near saturation immediately, producing rich early reward signal.
+        n_ingress = len(EXTERNAL_TRAFFIC_NODES)  # 2
+        ingress_mu_total = n_ingress * DEFAULT_CAPACITY * 15.0  # 90 req/tick
         self._t1_init_lambda = self._rng.uniform(
-            default_mu_total * 0.92, default_mu_total * 0.99
+            ingress_mu_total * 0.92, ingress_mu_total * 0.99
         )
         self._t2_fail_tick = self._rng.randint(10, 40)
-        # Task 2: guarantee immediate overload (46/node vs 45 capacity)
-        self._t2_init_lambda = self._rng.uniform(455.0, 475.0)
+        # Task 2: guarantee immediate ingress overload (slightly above ingress saturation).
+        # Each ingress node sees total_lambda/2; target ~102% of individual ingress capacity.
+        self._t2_init_lambda = self._rng.uniform(
+            ingress_mu_total * 1.00, ingress_mu_total * 1.10
+        )
         # Task 3: jitter the surge window so the LLM can't memorise it.
         jitter = self._rng.randint(-T3_SURGE_JITTER, T3_SURGE_JITTER)
         self._t3_surge_start = T3_SURGE_BASE_START + jitter
@@ -275,21 +321,27 @@ class ClusterSimulator:
         self._tick_count += 1
         self._update_capacity()
         self._inject_traffic()
+        # Save original capacities; backpressure temporarily reduces service_rate
+        # for this tick only. Restore after _update_queues so the reduction does
+        # not compound across ticks and permanently cripple parent nodes.
+        saved_capacities = {n.node_id: n.capacity for n in self._nodes}
+        self._apply_backpressure()
         # Reset per-tick shed counters before physics update
         for node in self._nodes:
             node.dropped_requests = 0.0
         self._update_queues()
+        # Restore capacities so the next tick starts from the true provisioned level
+        for n in self._nodes:
+            n.capacity = saved_capacities.get(n.node_id, n.capacity)
         self._update_derived_metrics()
         self._update_statuses()
         self._cascade_failures()
         self._process_recovery()
-        # Decay shed fractions gradually (retain 80% per tick = slow decay)
-        # The agent must still re-issue to maintain full effect, but the
-        # effect doesn't vanish instantly.  *= 0.8 means after 3 ticks
-        # the shed is still at 51% (0.8^3), vs old 0.0 after 1 tick.
+        # Decay shed fractions gradually
+        # *= 0.5 retains 50% per tick (fast decay).
         for node in self._nodes:
-            node.shed_fraction *= 0.8
-            if node.shed_fraction < 0.01:
+            node.shed_fraction *= 0.5
+            if node.shed_fraction < 0.05:
                 node.shed_fraction = 0.0
 
     def _update_capacity(self) -> None:
@@ -304,61 +356,105 @@ class ClusterSimulator:
             node.pending_capacity_queue = [delay for delay in node.pending_capacity_queue if delay > 0]
 
     def _inject_traffic(self) -> None:
-        """Determine λ_i per node based on task and routing state."""
-        total_lambda = 0.0
+        """
+        Distribute traffic through the cluster DAG in three phases.
+
+        Phase 1 — Task lambda + scripted events:
+            Compute total external λ for this tick and apply any task-specific
+            mutations (node failure scripting, surge flags).  No early returns;
+            all branches fall through to the shared DAG in Phase 2.
+
+        Phase 2 — Topological DAG distribution:
+            Traverse _TOPOLOGICAL_ORDER (roots first).  Each parent's
+            processed outflow (min(incoming, service_rate)) is split across
+            its children via DEFAULT_ROUTING_SPLIT.  A FAILED node has
+            service_rate=0, so outflow=0 and its children are naturally
+            starved — this is the causal failure chain the RL agent must
+            learn to route around.
+
+        Phase 3 — Reroute weight correction:
+            Apply REROUTE_TRAFFIC weight adjustments post-DAG, then decay
+            weights.  Keeps reroute semantics identical to pre-DAG behaviour.
+        """
+        # -------------------------------------------------------------------
+        # Phase 1: task-specific lambda + scripted events (no early returns)
+        # -------------------------------------------------------------------
+        total_lambda: float = 0.0
+        # direct_injections: extra traffic added directly to a node ON TOP OF
+        # the DAG distribution.  Used for Task-3 surge bursts that model a
+        # side-channel load source (e.g. bulk import hitting checkout/catalog
+        # directly), while the base λ still travels through node-0 as ingress.
+        direct_injections: dict[str, float] = {}
 
         if self._task_id == "task-1":
-            # Task 1: Linear Ramp — starts near cluster capacity
+            # Linear ramp — starts near cluster capacity
             total_lambda = self._t1_init_lambda + (self._t1_ramp_slope * self._tick_count)
 
         elif self._task_id == "task-2":
-            # Task 2: Fault Tolerance
             total_lambda = self._t2_init_lambda
+            # Scripted node failure fires at the configured tick
             if self._tick_count >= self._t2_fail_tick and not self._failed_node_id:
                 self._failed_node_id = self._rng.choice(
                     [n.node_id for n in self._nodes if n.node_id != "node-0"]
                 )
-                # Mark the chosen node as a scripted (permanent) failure
                 target = next((n for n in self._nodes if n.node_id == self._failed_node_id), None)
                 if target:
                     target.is_scripted_failure = True
-
-            # Physics change: In Task 2, we do NOT redistribute dead node traffic 
-            # automatically. The infrastructure keeps sending λ/N to the failed node
-            # (causing errors) until the agent chooses REROUTE_TRAFFIC or SCALE_UP.
-            base_share = total_lambda / self._n_nodes
-            for n in self._nodes:
-                if n.node_id == self._failed_node_id:
-                    n.status = NodeStatus.FAILED
-                    # If the agent hasn't rerouted traffic away, it still hits the failed node
-                    n.incoming_request_rate = base_share
-                else:
-                    n.incoming_request_rate = base_share
-
-            # This is where the agent's actions (REROUTE_TRAFFIC) physically 
-            # move the share from the failed node to the survivors.
-            self._apply_reroute_weights()
-            return
+            # No early return: DAG distributes traffic to the failed node normally.
+            # The dead node's service_rate=0 means outflow=0, so its children are
+            # starved. _update_queues() converts all its incoming traffic to
+            # dropped_requests.  The agent must issue REROUTE_TRAFFIC to shift
+            # the parent's split away from the dead child.
 
         elif self._task_id == "task-3":
-            # Task 3: Periodic surge — window is jittered per episode
             total_lambda = T3_INITIAL_LAMBDA
             phase = self._tick_count % T3_SURGE_CYCLE
             if self._t3_surge_start <= phase <= self._t3_surge_end:
-                surge = T3_SURGE_MAGNITUDE
-                for n in self._nodes:
-                    if n.node_id in ["node-1", "node-2"]:
-                        n.incoming_request_rate = (total_lambda / self._n_nodes) + surge
-                    else:
-                        n.incoming_request_rate = total_lambda / self._n_nodes
-                return
+                # Surge is modelled as a direct external burst arriving at the
+                # checkout (node-1) and catalog (node-2) services from a side
+                # channel that bypasses the payment gateway ingress.
+                # Base λ still routes through the DAG; the surge is overlaid so
+                # CRITICAL_NODE protections (no SHED_LOAD on node-1/2) still apply.
+                for nid in ["node-1", "node-2"]:
+                    direct_injections[nid] = T3_SURGE_MAGNITUDE
 
-        # --- Default: distribute traffic evenly, then apply rerouting ---
-        base_share = total_lambda / self._n_nodes
-        for n in self._nodes:
-            n.incoming_request_rate = base_share
+        # -------------------------------------------------------------------
+        # Phase 2: DAG topological distribution
+        # -------------------------------------------------------------------
+        node_incoming: dict[str, float] = {n.node_id: 0.0 for n in self._nodes}
+        node_map: dict[str, "NodeState"] = {n.node_id: n for n in self._nodes}
 
+        # Seed ingress nodes with their share of external λ
+        node_incoming["node-0"] = total_lambda * EXTERNAL_LAMBDA_FRACTION
+        node_incoming["node-4"] = total_lambda * (1.0 - EXTERNAL_LAMBDA_FRACTION)
+
+        # Overlay task-specific direct injections (Task-3 surge)
+        for nid, extra in direct_injections.items():
+            node_incoming[nid] = node_incoming.get(nid, 0.0) + extra
+
+        # Propagate outflow through the graph in topological order
+        for parent_id in _TOPOLOGICAL_ORDER:
+            parent = node_map.get(parent_id)
+            if parent is None:
+                continue
+            parent.incoming_request_rate = node_incoming[parent_id]
+            # Outflow = requests the parent actually forwards downstream.
+            # FAILED nodes have service_rate=0 → outflow=0 → children starved.
+            outflow = min(parent.incoming_request_rate, parent.service_rate)
+            parent.outflow_rate = outflow
+            for child_id, split in DEFAULT_ROUTING_SPLIT.get(parent_id, {}).items():
+                node_incoming[child_id] = node_incoming.get(child_id, 0.0) + outflow * split
+
+        # -------------------------------------------------------------------
+        # Phase 3: REROUTE_TRAFFIC weight corrections (post-DAG)
+        # -------------------------------------------------------------------
         self._apply_reroute_weights()
+
+        # Recalculate outflow after reroute so the agent sees accurate
+        # per-node dispatch rates.  Without this, a node whose incoming was
+        # halved by reroute would still report its pre-reroute outflow.
+        for n in self._nodes:
+            n.outflow_rate = min(n.incoming_request_rate, n.service_rate)
 
     def _apply_reroute_weights(self) -> None:
         """
@@ -414,12 +510,30 @@ class ClusterSimulator:
                     n.incoming_request_rate += share
 
         # Decay weights — agent must keep re-issuing to maintain effect
-        # *= 0.8 retains 80% per tick (slow decay, persistent effect).
-        # After 5 ticks without re-issue, effect is at 33% (0.8^5).
+        # *= 0.5 retains 50% per tick (fast decay).
         for nid in list(self._reroute_weights.keys()):
-            self._reroute_weights[nid] *= 0.8
-            if self._reroute_weights[nid] < 0.01:
+            self._reroute_weights[nid] *= 0.5
+            if self._reroute_weights[nid] < 0.05:
                 del self._reroute_weights[nid]
+
+    def _apply_backpressure(self) -> None:
+        """Reduce parent service rate when children are overloaded."""
+        for parent_id, children in CLUSTER_TOPOLOGY.items():
+            parent = next((n for n in self._nodes if n.node_id == parent_id), None)
+            if not children or not parent or parent.status == NodeStatus.FAILED:
+                continue
+            
+            # Compute pressure from overloaded children
+            total_pressure = 0.0
+            for child_id in children:
+                child = next((n for n in self._nodes if n.node_id == child_id), None)
+                if child:
+                    excess = max(0.0, child.queue_depth - BACKPRESSURE_THRESHOLD)
+                    total_pressure += excess / FATAL_FAIL_THRESHOLD  # normalise to [0, 1]
+            
+            # Reduce parent's effective capacity proportionally
+            pressure_factor = min(BACKPRESSURE_MAX_FACTOR, total_pressure * 0.6)
+            parent.capacity = max(1.0, parent.capacity * (1.0 - pressure_factor))
 
     def _update_queues(self) -> None:
         """
@@ -484,6 +598,7 @@ class ClusterSimulator:
                 if n.status != NodeStatus.FAILED:
                     n.status = NodeStatus.FAILED
                     n.recovery_timer = NODE_RECOVERY_TICKS
+                    n.capacity = 0.5   # starts at half capacity when recovery begins
                     self._cascade_triggered = True  # Signal cascade detection
             elif n.queue_depth > OVERLOAD_THRESHOLD:
                 n.status = NodeStatus.DEGRADED
@@ -496,7 +611,7 @@ class ClusterSimulator:
 
         Guardrails:
         - Only triggers when a NEW failure occurred this tick (not any failed node).
-        - Max one cascade step per failure event (no cascade chains).
+        - Graph-bounded: cascade only propagates along edges (parents or children).
         - Scripted failures (Task 2) do not trigger cascades.
         """
         if not self._cascade_triggered:
@@ -509,18 +624,27 @@ class ClusterSimulator:
             self._cascade_tick = 0
             return
 
+        # Find all currently failed nodes
+        failed_ids = {n.node_id for n in self._nodes if n.status == NodeStatus.FAILED}
+        
+        # Build set of nodes adjacent to any failed node (upstream or downstream)
+        at_risk = set()
+        for failed_id in failed_ids:
+            # Downstream children of the failed node
+            at_risk.update(CLUSTER_TOPOLOGY.get(failed_id, []))
+            # Upstream parents of the failed node
+            for parent_id, children in CLUSTER_TOPOLOGY.items():
+                if failed_id in children:
+                    at_risk.add(parent_id)
+
         cascade_threshold = FATAL_FAIL_THRESHOLD * CASCADE_QUEUE_MULTIPLIER
-        cascaded_this_tick = 0
         for n in self._nodes:
-            if cascaded_this_tick >= 1:
-                break  # Max one cascade per window to prevent chain reactions
-            if n.status == NodeStatus.FAILED:
-                continue
-            if n.is_scripted_failure:
+            if n.node_id not in at_risk:
+                continue   # Not adjacent to failure — cannot cascade
+            if n.status == NodeStatus.FAILED or n.is_scripted_failure:
                 continue
             if n.queue_depth > cascade_threshold:
                 n.status = NodeStatus.DEGRADED
-                cascaded_this_tick += 1
 
     def _process_recovery(self) -> None:
         """Count down recovery timers and bring FAILED nodes back online.
@@ -528,17 +652,26 @@ class ClusterSimulator:
         Only overload-failed nodes (recovery_timer > 0) can recover.
         Scripted failures (is_scripted_failure=True) are excluded.
         """
+        RECOVERY_RAMP_PER_TICK: float = 0.5   # capacity added per tick during recovery
+        
         for n in self._nodes:
             if n.is_scripted_failure:
                 continue
-            if n.status == NodeStatus.FAILED and n.recovery_timer > 0:
+            # Check recovery_timer > 0, not status == FAILED: the first recovery
+            # tick transitions the node to DEGRADED, but the timer must keep
+            # counting until it reaches 0 and the node becomes HEALTHY.
+            if n.recovery_timer > 0:
                 n.recovery_timer -= 1
                 if n.recovery_timer <= 0:
                     n.status = NodeStatus.HEALTHY
-                    n.capacity = 1.0  # Recover at minimum capacity
                     n.queue_depth = 0.0
                     n.latency_ms = BASE_LATENCY_MS
                     n.cpu_utilization = 0.0
+                    # capacity stays at whatever it ramped to
+                else:
+                    # Still in recovery: ramp capacity up, stay DEGRADED
+                    n.capacity = min(DEFAULT_CAPACITY, n.capacity + RECOVERY_RAMP_PER_TICK)
+                    n.status = NodeStatus.DEGRADED   # not HEALTHY until fully ramped
 
     def reconcile_state(self, telemetry_map: dict) -> None:
         """

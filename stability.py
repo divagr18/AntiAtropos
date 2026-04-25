@@ -53,6 +53,9 @@ Q_BARRIER_MAX: float = 150.0
 Set higher than OVERLOAD_THRESHOLD (80) to allow the agent time to react
 before the barrier penalty kicks in."""
 
+MAX_QUEUE_NORM: float = 200.0
+"""Normalization divisor shared with environment.py.  Matches FATAL_FAIL_THRESHOLD."""
+
 BARRIER_NORM_SCALE: float = 10000.0
 """Normalization divisor for the barrier term.
 The raw barrier H(s) = sum(max(0, Q_i - Q_max)^2) can produce very large values
@@ -99,6 +102,44 @@ def compute_lyapunov(nodes: list[dict]) -> float:
             for n in nodes
         )
     )
+
+def compute_lyapunov_graph(
+    nodes: list[dict],
+    topology: dict[str, list[str]],
+    edge_weight: float = 5.0,
+) -> float:
+    """
+    V_graph(s) = Σ w_i·Q_i²  +  edge_weight · Σ_{(i,j)∈edges} |Q_i - Q_j|
+
+    The edge term penalises flow imbalance between connected nodes.
+    If node-0 is overloaded but node-1 (its child) is idle, the edge
+    term fires even if node-1's individual energy contribution is zero.
+    This gives the agent gradient signal to balance load across the graph,
+    not just reduce individual node queues.
+
+    With edge_weight=5.0 and max |Q_diff|=200 on 4 edges, the edge term
+    adds ~4000 to the Lyapunov energy, or ~2-5 % of the base energy at
+    full overload — a meaningful secondary gradient without dominating.
+    """
+    node_map = {n["node_id"]: n for n in nodes}
+    
+    # Standard weighted Lyapunov
+    base_energy = compute_lyapunov(nodes)
+    
+    # Edge imbalance penalty (raw queue-depth differences)
+    edge_penalty = 0.0
+    for parent_id, children in topology.items():
+        parent = node_map.get(parent_id)
+        if not parent:
+            continue
+        for child_id in children:
+            child = node_map.get(child_id)
+            if not child:
+                continue
+            imbalance = abs(float(parent["queue_depth"]) - float(child["queue_depth"]))
+            edge_penalty += imbalance
+
+    return base_energy + edge_weight * edge_penalty
 
 
 def compute_drift(v_prev: float, v_curr: float) -> float:
