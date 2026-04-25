@@ -33,7 +33,10 @@ DOCKER_IMAGE = "pytorch/pytorch:2.10.0-cuda12.6-cudnn9-devel"
 
 
 def build_job_command() -> str:
-    """Build the shell script that runs INSIDE the HF Job container."""
+    """Build the shell script that runs INSIDE the HF Job container.
+
+    Starts the AntiAtropos FastAPI server locally (eliminating HTTP latency)
+    then runs training against localhost:8000."""
     return (
         "set -e\n"
         "\n"
@@ -49,8 +52,23 @@ def build_job_command() -> str:
         "pip install --break-system-packages --no-deps torchvision -q\n"
         "pip install --break-system-packages -r training/requirements.txt -q\n"
         "\n"
-        "echo '[bootstrap] Launching training...'\n"
-        "python training/train.py "
+        "echo '[bootstrap] Starting local AntiAtropos server (simulated mode)...'\n"
+        "export ANTIATROPOS_ENV_MODE=simulated\n"
+        "uvicorn server.app:app --host 127.0.0.1 --port 8000 &\n"
+        "SERVER_PID=$!\n"
+        "\n"
+        "# Wait for server to be ready\n"
+        "echo '[bootstrap] Waiting for server...'\n"
+        "for i in $(seq 1 30); do\n"
+        "  if curl -s http://127.0.0.1:8000/health > /dev/null 2>&1; then\n"
+        "    echo '[bootstrap] Server ready.'\n"
+        "    break\n"
+        "  fi\n"
+        "  sleep 1\n"
+        "done\n"
+        "\n"
+        "echo '[bootstrap] Launching training (local server)...'\n"
+        "ANTIATROPOS_ENV_URL=http://localhost:8000 python training/train.py "
         "--smoke "
         "--run-id $RUN_ID "
         "--num-iterations $NUM_ITERATIONS "
@@ -58,8 +76,13 @@ def build_job_command() -> str:
         "--max-steps $MAX_STEPS "
         "--eval-interval $EVAL_INTERVAL "
         "--plot-interval $PLOT_INTERVAL\n"
+        "TRAIN_EXIT=$?\n"
         "\n"
-        "echo '[bootstrap] Done.'"
+        "echo '[bootstrap] Stopping server...'\n"
+        "kill $SERVER_PID 2>/dev/null || true\n"
+        "wait $SERVER_PID 2>/dev/null || true\n"
+        "\n"
+        "exit $TRAIN_EXIT"
     )
 
 

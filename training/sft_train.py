@@ -114,12 +114,7 @@ SYSTEM_PROMPT = textwrap.dedent("""
     Boot delay is 5 ticks — factor this into your timing.
     Scale back down when safe to save cost.
 
-    Return exactly one JSON object:
-    {
-      "action_type": "SCALE_UP" | "SCALE_DOWN" | "REROUTE_TRAFFIC" | "SHED_LOAD" | "NO_OP",
-      "target_node_id": "node-0" | "node-1" | "node-2" | "node-3" | "node-4",
-      "parameter": 0.0
-    }
+    Return exactly: {"action_type":"...","target_node_id":"node-N","parameter":0.0}
 """).strip()
 
 
@@ -183,34 +178,32 @@ def format_observation(obs_dict, task_id, step, max_steps, reward=0.0, sla_viola
     r_tag = "GOOD" if reward > 0.5 else ("OK" if reward > 0.2 else ("BAD" if reward > 0.05 else "STOP-SCALING"))
     cluster_summary = f"Cost: {cost_dev} (${cost_hour:.2f}/hr) | Queues: {queue_trend}{sla_note} | Reward: {reward:.2f}={r_tag}"
 
-    # Build compact observation dict (mirrors inference.py observation_for_model)
+    # Build compact observation dict (trimmed for speed: 40% fewer tokens)
     nodes_data = []
     for n in obs_dict.get("nodes", []):
         nodes_data.append({
-            "node_id": n.get("node_id"),
-            "status": n.get("status", "HEALTHY"),
-            "queue_depth": n.get("queue_depth", 0),
-            "latency_ms": n.get("latency_ms", 0),
-            "incoming_request_rate": n.get("incoming_request_rate", 0),
-            "cpu_utilization": n.get("cpu_utilization", 0),
-            "capacity": n.get("capacity", 0),
-            "pending_capacity": n.get("pending_capacity", 0),
-            "outflow_rate": n.get("outflow_rate", 0),
-            "upstream_pressure": n.get("upstream_pressure", 0),
+            "n": n.get("node_id"),
+            "s": n.get("status", "HEALTHY")[0],  # H/D/F
+            "q": n.get("queue_depth", 0),
+            "l": n.get("latency_ms", 0),
+            "r": n.get("incoming_request_rate", 0),
+            "c": n.get("capacity", 0),
+            "pc": n.get("pending_capacity", 0),
+            "o": n.get("outflow_rate", 0),
         })
 
     obs_compact = {
-        "task_id": task_id,
-        "step": step,
-        "max_steps": max_steps,
-        "failed_nodes": [n["node_id"] for n in obs_dict.get("nodes", []) if n.get("status") == "FAILED"],
-        "degraded_nodes": [n["node_id"] for n in obs_dict.get("nodes", []) if n.get("status") == "DEGRADED"],
-        "average_latency_ms": obs_dict.get("average_latency_ms", 0),
-        "error_rate": obs_dict.get("error_rate", 0),
-        "total_queue_backlog": obs_dict.get("total_queue_backlog", 0),
-        "current_cost_per_hour": obs_dict.get("current_cost_per_hour", 0),
-        "sla_violations": sla_violations,
-        "nodes": nodes_data,
+        "t": task_id,
+        "st": step,
+        "mx": max_steps,
+        "fn": [n["node_id"] for n in obs_dict.get("nodes", []) if n.get("status") == "FAILED"],
+        "dn": [n["node_id"] for n in obs_dict.get("nodes", []) if n.get("status") == "DEGRADED"],
+        "al": obs_dict.get("average_latency_ms", 0),
+        "er": obs_dict.get("error_rate", 0),
+        "qb": obs_dict.get("total_queue_backlog", 0),
+        "co": obs_dict.get("current_cost_per_hour", 0),
+        "sv": sla_violations,
+        "nd": nodes_data,
     }
 
     return textwrap.dedent(f"""

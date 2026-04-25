@@ -53,45 +53,35 @@ TASK_BRIEFS = {
 
 SYSTEM_PROMPT = """You are an autonomous SRE controller managing a five-node microservice cluster.
 
-CRITICAL: You are running in NO-THINK mode (/no_think). DO NOT output `</think>` or ` 
-` tags. DO NOT generate reasoning blocks. DO NOT use  
- 
- or . Output ONLY your action directly as plain text.
+CRITICAL: /no_think mode. Output ONLY a JSON action. NO reasoning. NO   tags. NO .
 
-CLUSTER TOPOLOGY (traffic flows parent → children):
-  node-0 → node-1, node-2
-  node-2 → node-3
-  node-4 (independent ingress)
-FAILED nodes have outflow=0 — their children are starved.
-Backpressure: overloaded children reduce parent capacity.
+OBSERVATION LEGEND (compact keys):
+  t=task_id st=step mx=max_steps fn=failed_nodes dn=degraded_nodes
+  al=avg_latency er=error_rate qb=queue_backlog co=cost_per_hour sv=sla_violations
+  nd[]=nodes: n=node_id s=status(H/D/F) q=queue_depth l=latency r=incoming_rate
+           c=capacity pc=pending_capacity o=outflow_rate
 
-ACTIONS (new capacity takes 5 ticks to boot):
-  SCALE_UP <node> <amount>   — add capacity (0.3-0.5 normal, 0.6-0.8 heavy surge), clears DEGRADED
-  SCALE_DOWN <node> <amount>  — cancel pending boots first, then remove active capacity (0.2-0.4 safe, 0.5-0.7 aggressive)
-  REROUTE_TRAFFIC <node> <fraction> — reduce THIS node capacity, redistribute to peers (0.3-0.5)
-  SHED_LOAD <node> <fraction>  — drop incoming traffic (0.3-0.5), NEVER on node-0 (payment gateway)
-  NO_OP                           — do nothing
+TOPOLOGY: node-0→node-1,node-2 | node-2→node-3 | node-4 independent
+FAILED nodes: outflow=0, children starved. Backpressure: overloaded children reduce parent.
 
-REWARD PRIORITIES (in order):
-  1. Avoid SLA violations (latency > 200ms or error rate > 5%)
-  2. Keep queues low (growing queues = destabilizing system)
-  3. Don't over-provision (excess capacity costs money)
+ACTIONS (boot delay=5 ticks):
+  SCALE_UP <node> <0.3-0.8>      — add capacity, clears DEGRADED (use on stressed nodes)
+  SCALE_DOWN <node> <0.2-0.5>    — cancel pending then reduce active (use on idle overprovisioned)
+  REROUTE_TRAFFIC <node> <0.3-0.7> — drain FAILED/overloaded node to healthy peers
+  SHED_LOAD <node> <0.3-0.5>      — drop traffic on non-critical nodes (NEVER node-0)
+  NO_OP                            — do nothing (use when cluster is healthy)
 
-REWARD SIGNAL: Each step returns a reward [0,1].
-  > 0.5 = good. 0.15–0.5 = acceptable. < 0.15 = you are making things worse.
-  If reward is falling, STOP the current strategy — try a different action or NO_OP.
-  Repeating the same action when reward < 0.1 is always wrong.
+DIVERSITY RULE: Use ALL action types when appropriate. Don't fixate on SCALE_UP.
+  - See FAILED node? → REROUTE_TRAFFIC, not SCALE_UP
+  - Non-critical overloaded? → SHED_LOAD first, SCALE_UP only if pressure persists
+  - Cluster healthy with high capacity? → SCALE_DOWN to save cost
+  - Only SCALE_UP when queues are actively rising and REROUTE/SHED aren't appropriate
 
-Scale when your observations demand it, not preemptively.
-Boot delay is 5 ticks — factor this into your timing.
-Scale back down when safe to save cost.
+REWARD: [0,1]. >0.5=good 0.15-0.5=ok <0.15=bad.
+  Falling reward → STOP current strategy, switch action type.
+  Repeating same action when reward<0.1 is ALWAYS wrong.
 
-Return exactly one JSON object:
-{
-  "action_type": "SCALE_UP" | "SCALE_DOWN" | "REROUTE_TRAFFIC" | "SHED_LOAD" | "NO_OP",
-  "target_node_id": "node-0" | "node-1" | "node-2" | "node-3" | "node-4",
-  "parameter": 0.0
-}"""
+Return exactly: {"action_type":"...","target_node_id":"node-N","parameter":0.0}"""
 
 
 # ────────────────────────────────────────────────
@@ -109,8 +99,11 @@ class OpenEnvClient:
         ))
 
     def reset(self, task_id: str = "task-1",
-              seed: Optional[int] = None) -> Dict[str, Any]:
+              seed: Optional[int] = None,
+              mode: Optional[str] = None) -> Dict[str, Any]:
         payload: Dict[str, Any] = {"task_id": task_id}
+        if mode is not None:
+            payload["mode"] = mode
         if seed is not None:
             payload["seed"] = seed
         resp = self._session.post(
@@ -168,34 +161,32 @@ def format_observation(obs_dict: Dict, task_id: str, step: int,
     r_tag = "GOOD" if reward > 0.5 else ("OK" if reward > 0.2 else ("BAD" if reward > 0.05 else "STOP-SCALING"))
     cluster_summary = f"Cost: {cost_dev} (${cost_hour:.2f}/hr) | Queues: {queue_trend}{sla_note} | Reward: {reward:.2f}={r_tag}"
 
-    # Build compact observation dict (mirrors inference.py observation_for_model)
+    # Build compact observation dict (trimmed for speed: 40% fewer tokens)
     nodes_data = []
     for n in obs_dict.get("nodes", []):
         nodes_data.append({
-            "node_id": n.get("node_id"),
-            "status": n.get("status", "HEALTHY"),
-            "queue_depth": n.get("queue_depth", 0),
-            "latency_ms": n.get("latency_ms", 0),
-            "incoming_request_rate": n.get("incoming_request_rate", 0),
-            "cpu_utilization": n.get("cpu_utilization", 0),
-            "capacity": n.get("capacity", 0),
-            "pending_capacity": n.get("pending_capacity", 0),
-            "outflow_rate": n.get("outflow_rate", 0),
-            "upstream_pressure": n.get("upstream_pressure", 0),
+            "n": n.get("node_id"),
+            "s": n.get("status", "HEALTHY")[0],  # H/D/F = Healthy/Degraded/Failed
+            "q": n.get("queue_depth", 0),
+            "l": n.get("latency_ms", 0),
+            "r": n.get("incoming_request_rate", 0),
+            "c": n.get("capacity", 0),
+            "pc": n.get("pending_capacity", 0),
+            "o": n.get("outflow_rate", 0),
         })
-
+    
     obs_compact = {
-        "task_id": task_id,
-        "step": step,
-        "max_steps": max_steps,
-        "failed_nodes": [n["node_id"] for n in obs_dict.get("nodes", []) if n.get("status") == "FAILED"],
-        "degraded_nodes": [n["node_id"] for n in obs_dict.get("nodes", []) if n.get("status") == "DEGRADED"],
-        "average_latency_ms": obs_dict.get("average_latency_ms", 0),
-        "error_rate": obs_dict.get("error_rate", 0),
-        "total_queue_backlog": obs_dict.get("total_queue_backlog", 0),
-        "current_cost_per_hour": obs_dict.get("current_cost_per_hour", 0),
-        "sla_violations": sla_violations,
-        "nodes": nodes_data,
+        "t": task_id,
+        "st": step,
+        "mx": max_steps,
+        "fn": [n["node_id"] for n in obs_dict.get("nodes", []) if n.get("status") == "FAILED"],
+        "dn": [n["node_id"] for n in obs_dict.get("nodes", []) if n.get("status") == "DEGRADED"],
+        "al": obs_dict.get("average_latency_ms", 0),
+        "er": obs_dict.get("error_rate", 0),
+        "qb": obs_dict.get("total_queue_backlog", 0),
+        "co": obs_dict.get("current_cost_per_hour", 0),
+        "sv": sla_violations,
+        "nd": nodes_data,
     }
 
     return textwrap.dedent(f"""
@@ -345,13 +336,14 @@ def rollout_episode(
     episode = Episode(task_id=task_id)
 
     # Reset environment
-    reset_resp = client.reset(task_id=task_id, seed=seed)
+    env_mode = cfg.get("env_mode", "simulated")
+    reset_resp = client.reset(task_id=task_id, seed=seed, mode=env_mode)
     obs_dict = reset_resp.get("observation", reset_resp)
     episode_reward = 0.0
     sla_violations = obs_dict.get("sla_violations", 0)
 
-    # Generation config
-    max_new_tokens = cfg.get("generation_max_new_tokens", 80)
+    # Generation config (reduced for speed)
+    max_new_tokens = cfg.get("generation_max_new_tokens", 50)
     temperature = cfg.get("generation_temperature", 0.7)
     top_p = cfg.get("generation_top_p", 0.9)
     do_sample = cfg.get("generation_do_sample", True)

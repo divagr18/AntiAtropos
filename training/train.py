@@ -647,6 +647,9 @@ def main():
     parser.add_argument("--loss-type", type=str, default=None,
                         choices=["reinforce_baseline", "grpo"],
                         help="Loss function type")
+    parser.add_argument("--env-mode", type=str, default=None,
+                        choices=["simulated", "hybrid", "live"],
+                        help="Environment mode (default: from config)")
     parser.add_argument("--eval-interval", type=int, default=None,
                         help="Evaluate every N iterations")
     parser.add_argument("--checkpoint-interval", type=int, default=None,
@@ -693,6 +696,8 @@ def main():
         cfg["max_steps_per_episode"] = args.max_steps
     if args.loss_type is not None:
         cfg["loss_type"] = args.loss_type
+    if args.env_mode is not None:
+        cfg["env_mode"] = args.env_mode
     if args.eval_interval is not None:
         cfg["eval_interval"] = args.eval_interval
     if args.checkpoint_interval is not None:

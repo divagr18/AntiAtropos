@@ -46,8 +46,33 @@ subprocess.run(
     check=True,
 )
 
-print("[bootstrap] Launching smoke training...")
+print("[bootstrap] Starting local AntiAtropos server (simulated mode)...")
+import os as _os
+_os.environ["ANTIATROPOS_ENV_MODE"] = "simulated"
+server_proc = subprocess.Popen(
+    [sys.executable, "-m", "uvicorn", "server.app:app",
+     "--host", "127.0.0.1", "--port", "8000"],
+)
+
+# Wait for server
+import time as _time
+for _ in range(30):
+    try:
+        import urllib.request
+        urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=1)
+        print("[bootstrap] Server ready.")
+        break
+    except Exception:
+        _time.sleep(1)
+
+print("[bootstrap] Launching training (local server)...")
+_os.environ["ANTIATROPOS_ENV_URL"] = "http://localhost:8000"
 cmd = [sys.executable, "training/train.py"] + sys.argv[1:]
-subprocess.run(cmd, check=True)
+try:
+    subprocess.run(cmd, check=True)
+finally:
+    print("[bootstrap] Stopping server...")
+    server_proc.terminate()
+    server_proc.wait()
 
 print("[bootstrap] Smoke training complete.")

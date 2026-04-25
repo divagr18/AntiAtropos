@@ -20,11 +20,12 @@ run_id: "exp_001"                    # Unique run identifier (used for Hub paths
 # ---- Environment (OpenEnv) ----
 env_url: "https://pranavkk-antiatropos.hf.space"
 tasks: ["task-1", "task-2", "task-3"]
-max_steps_per_episode: 60
+max_steps_per_episode: 40            # Reduced from 60 for faster iterations
+env_mode: "simulated"                # "simulated" | "live" | "hybrid" — set to "live" for real k8s
 
 # ---- Model ----
 base_model: "Qwen/Qwen3.5-4B"
-max_seq_length: 1024                 # 740 token peak + headroom; saves ~40% VRAM vs 2048
+max_seq_length: 512                  # 40% smaller observation + shorter prompt = ~350 tokens peak
 load_in_4bit: true
 
 # ---- LoRA ----
@@ -42,7 +43,7 @@ lora_target_modules:
 
 # ---- Training (reward-based) ----
 loss_type: "reinforce_baseline"       # reinforce | reinforce_baseline | grpo
-num_episodes_per_iteration: 8         # More episodes per step with the VRAM savings
+num_episodes_per_iteration: 12        # More episodes with VRAM+speed savings
 num_iterations: 500                   # Total training iterations
 learning_rate: 2.0e-4
 per_device_train_batch_size: 2        # A10G can handle 2 with seq_len=1024
@@ -63,7 +64,7 @@ reward_gae_lambda: 0.95              # GAE lambda (if using GAE)
 advantage_normalize: true             # Normalize advantages across batch
 
 # ---- Generation ----
-generation_max_new_tokens: 80         # 40 tokens is typical; 80 is generous cap
+generation_max_new_tokens: 50         # JSON action is ~30 tokens; 50 is safe cap
 generation_temperature: 0.7           # Slight stochasticity for exploration
 generation_top_p: 0.9
 generation_do_sample: true

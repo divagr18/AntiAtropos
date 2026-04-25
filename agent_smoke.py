@@ -27,25 +27,55 @@ class Config:
 
 
 def pick_action(obs) -> SREAction:
-    # Pick node with highest queue depth as target
-    target = max(obs.nodes, key=lambda n: float(getattr(n, "queue_depth", 0.0)))
-
+    """Diverse heuristic: uses all 5 action types based on cluster state."""
     avg_latency = float(getattr(obs, "average_latency_ms", 0.0))
     backlog = float(getattr(obs, "total_queue_backlog", 0.0))
+    error_rate = float(getattr(obs, "error_rate", 0.0))
 
-    # Heuristic policy:
-    # - If stressed, scale up busiest node
-    # - If very calm, scale down non-VIP node
-    # - Otherwise no-op
-    if avg_latency > 0.20 or backlog > 0.45:
-        return SREAction(action_type=ActionType.SCALE_UP, target_node_id=target.node_id, parameter=0.6)
+    # Find failed and degraded nodes
+    failed = [n for n in obs.nodes if str(getattr(n, "status", "")) == "FAILED"]
+    degraded = [n for n in obs.nodes if str(getattr(n, "status", "")) == "DEGRADED"]
+    healthy = [n for n in obs.nodes if str(getattr(n, "status", "")) not in ("FAILED", "FAILED")]
+    non_vips = [n for n in healthy if not bool(getattr(n, "is_vip", False))]
+    critical_nodes = {"node-0", "node-1", "node-2"}
 
-    non_vips = [n for n in obs.nodes if not bool(getattr(n, "is_vip", False))]
+    # 1. FAILED node → REROUTE its traffic to peers
+    if failed:
+        fn = failed[0]
+        return SREAction(action_type=ActionType.REROUTE_TRAFFIC,
+                         target_node_id=fn.node_id, parameter=0.7)
+
+    # 2. Non-critical overloaded → SHED_LOAD
+    shedding_candidates = [n for n in non_vips
+                           if float(getattr(n, "queue_depth", 0.0)) > 0.5
+                           and n.node_id not in critical_nodes]
+    if shedding_candidates and (avg_latency > 0.15 or backlog > 0.3):
+        target = max(shedding_candidates, key=lambda n: float(getattr(n, "queue_depth", 0.0)))
+        return SREAction(action_type=ActionType.SHED_LOAD,
+                         target_node_id=target.node_id, parameter=0.4)
+
+    # 3. High stress → SCALE_UP busiest node (prefer downstream)
+    if avg_latency > 0.20 or backlog > 0.45 or degraded:
+        candidates = degraded if degraded else healthy
+        downstream = [n for n in candidates if n.node_id != "node-0"]
+        target = max(downstream or candidates,
+                     key=lambda n: float(getattr(n, "queue_depth", 0.0)))
+        param = 0.6 if float(getattr(target, "queue_depth", 0.0)) > 0.7 else 0.4
+        return SREAction(action_type=ActionType.SCALE_UP,
+                         target_node_id=target.node_id, parameter=param)
+
+    # 4. Very calm → SCALE_DOWN overprovisioned non-VIP
     if avg_latency < 0.08 and backlog < 0.15 and non_vips:
-        down_target = max(non_vips, key=lambda n: float(getattr(n, "capacity", 0.0)))
-        return SREAction(action_type=ActionType.SCALE_DOWN, target_node_id=down_target.node_id, parameter=0.4)
+        overprov = [n for n in non_vips if float(getattr(n, "capacity", 0.0)) > 0.7]
+        if overprov:
+            down_target = max(overprov, key=lambda n: float(getattr(n, "capacity", 0.0)))
+            return SREAction(action_type=ActionType.SCALE_DOWN,
+                             target_node_id=down_target.node_id, parameter=0.3)
 
-    return SREAction(action_type=ActionType.NO_OP, target_node_id=target.node_id, parameter=0.0)
+    # 5. Default: NO_OP
+    fallback = healthy[0] if healthy else obs.nodes[0]
+    return SREAction(action_type=ActionType.NO_OP,
+                     target_node_id=fallback.node_id, parameter=0.0)
 
 
 async def main() -> None:

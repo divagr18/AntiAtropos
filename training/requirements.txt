@@ -26,6 +26,7 @@ unsloth_zoo @ git+https://github.com/unslothai/unsloth-zoo.git
 pyyaml>=6.0
 
 # ---- Environment API ----
+openenv-core[core]>=0.2.1
 requests>=2.31.0
 
 # ---- HF Hub (model push + metrics dataset) ----
