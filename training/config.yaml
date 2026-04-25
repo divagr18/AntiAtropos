@@ -20,7 +20,7 @@ run_id: "exp_001"                    # Unique run identifier (used for Hub paths
 # ---- Environment (OpenEnv) ----
 env_url: "https://pranavkk-antiatropos.hf.space"
 tasks: ["task-1", "task-2", "task-3"]
-max_steps_per_episode: 20            # Bumped from 10 after OOM resolved
+max_steps_per_episode: 20            # Keep at 20: longer episodes → longer sequences → more padding → OOM
 env_mode: "simulated"                # "simulated" | "live" | "hybrid" — set to "live" for real k8s
 
 # ---- Model ----
@@ -43,10 +43,12 @@ lora_target_modules:
 
 # ---- Training (reward-based) ----
 loss_type: "reinforce_baseline"       # reinforce | reinforce_baseline | grpo
-num_episodes_per_iteration: 4         # Safe now: max_seq_len=512 + loss_batch_size=8 + CPU offload
+num_episodes_per_iteration: 4         # Safe now: max_seq_len=512 + loss_batch_size=2 + CPU offload
 num_iterations: 500                   # Total training iterations
 parallel_episodes: true               # Batch generation across episodes (10x faster)
-loss_batch_size: 4                    # Safe now: for_training removed, ~19 GiB freed
+# A10G OOM fix: Qwen3.5 vocab=151936 → logits at batch=4×seq=512 = ~624MB (matches OOM report).
+# Dropping to 2 halves the logit tensor peak and stays comfortably under 22.3 GiB.
+loss_batch_size: 2                    # A10G safe: batch=4 triggered logit OOM on vocab=151936
 learning_rate: 2.0e-4
 per_device_train_batch_size: 2        # A10G can handle 2 with seq_len=1024
 gradient_accumulation_steps: 4        # Effective batch = 2*4 = 8 transitions

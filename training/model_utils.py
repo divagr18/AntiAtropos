@@ -14,6 +14,12 @@ from typing import Any, Dict, Optional, Tuple
 import torch
 from huggingface_hub import HfApi, snapshot_download
 
+# Reduce CUDA allocator fragmentation — critical on A10G where free memory
+# is non-contiguous after generation KV-cache eviction.
+# Must be set before any CUDA allocation.
+if "PYTORCH_ALLOC_CONF" not in os.environ:
+    os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
+
 
 # ────────────────────────────────────────────────
 # GPU Detection
@@ -51,16 +57,23 @@ def gpu_scaled_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
         overrides["lora_rank"] = 48
         overrides["lora_alpha"] = 48
         overrides["per_device_train_batch_size"] = 4
+        overrides["loss_batch_size"] = 4
     elif tier == "a10g":
-        overrides["max_seq_length"] = 512   # Must stay low: Qwen3.5 vocab=151936, logits at 1024 = 20 GB
+        # A10G OOM root cause: Qwen3.5 vocab=151,936.
+        # logits tensor at batch=4, seq=512: 4 × 512 × 151936 × 2 bytes = ~623 MiB.
+        # Only 416 MiB was free when the OOM hit — exact match.
+        # Fix: loss_batch_size=2 halves the logit peak. seq_len stays 512 (<=350 token real usage).
+        overrides["max_seq_length"] = 512   # Must stay low: logits at 1024 blow past 22 GiB
         overrides["lora_rank"] = 32
         overrides["lora_alpha"] = 32
         overrides["per_device_train_batch_size"] = 2
+        overrides["loss_batch_size"] = 2    # OOM fix: halves logit tensor peak to ~312 MiB
     else:  # t4
-        overrides["max_seq_length"] = 1024
+        overrides["max_seq_length"] = 512
         overrides["lora_rank"] = 16
         overrides["lora_alpha"] = 16
         overrides["per_device_train_batch_size"] = 1
+        overrides["loss_batch_size"] = 1
 
     # Only override if user hasn't explicitly set via env vars
     for key, default_val in overrides.items():

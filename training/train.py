@@ -164,12 +164,22 @@ def reinforce_baseline_loss_fn(
     all_advantages = []
     pad_id = tokenizer.pad_token_id or tokenizer.eos_token_id
 
+    # Max sequence length cap — prevents a single long outlier from inflating
+    # the entire batch's padding budget.
+    # A10G OOM: 4 × 512 × vocab(151936) × 2 bytes = ~624 MiB logit tensor.
+    # Capping at max_seq_length ensures max_len never exceeds the model limit.
+    max_seq_len_cap = cfg.get("max_seq_length", 512)
+
     # Process transitions in batches for GPU efficiency
     for batch_start in range(0, len(all_pairs), loss_batch_size):
         batch = all_pairs[batch_start:batch_start + loss_batch_size]
         batch_ids = [p[0].input_ids for p in batch]
         batch_masks = [p[0].attention_mask for p in batch]
         batch_returns = [p[1] for p in batch]
+
+        # Truncate sequences that exceed the cap (take the tail — keeps the action tokens)
+        batch_ids = [ids[-max_seq_len_cap:] if ids.shape[0] > max_seq_len_cap else ids for ids in batch_ids]
+        batch_masks = [m[-max_seq_len_cap:] if m.shape[0] > max_seq_len_cap else m for m in batch_masks]
 
         # Left-pad to same length (correct for causal LM forward pass)
         max_len = max(ids.shape[0] for ids in batch_ids)
