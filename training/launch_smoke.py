@@ -44,6 +44,8 @@ def build_job_command() -> str:
         "git clone --depth 1 https://hf:${HF_TOKEN}@huggingface.co/$REPO /workspace/AntiAtropos\n"
         "cd /workspace/AntiAtropos\n"
         "\n"
+        "echo '[bootstrap] Upgrading torch to satisfy torchao dependency...'\n"
+        "pip install 'torch>=2.5.0' -q\n"
         "echo '[bootstrap] Installing dependencies...'\n"
         "pip install -r training/requirements.txt -q\n"
         "\n"
