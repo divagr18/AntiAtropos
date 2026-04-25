@@ -15,7 +15,9 @@ from __future__ import annotations
 import json
 import math
 import re
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
@@ -440,8 +442,253 @@ def rollout_episode(
 
 
 # ────────────────────────────────────────────────
-# Heuristic Baseline
+# Batch Rollout (Parallel Episodes)
 # ────────────────────────────────────────────────
+
+# Thread-local storage for per-thread HTTP sessions (requests.Session is not thread-safe)
+_thread_local = threading.local()
+
+
+def _get_thread_session() -> requests.Session:
+    """Get or create a requests.Session for the current thread."""
+    if not hasattr(_thread_local, 'session'):
+        _thread_local.session = requests.Session()
+        _thread_local.session.mount("http://", requests.adapters.HTTPAdapter(
+            pool_maxsize=4, max_retries=2
+        ))
+        _thread_local.session.mount("https://", requests.adapters.HTTPAdapter(
+            pool_maxsize=4, max_retries=2
+        ))
+    return _thread_local.session
+
+
+def _threaded_reset(env_url: str, task_id: str, seed: int, mode: str) -> Dict[str, Any]:
+    """Reset environment from a thread pool worker."""
+    session = _get_thread_session()
+    payload: Dict[str, Any] = {"task_id": task_id}
+    if mode is not None:
+        payload["mode"] = mode
+    if seed is not None:
+        payload["seed"] = seed
+    resp = session.post(f"{env_url}/reset", json=payload, timeout=30)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _threaded_step(env_url: str, action_type: str, target_node_id: str,
+                   parameter: float) -> Dict[str, Any]:
+    """Step environment from a thread pool worker."""
+    session = _get_thread_session()
+    payload = {
+        "action": {
+            "action_type": action_type,
+            "target_node_id": target_node_id,
+            "parameter": parameter,
+        }
+    }
+    resp = session.post(f"{env_url}/step", json=payload, timeout=30)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def rollout_batch(
+    env_url: str,
+    model,
+    tokenizer,
+    task_ids: List[str],
+    max_steps: int,
+    cfg: Dict[str, Any],
+    seeds: List[int],
+) -> List[Episode]:
+    """Run multiple episodes in parallel with batched generation.
+
+    Instead of running 12 episodes sequentially (each step = 1 GPU forward pass),
+    we run them in lockstep: at each step, all active episodes' observations are
+    batched into a single forward pass, and env step HTTP calls are parallelized
+    via ThreadPoolExecutor.
+
+    This reduces 480 forward passes per iteration → 40, and 480 HTTP calls → 40
+    parallel batches. ~10x speedup on generation, ~10x on env steps.
+    """
+    num_episodes = len(task_ids)
+    env_mode = cfg.get("env_mode", "simulated")
+    max_new_tokens = cfg.get("generation_max_new_tokens", 50)
+    temperature = cfg.get("generation_temperature", 0.7)
+    top_p = cfg.get("generation_top_p", 0.9)
+    do_sample = cfg.get("generation_do_sample", True)
+
+    env_url = env_url.rstrip("/")
+
+    # ── Reset all episodes in parallel ──
+    with ThreadPoolExecutor(max_workers=num_episodes) as pool:
+        reset_futures = {
+            pool.submit(_threaded_reset, env_url, task_ids[i], seeds[i], env_mode): i
+            for i in range(num_episodes)
+        }
+        reset_results = [None] * num_episodes
+        for future in as_completed(reset_futures):
+            idx = reset_futures[future]
+            try:
+                reset_results[idx] = future.result()
+            except Exception as e:
+                print(f"  [batch] Episode {idx} reset failed: {e}")
+                reset_results[idx] = None
+
+    # Initialize episode state
+    episodes = [Episode(task_id=task_ids[i]) for i in range(num_episodes)]
+    obs_dicts: List[Dict] = [{}] * num_episodes
+    episode_rewards = [0.0] * num_episodes
+    sla_violations_list = [0] * num_episodes
+    active = [True] * num_episodes
+
+    for i in range(num_episodes):
+        if reset_results[i] is not None:
+            obs = reset_results[i].get("observation", reset_results[i])
+            obs_dicts[i] = obs
+            sla_violations_list[i] = obs.get("sla_violations", 0)
+        else:
+            active[i] = False
+
+    pad_id = tokenizer.pad_token_id or tokenizer.eos_token_id
+
+    # ── Main loop: step all active episodes in lockstep ──
+    for step in range(1, max_steps + 1):
+        active_indices = [i for i in range(num_episodes) if active[i]]
+        if not active_indices:
+            break
+
+        # ── Format observations and tokenize ──
+        all_input_ids = []
+        all_attention_masks = []
+        all_obs_texts = []
+
+        for i in active_indices:
+            obs_text = format_observation(
+                obs_dicts[i], task_ids[i], step, max_steps,
+                episode_rewards[i], sla_violations_list[i]
+            )
+            messages = [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": obs_text},
+            ]
+            input_text = render_no_think_chat(
+                tokenizer, messages, add_generation_prompt=True
+            )
+            inputs = tokenize_text_only(tokenizer, input_text, model.device)
+
+            all_input_ids.append(inputs["input_ids"].squeeze(0))
+            all_attention_masks.append(inputs["attention_mask"].squeeze(0))
+            all_obs_texts.append(obs_text)
+
+        # ── Left-pad to same length for batch generation ──
+        max_len = max(ids.shape[0] for ids in all_input_ids)
+        padded_ids = []
+        padded_masks = []
+        for ids, mask in zip(all_input_ids, all_attention_masks):
+            pad_len = max_len - ids.shape[0]
+            if pad_len > 0:
+                padded_ids.append(torch.cat([
+                    torch.full((pad_len,), pad_id, device=model.device), ids
+                ]))
+                padded_masks.append(torch.cat([
+                    torch.zeros(pad_len, device=model.device, dtype=mask.dtype), mask
+                ]))
+            else:
+                padded_ids.append(ids)
+                padded_masks.append(mask)
+
+        batch_input_ids = torch.stack(padded_ids)
+        batch_attention_mask = torch.stack(padded_masks)
+        input_lens = [ids.shape[0] for ids in all_input_ids]  # Before padding
+
+        # ── Batch generate (single forward pass for all episodes) ──
+        with torch.no_grad():
+            outputs = model.generate(
+                input_ids=batch_input_ids,
+                attention_mask=batch_attention_mask,
+                max_new_tokens=max_new_tokens,
+                do_sample=do_sample,
+                temperature=temperature,
+                top_p=top_p,
+                pad_token_id=pad_id,
+            )
+
+        # ── Parse actions ──
+        actions = []
+        for idx in range(len(active_indices)):
+            generated_text = tokenizer.decode(
+                outputs[idx][input_lens[idx]:], skip_special_tokens=True
+            )
+            generated_text = re.sub(
+                '\x3cthink\x3e.*?\x3c/think\x3e', '',
+                generated_text, flags=re.DOTALL
+            ).strip()
+            action = parse_action(generated_text)
+            actions.append(action)
+
+        # ── Step all active environments in parallel ──
+        with ThreadPoolExecutor(max_workers=len(active_indices)) as pool:
+            step_futures = {
+                pool.submit(
+                    _threaded_step, env_url,
+                    actions[idx].action_type, actions[idx].target_node_id,
+                    actions[idx].parameter
+                ): idx
+                for idx in range(len(active_indices))
+            }
+            step_results = [None] * len(active_indices)
+            for future in as_completed(step_futures):
+                idx = step_futures[future]
+                try:
+                    step_results[idx] = future.result()
+                except Exception as e:
+                    print(f"  E{active_indices[idx]} S{step:2d} | step failed: {e}")
+                    step_results[idx] = None
+
+        # ── Process results ──
+        for idx, i in enumerate(active_indices):
+            if step_results[idx] is None:
+                active[i] = False
+                continue
+
+            result = step_results[idx]
+            obs_dicts[i] = result.get("observation", result)
+            step_reward = result.get("reward", 0.0)
+            episode_rewards[i] = step_reward
+            done = result.get("done", False)
+            sla_violations_list[i] = obs_dicts[i].get(
+                "sla_violations", sla_violations_list[i]
+            )
+
+            # Record transition
+            transition = Transition(
+                obs_text=all_obs_texts[idx],
+                input_ids=all_input_ids[idx],
+                attention_mask=all_attention_masks[idx],
+                action=actions[idx],
+                reward=step_reward,
+            )
+            episodes[i].transitions.append(transition)
+
+            if not actions[idx].is_valid:
+                episodes[i].num_invalid += 1
+
+            # Log (compact: episode+step on one line)
+            action_str = (f"{actions[idx].action_type:11s} "
+                         f"{actions[idx].target_node_id} "
+                         f"p={actions[idx].parameter:.2f}")
+            notes = ("" if actions[idx].is_valid
+                     else f"INVALID: {actions[idx].parse_error}")
+            print(f"  E{i} S{step:2d} | {action_str:30s} | "
+                  f"{step_reward:.4f}  | {notes}", flush=True)
+
+            if done:
+                episodes[i].done = True
+                active[i] = False
+
+    for ep in episodes:
+        ep.finalize()
+    return episodes
 
 def heuristic_action(obs_dict: Dict, task_id: str, step: int = 0,
                     max_steps: int = 60,

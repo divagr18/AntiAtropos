@@ -45,6 +45,8 @@ lora_target_modules:
 loss_type: "reinforce_baseline"       # reinforce | reinforce_baseline | grpo
 num_episodes_per_iteration: 12        # More episodes with VRAM+speed savings
 num_iterations: 500                   # Total training iterations
+parallel_episodes: true               # Batch generation across episodes (10x faster)
+loss_batch_size: 32                   # Transitions per forward pass in loss (was 1!)
 learning_rate: 2.0e-4
 per_device_train_batch_size: 2        # A10G can handle 2 with seq_len=1024
 gradient_accumulation_steps: 4        # Effective batch = 2*4 = 8 transitions

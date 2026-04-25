@@ -35,7 +35,7 @@ import random
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import yaml
@@ -62,6 +62,7 @@ from model_utils import (
 )
 from openenv_loop import (
     OpenEnvClient,
+    rollout_batch,
     rollout_episode,
     rollout_heuristic_episode,
 )
@@ -138,58 +139,87 @@ def reinforce_baseline_loss_fn(
       3. Use discounted returns as advantages (with baseline = mean return)
       4. Loss = -sum(advantage * log_prob)
 
-    This is the simplest variance-reduced policy gradient.
+    Transitions are batched into groups for efficient forward passes
+    (instead of one-at-a-time, which wastes GPU).
     """
     gamma = cfg.get("reward_gamma", 0.99)
     normalize_adv = cfg.get("advantage_normalize", True)
+    loss_batch_size = cfg.get("loss_batch_size", 32)
 
-    all_log_probs = []
-    all_advantages = []
-
+    # Collect all (transition, return) pairs
+    all_pairs: List[Tuple] = []
     for ep in episodes:
         if not ep.transitions:
             continue
-
         rewards = [t.reward for t in ep.transitions]
         returns = compute_returns(rewards, gamma)
-
         for trans, ret in zip(ep.transitions, returns):
-            if trans.input_ids is None:
-                continue
+            if trans.input_ids is not None:
+                all_pairs.append((trans, ret))
 
-            # Re-compute log prob under current policy
-            input_ids = trans.input_ids.unsqueeze(0).to(model.device)
-            attn_mask = trans.attention_mask.unsqueeze(0).to(model.device)
-
-            with torch.no_grad():
-                outputs = model(input_ids=input_ids,
-                                attention_mask=attn_mask)
-            logits = outputs.logits  # (1, seq_len, vocab_size)
-
-            # Shift for next-token prediction
-            shift_logits = logits[:, :-1, :]
-            shift_labels = input_ids[:, 1:]
-
-            # Log softmax
-            log_probs = torch.nn.functional.log_softmax(shift_logits, dim=-1)
-
-            # Gather log probs for the actual tokens
-            token_log_probs = log_probs.gather(
-                2, shift_labels.unsqueeze(-1)
-            ).squeeze(-1)
-
-            # Sum log probs over the sequence
-            seq_log_prob = token_log_probs.sum()
-
-            all_log_probs.append(seq_log_prob)
-            all_advantages.append(ret)
-
-    if not all_log_probs:
+    if not all_pairs:
         return torch.tensor(0.0, requires_grad=True, device=model.device)
 
-    # Convert to tensors
-    advantages = torch.tensor(all_advantages, device=model.device)
-    log_probs = torch.stack(all_log_probs)
+    all_log_probs = []
+    all_advantages = []
+    pad_id = tokenizer.pad_token_id or tokenizer.eos_token_id
+
+    # Process transitions in batches for GPU efficiency
+    for batch_start in range(0, len(all_pairs), loss_batch_size):
+        batch = all_pairs[batch_start:batch_start + loss_batch_size]
+        batch_ids = [p[0].input_ids for p in batch]
+        batch_masks = [p[0].attention_mask for p in batch]
+        batch_returns = [p[1] for p in batch]
+
+        # Left-pad to same length (correct for causal LM forward pass)
+        max_len = max(ids.shape[0] for ids in batch_ids)
+        padded_ids = []
+        padded_masks = []
+        for ids, mask in zip(batch_ids, batch_masks):
+            pad_len = max_len - ids.shape[0]
+            if pad_len > 0:
+                padded_ids.append(torch.cat([
+                    torch.full((pad_len,), pad_id, device=ids.device), ids
+                ]))
+                padded_masks.append(torch.cat([
+                    torch.zeros(pad_len, device=mask.device, dtype=mask.dtype), mask
+                ]))
+            else:
+                padded_ids.append(ids)
+                padded_masks.append(mask)
+
+        input_ids = torch.stack(padded_ids)
+        attention_mask = torch.stack(padded_masks)
+
+        # Forward pass WITH gradient (critical for REINFORCE)
+        outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+        logits = outputs.logits  # (batch, seq_len, vocab_size)
+
+        # Shift for next-token prediction
+        shift_logits = logits[:, :-1, :]
+        shift_labels = input_ids[:, 1:]
+
+        # Log softmax
+        log_probs_all = torch.nn.functional.log_softmax(shift_logits, dim=-1)
+
+        # Gather log probs for the actual tokens
+        token_log_probs = log_probs_all.gather(
+            2, shift_labels.unsqueeze(-1)
+        ).squeeze(-1)  # (batch, seq_len-1)
+
+        # Mask out padding positions (left-padded: zeros at start)
+        shift_mask = attention_mask[:, 1:]
+        token_log_probs = token_log_probs * shift_mask
+
+        # Sum log probs over non-padded tokens per sequence
+        seq_log_probs = token_log_probs.sum(dim=1)  # (batch,)
+
+        all_log_probs.append(seq_log_probs)
+        all_advantages.extend(batch_returns)
+
+    # Concatenate all batches
+    log_probs = torch.cat(all_log_probs)  # has gradient
+    advantages = torch.tensor(all_advantages, device=model.device).detach()
 
     # Normalize advantages
     if normalize_adv and len(advantages) > 1:
@@ -197,7 +227,7 @@ def reinforce_baseline_loss_fn(
             advantages.std() + 1e-8
         )
 
-    # REINFORCE loss: -E[A * log_pi]
+    # REINFORCE loss: -E[A * log_pi]  (gradient flows through log_probs)
     loss = -(advantages * log_probs).mean()
     return loss
 
@@ -213,9 +243,12 @@ def grpo_loss_fn(
     GRPO uses a group of K rollouts from the same initial state,
     then computes advantages relative to the group mean. This eliminates
     the need for a learned value function.
+
+    Uses batched forward passes for GPU efficiency.
     """
     gamma = cfg.get("reward_gamma", 0.99)
     k = cfg.get("grpo_k", 4)
+    loss_batch_size = cfg.get("loss_batch_size", 32)
 
     # Group episodes by (task_id, initial_seed)
     groups: Dict[tuple, List] = {}
@@ -223,8 +256,7 @@ def grpo_loss_fn(
         key = (ep.task_id, id(ep) % 1000)  # Approximate grouping
         groups.setdefault(key, []).append(ep)
 
-    all_log_probs = []
-    all_advantages = []
+    all_pairs: List[Tuple] = []  # (transition, advantage)
 
     for key, group in groups.items():
         # Compute group-level returns
@@ -242,36 +274,64 @@ def grpo_loss_fn(
 
         for ep, ep_return in zip(group, group_returns):
             advantage = (ep_return - group_mean) / group_std
-
             for trans in ep.transitions:
-                if trans.input_ids is None:
-                    continue
+                if trans.input_ids is not None:
+                    all_pairs.append((trans, advantage))
 
-                input_ids = trans.input_ids.unsqueeze(0).to(model.device)
-                attn_mask = trans.attention_mask.unsqueeze(0).to(model.device)
+    if not all_pairs:
+        return torch.tensor(0.0, requires_grad=True, device=model.device)
 
-                with torch.no_grad():
-                    outputs = model(input_ids=input_ids,
-                                    attention_mask=attn_mask)
-                logits = outputs.logits
-                shift_logits = logits[:, :-1, :]
-                shift_labels = input_ids[:, 1:]
-                log_probs = torch.nn.functional.log_softmax(
-                    shift_logits, dim=-1
-                )
-                token_log_probs = log_probs.gather(
-                    2, shift_labels.unsqueeze(-1)
-                ).squeeze(-1)
-                seq_log_prob = token_log_probs.sum()
+    all_log_probs = []
+    all_advantages = []
+    pad_id = tokenizer.pad_token_id or tokenizer.eos_token_id
 
-                all_log_probs.append(seq_log_prob)
-                all_advantages.append(advantage)
+    # Process transitions in batches
+    for batch_start in range(0, len(all_pairs), loss_batch_size):
+        batch = all_pairs[batch_start:batch_start + loss_batch_size]
+        batch_ids = [p[0].input_ids for p in batch]
+        batch_masks = [p[0].attention_mask for p in batch]
+        batch_advs = [p[1] for p in batch]
+
+        max_len = max(ids.shape[0] for ids in batch_ids)
+        padded_ids = []
+        padded_masks = []
+        for ids, mask in zip(batch_ids, batch_masks):
+            pad_len = max_len - ids.shape[0]
+            if pad_len > 0:
+                padded_ids.append(torch.cat([
+                    torch.full((pad_len,), pad_id, device=ids.device), ids
+                ]))
+                padded_masks.append(torch.cat([
+                    torch.zeros(pad_len, device=mask.device, dtype=mask.dtype), mask
+                ]))
+            else:
+                padded_ids.append(ids)
+                padded_masks.append(mask)
+
+        input_ids = torch.stack(padded_ids)
+        attention_mask = torch.stack(padded_masks)
+
+        # Forward pass WITH gradient
+        outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+        logits = outputs.logits
+        shift_logits = logits[:, :-1, :]
+        shift_labels = input_ids[:, 1:]
+        log_probs_all = torch.nn.functional.log_softmax(shift_logits, dim=-1)
+        token_log_probs = log_probs_all.gather(
+            2, shift_labels.unsqueeze(-1)
+        ).squeeze(-1)
+        shift_mask = attention_mask[:, 1:]
+        token_log_probs = token_log_probs * shift_mask
+        seq_log_probs = token_log_probs.sum(dim=1)
+
+        all_log_probs.append(seq_log_probs)
+        all_advantages.extend(batch_advs)
 
     if not all_log_probs:
         return torch.tensor(0.0, requires_grad=True, device=model.device)
 
-    advantages = torch.tensor(all_advantages, device=model.device)
-    log_probs = torch.stack(all_log_probs)
+    log_probs = torch.cat(all_log_probs)
+    advantages = torch.tensor(all_advantages, device=model.device).detach()
     loss = -(advantages * log_probs).mean()
     return loss
 
@@ -428,24 +488,30 @@ def train(cfg: Dict[str, Any]) -> None:
     for iteration in range(start_iteration, num_iterations):
         iter_start = time.time()
 
-        # ---- Collect rollouts ----
-        episodes = []
-        for ep_idx in range(num_episodes):
-            task_id = tasks[ep_idx % len(tasks)]
-            seed_ep = seed + iteration * 1000 + ep_idx
+        # ---- Collect rollouts (parallel batch) ----
+        task_ids = [tasks[ep_idx % len(tasks)] for ep_idx in range(num_episodes)]
+        seeds = [seed + iteration * 1000 + ep_idx for ep_idx in range(num_episodes)]
 
-            try:
-                ep = rollout_episode(
-                    client, model, tokenizer, task_id,
-                    max_steps, cfg, seed=seed_ep,
+        try:
+            use_parallel = cfg.get("parallel_episodes", True)
+            if use_parallel and num_episodes > 1:
+                episodes = rollout_batch(
+                    env_url, model, tokenizer, task_ids,
+                    max_steps, cfg, seeds,
                 )
-                episodes.append(ep)
-            except Exception as e:
-                print(f"  [iter {iteration}] Episode {ep_idx} failed: {e}")
-                continue
-
-        if not episodes:
-            print(f"  [iter {iteration}] No episodes collected, skipping")
+            else:
+                # Fallback: sequential rollout (for debugging)
+                episodes = []
+                for ep_idx in range(num_episodes):
+                    task_id = tasks[ep_idx % len(tasks)]
+                    seed_ep = seed + iteration * 1000 + ep_idx
+                    ep = rollout_episode(
+                        client, model, tokenizer, task_id,
+                        max_steps, cfg, seed=seed_ep,
+                    )
+                    episodes.append(ep)
+        except Exception as e:
+            print(f"  [iter {iteration}] Batch rollout failed: {e}")
             continue
 
         # ---- Compute loss ----
