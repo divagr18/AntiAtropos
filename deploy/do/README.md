@@ -23,6 +23,8 @@ sudo REPO_DIR=/opt/AntiAtropos FASTAPI_PORT=8010 MAX_REPLICAS=200 bash deploy/do
 ## What the script configures
 
 - k3s kubelet with `max-pods=250`
+- Prometheus service exposed on NodePort `30090`
+- Prometheus scrape job for annotated pods in namespace `prod-sre`
 - Env file at `.env.droplet` with:
   - `ANTIATROPOS_ENV_MODE=live`
   - `KUBECONFIG=/etc/rancher/k3s/k3s.yaml`
@@ -38,7 +40,14 @@ systemctl status antiatropos-fastapi --no-pager
 curl http://127.0.0.1:8000/config/runtime
 kubectl get deploy -n prod-sre
 kubectl get pods -n monitoring
+curl http://127.0.0.1:30090/api/v1/targets
 kubectl -n monitoring port-forward svc/grafana 3000:80
+```
+
+If your local simulator FastAPI should use VM telemetry, set local `.env`:
+
+```env
+PROMETHEUS_URL=http://<droplet-ip>:30090
 ```
 
 ## Agent call example

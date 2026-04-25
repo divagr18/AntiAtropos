@@ -2,6 +2,7 @@ import os
 import json
 import time
 import logging
+import requests
 from uuid import uuid4
 from typing import Optional
 
@@ -15,7 +16,12 @@ class KubernetesExecutor:
     def __init__(self, kubeconfig: Optional[str] = None):
         # Use provided path or env var, defaulting to mock if neither is found
         self.kubeconfig = kubeconfig or os.getenv("KUBECONFIG")
-        self.is_mock = not self.kubeconfig or self.kubeconfig.lower() == "mock"
+        self.remote_control_url = os.getenv("ANTIATROPOS_CONTROL_PLANE_URL", "").strip().rstrip("/")
+        self.remote_timeout_s = float(os.getenv("ANTIATROPOS_CONTROL_TIMEOUT_S", "5.0"))
+        self.is_mock = (
+            not self.remote_control_url
+            and (not self.kubeconfig or self.kubeconfig.lower() == "mock")
+        )
         self.namespace = os.getenv("ANTIATROPOS_K8S_NAMESPACE", "default")
         self.min_replicas = int(os.getenv("ANTIATROPOS_MIN_REPLICAS", "1"))
         self.max_replicas = self._parse_max_replicas(os.getenv("ANTIATROPOS_MAX_REPLICAS"))
@@ -112,6 +118,9 @@ class KubernetesExecutor:
         """Execute bounded actions on a Kubernetes cluster."""
         action = self._normalize_action_type(action_type)
 
+        if self.remote_control_url:
+            return self._remote_execution(action, target, parameter)
+
         if action == "NO_OP":
             return "Ack: NO_OP - no cluster mutation"
 
@@ -162,6 +171,70 @@ class KubernetesExecutor:
             f"Ack: {action_type} for {target} - deployment {deployment_name} "
             f"in namespace {namespace} scaled {current}->{desired}"
         )
+
+    def _remote_execution(self, action: str, target: str, parameter: float) -> str:
+        """
+        Delegate action execution to a remote FastAPI control plane.
+
+        Expected remote endpoint contract:
+          - POST /step
+          - Request: {action_type, target_node_id, parameter}
+          - Success response includes ack_status and starts with "Ack:"
+        """
+        if not self.remote_control_url:
+            raise ValueError("ANTIATROPOS_CONTROL_PLANE_URL is not configured")
+
+        endpoint = f"{self.remote_control_url}/step"
+        action_payload = {
+            "action_type": action,
+            "target_node_id": target,
+            "parameter": float(parameter),
+        }
+        payload = action_payload
+
+        try:
+            response = requests.post(endpoint, json=payload, timeout=self.remote_timeout_s)
+        except requests.RequestException as exc:
+            raise RuntimeError(f"Remote control-plane request failed: {exc}") from exc
+
+        if response.status_code == 422:
+            # OpenEnv server.app expects {"action": {...}} shape on /step.
+            try:
+                body = response.json()
+                detail = str(body.get("detail", body))
+            except Exception:
+                detail = response.text.strip()
+            if "body" in detail and "action" in detail:
+                try:
+                    response = requests.post(
+                        endpoint,
+                        json={"action": action_payload},
+                        timeout=self.remote_timeout_s,
+                    )
+                except requests.RequestException as exc:
+                    raise RuntimeError(f"Remote control-plane retry failed: {exc}") from exc
+
+        if response.status_code >= 400:
+            detail = ""
+            try:
+                body = response.json()
+                detail = str(body.get("detail", body))
+            except Exception:
+                detail = response.text.strip()
+            raise RuntimeError(
+                f"Remote control-plane rejected action ({response.status_code}): {detail}"
+            )
+
+        try:
+            data = response.json()
+        except Exception as exc:
+            raise RuntimeError("Remote control-plane returned non-JSON response") from exc
+
+        ack = str(data.get("ack_status", "")).strip()
+        if not ack:
+            action_id = str(data.get("action_id", "")).strip() or "remote"
+            return f"Ack: {action} for {target} via remote control-plane ({action_id})"
+        return ack
 
     def _get_apps_v1_api(self):
         if self._apps_v1_api is not None:

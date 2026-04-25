@@ -139,11 +139,18 @@ for _ in {1..30}; do
   sleep 2
 done
 
+PUBLIC_IP="$(curl -fsS https://api.ipify.org 2>/dev/null || true)"
+if [[ -z "${PUBLIC_IP}" ]]; then
+  PUBLIC_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+fi
+PROM_URL_DISPLAY="http://${PUBLIC_IP:-<droplet-ip>}:30090"
+
 echo ""
 echo "=== Deploy Complete ==="
 echo "FastAPI runtime: http://127.0.0.1:${FASTAPI_PORT}/config/runtime"
 echo "FastAPI health:  http://127.0.0.1:${FASTAPI_PORT}/state"
 echo "Prometheus svc:  kubectl -n ${MONITORING_NAMESPACE} get svc prometheus-server"
+echo "Prometheus URL:  ${PROM_URL_DISPLAY}"
 echo "Grafana access:  kubectl -n ${MONITORING_NAMESPACE} port-forward svc/grafana 3000:80"
 echo ""
 echo "Service status command:"
