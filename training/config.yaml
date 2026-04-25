@@ -43,7 +43,7 @@ lora_target_modules:
 
 # ---- Training (reward-based) ----
 loss_type: "reinforce_baseline"       # reinforce | reinforce_baseline | grpo
-num_episodes_per_iteration: 12        # More episodes with VRAM+speed savings
+num_episodes_per_iteration: 2         # Keep low to avoid OOM (3+ risks CUDA OOM on A10G at seq_len=512)
 num_iterations: 500                   # Total training iterations
 parallel_episodes: true               # Batch generation across episodes (10x faster)
 loss_batch_size: 32                   # Transitions per forward pass in loss (was 1!)

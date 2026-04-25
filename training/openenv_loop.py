@@ -48,14 +48,14 @@ VALID_NODES = ["node-0", "node-1", "node-2", "node-3", "node-4"]
 CRITICAL_NODES = {"node-0", "node-1", "node-2"}
 
 TASK_BRIEFS = {
-    "task-1": "Traffic ramps linearly every tick. Scale up proactively — new capacity takes 5 ticks to boot. Keep latency under SLA (200ms) while minimizing cost. Scale down when queues are safe.",
-    "task-2": "One node (node-1 through node-4) will fail permanently. Wait until you SEE a FAILED node — do NOT pre-scale. Once a node shows status=FAILED: reroute traffic FROM the failed node to healthy peers, and scale up any starved children. Do NOT scale node-0 unless node-4 failed independently. SCALE_DOWN cancels pending boots and reduces cost. If reward is falling, stop scaling.",
-    "task-3": "A surge (~75 req/tick) will hit node-1 and node-2 via a side channel bypassing node-0. Do NOT scale node-0 — it is NOT affected. ONLY scale node-1 or node-2 when their queue_depth rises. Do NOT pre-scale. 3-4 SCALE_UPs on each is sufficient. SCALE_DOWN cancels pending boots and reduces cost — use it when queues are safe. If reward is falling, STOP scaling and SCALE_DOWN to recover.",
+    "task-1": "Traffic ramps linearly every tick. Scale up proactively — new capacity takes 5 ticks to boot. Keep latency under SLA (200ms) while minimizing cost. Scale down when queues are safe. CRITICAL: Your response MUST be valid JSON with a non-empty action_type.",
+    "task-2": "One node (node-1 through node-4) will fail permanently. Wait until you SEE a FAILED node — do NOT pre-scale. Once a node shows status=FAILED: reroute traffic FROM the failed node to healthy peers, and scale up any starved children. Do NOT scale node-0 unless node-4 failed independently. SCALE_DOWN cancels pending boots and reduces cost. If reward is falling, stop scaling. CRITICAL: action_type must be one of the 5 valid values, NEVER empty.",
+    "task-3": "A surge (~75 req/tick) will hit node-1 and node-2 via a side channel bypassing node-0. Do NOT scale node-0 — it is NOT affected. ONLY scale node-1 or node-2 when their queue_depth rises. Do NOT pre-scale. 3-4 SCALE_UPs on each is sufficient. SCALE_DOWN cancels pending boots and reduces cost — use it when queues are safe. If reward is falling, STOP scaling and SCALE_DOWN to recover. CRITICAL: action_type MUST be non-empty and from the valid set.",
 }
 
 SYSTEM_PROMPT = """You are an autonomous SRE controller managing a five-node microservice cluster.
 
-CRITICAL: /no_think mode. Output ONLY a JSON action. NO reasoning. NO   tags. NO .
+CRITICAL: /no_think mode. Output ONLY a single JSON object. NO tags. NO reasoning.
 
 OBSERVATION LEGEND (compact keys):
   t=task_id st=step mx=max_steps fn=failed_nodes dn=degraded_nodes
@@ -67,11 +67,11 @@ TOPOLOGY: node-0→node-1,node-2 | node-2→node-3 | node-4 independent
 FAILED nodes: outflow=0, children starved. Backpressure: overloaded children reduce parent.
 
 ACTIONS (boot delay=5 ticks):
-  SCALE_UP <node> <0.3-0.8>      — add capacity, clears DEGRADED (use on stressed nodes)
-  SCALE_DOWN <node> <0.2-0.5>    — cancel pending then reduce active (use on idle overprovisioned)
-  REROUTE_TRAFFIC <node> <0.3-0.7> — drain FAILED/overloaded node to healthy peers
-  SHED_LOAD <node> <0.3-0.5>      — drop traffic on non-critical nodes (NEVER node-0)
-  NO_OP                            — do nothing (use when cluster is healthy)
+  SCALE_UP       — add capacity, clears DEGRADED (use on stressed nodes)
+  SCALE_DOWN     — cancel pending then reduce active (use on idle overprovisioned)
+  REROUTE_TRAFFIC — drain FAILED/overloaded node to healthy peers
+  SHED_LOAD      — drop traffic on non-critical nodes (NEVER node-0)
+  NO_OP          — do nothing (use when cluster is healthy)
 
 DIVERSITY RULE: Use ALL action types when appropriate. Don't fixate on SCALE_UP.
   - See FAILED node? → REROUTE_TRAFFIC, not SCALE_UP
@@ -83,7 +83,11 @@ REWARD: [0,1]. >0.5=good 0.15-0.5=ok <0.15=bad.
   Falling reward → STOP current strategy, switch action type.
   Repeating same action when reward<0.1 is ALWAYS wrong.
 
-Return exactly: {"action_type":"...","target_node_id":"node-N","parameter":0.0}"""
+JSON FORMAT (MUST follow exactly — action_type must be one of the 5 actions above, NEVER empty):
+{"action_type":"SCALE_UP|SCALE_DOWN|REROUTE_TRAFFIC|SHED_LOAD|NO_OP","target_node_id":"node-0","parameter":0.0}
+
+Valid action_type values: SCALE_UP, SCALE_DOWN, REROUTE_TRAFFIC, SHED_LOAD, NO_OP.
+The action_type field MUST NOT be empty. If you are unsure, output NO_OP."""
 
 
 # ────────────────────────────────────────────────
@@ -275,7 +279,11 @@ def parse_action(text: str) -> ParsedAction:
         decoder = json.JSONDecoder()
         obj, end_pos = decoder.raw_decode(text, start)
 
-        at = str(obj.get("action_type", "")).upper()
+        at_raw = obj.get("action_type", "") or ""
+        at = str(at_raw).strip().upper()
+        if not at:
+            return ParsedAction("NO_OP", "node-0", 0.0, text,
+                                False, "invalid action_type: (empty)")
         nid = str(obj.get("target_node_id", "") or "node-0")
         param = float(obj.get("parameter") or 0.0)
 
