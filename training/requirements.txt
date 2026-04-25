@@ -2,7 +2,9 @@
 # Install: pip install -r training/requirements.txt
 
 # ---- Core ML ----
-torch>=2.10.0
+# NOTE: torch is provided by the Docker base image (pytorch/pytorch:2.6.0).
+# Do NOT list it here — pip's resolver may downgrade it, breaking torchao.
+# torch>=2.5.0  (pre-installed in base image)
 transformers>=4.45.0
 accelerate>=0.34.0
 bitsandbytes>=0.43.0
@@ -14,7 +16,7 @@ datasets>=3.0.0
 unsloth @ git+https://github.com/unslothai/unsloth.git
 unsloth_zoo
 
-# ---- Quantization (must be compatible with torch>=2.5) ----
+# ---- Quantization (requires torch>=2.5, provided by base image) ----
 torchao>=0.5.0
 
 # ---- Config ----
