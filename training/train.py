@@ -520,8 +520,10 @@ def train(cfg: Dict[str, Any]) -> None:
             print(f"  [iter {iteration}] Batch rollout failed: {e}")
             continue
 
-        # ---- Clear VRAM before loss (generation KV-cache fragmente GPU) ----
+        # ---- Clear VRAM before loss (generation KV-cache on GPU) ----
         torch.cuda.empty_cache()
+        import gc
+        gc.collect()
         # Move rollout tensors to CPU — loss will move them back in batches
         for ep in episodes:
             for t in ep.transitions:
@@ -545,6 +547,9 @@ def train(cfg: Dict[str, Any]) -> None:
             optimizer.zero_grad()
         else:
             grad_norm = 0.0
+
+        # Clear training intermediates before next iteration
+        torch.cuda.empty_cache()
 
         # ---- Compute iteration metrics ----
         avg_reward = sum(ep.avg_reward for ep in episodes) / len(episodes)

@@ -77,7 +77,7 @@ TRAINING_DIR = Path(__file__).resolve().parent
 DOCKER_IMAGE = "pytorch/pytorch:2.10.0-cuda12.6-cudnn9-devel"
 
 DEFAULT_NUM_ITERATIONS = 500
-DEFAULT_NUM_EPISODES = 2
+DEFAULT_NUM_EPISODES = 4
 DEFAULT_MAX_STEPS = 40
 DEFAULT_EVAL_INTERVAL = 50
 DEFAULT_CHECKPOINT_INTERVAL = 25
@@ -373,6 +373,7 @@ def main() -> None:
             "EVAL_INTERVAL": str(args.eval_interval),
             "CHECKPOINT_INTERVAL": str(args.checkpoint_interval),
             "PLOT_INTERVAL": str(args.plot_interval),
+            "PYTORCH_ALLOC_CONF": "expandable_segments:True",
         },
     )
 
