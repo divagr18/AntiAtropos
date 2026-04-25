@@ -36,6 +36,9 @@ def build_job_command() -> str:
     """Build the shell script that runs INSIDE the HF Job container."""
     return (
         "set -e\n"
+        "# Use conda env which has pip + torch pre-installed\n"
+        "source /opt/conda/etc/profile.d/conda.sh && conda activate base\n"
+        "\n"
         "echo '[bootstrap] Installing git...'\n"
         "apt-get update -qq && apt-get install -y -qq git > /dev/null 2>&1\n"
         "\n"
@@ -45,7 +48,6 @@ def build_job_command() -> str:
         "cd /workspace/AntiAtropos\n"
         "\n"
         "echo '[bootstrap] Installing dependencies...'\n"
-        "pip uninstall torchao -y -q 2>/dev/null || true\n"
         "pip install -r training/requirements.txt -q\n"
         "\n"
         "echo '[bootstrap] Launching training...'\n"

@@ -854,7 +854,7 @@ def main():
                         help="Skip quality-gate evaluation after training")
     parser.add_argument("--eval-episodes", type=int, default=3,
                         help="Episodes per task for quality gate (default: 3)")
-    parser.add_argument("--eval-steps", type=int, default=60,
+    parser.add_argument("--qg-max-steps", type=int, default=60,
                         help="Max steps per quality gate episode (default: 60)")
 
     # ---- General ----
@@ -942,7 +942,7 @@ def main():
             model=model,
             tokenizer=tokenizer,
             eval_episodes=args.eval_episodes,
-            eval_steps=args.eval_steps,
+            eval_steps=args.qg_max_steps,
         )
 
     print(f"\nDone. Adapter saved to: {adapter_dir}")
