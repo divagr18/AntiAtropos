@@ -235,6 +235,10 @@ def observation_for_model(obs) -> dict:
                 "capacity": getattr(node, "capacity", 0.0),
                 "pending_capacity": getattr(node, "pending_capacity", 0.0),
                 "queue_delta": getattr(node, "queue_delta", 0.0),
+                "outflow_rate": getattr(node, "outflow_rate", 0.0),
+                "downstream_nodes": getattr(node, "downstream_nodes", []),
+                "upstream_nodes": getattr(node, "upstream_nodes", []),
+                "upstream_pressure": getattr(node, "upstream_pressure", 0.0),
             }
             for node in obs.nodes
         ],
