@@ -142,8 +142,10 @@ class ActionType(str, Enum):
 _session = requests.Session()
 
 
-def env_reset(hf_space_url, task_id="task-1", seed=None):
+def env_reset(hf_space_url, task_id="task-1", seed=None, mode=None):
     payload = {"task_id": task_id}
+    if mode is not None:
+        payload["mode"] = mode
     if seed is not None:
         payload["seed"] = seed
     resp = _session.post(f"{hf_space_url}/reset", json=payload, timeout=30)
@@ -540,7 +542,7 @@ def build_expert_examples():
 # Dataset generation
 # ════════════════════════════════════════════════════════════════════════════════
 
-def generate_dataset(hf_space_url, output_dir, seed, episodes_per_task, max_steps, no_op_cap):
+def generate_dataset(hf_space_url, output_dir, seed, episodes_per_task, max_steps, no_op_cap, env_mode):
     """Run heuristic episodes against HF Space and build SFT dataset."""
     all_examples = []
     action_counts = Counter()
@@ -553,7 +555,7 @@ def generate_dataset(hf_space_url, output_dir, seed, episodes_per_task, max_step
         for ep_idx in range(episodes_per_task):
             ep_seed = seed + ep_idx * 100 + hash(task_id) % 1000
 
-            reset_resp = env_reset(hf_space_url, task_id=task_id, seed=ep_seed)
+            reset_resp = env_reset(hf_space_url, task_id=task_id, seed=ep_seed, mode=env_mode)
             obs_dict = reset_resp.get("observation", reset_resp)
             sla_violations = obs_dict.get("sla_violations", 0)
             episode_reward = 0.0
@@ -744,7 +746,6 @@ def load_model(model_name, max_seq_length, lora_rank, lora_alpha, load_in_4bit, 
         dtype=None,  # auto-detect (bf16 on A100, fp16 on T4+)
         trust_remote_code=True,
     )
-
     model = FastLanguageModel.get_peft_model(
         model,
         r=lora_rank,
@@ -888,11 +889,11 @@ def parse_model_action(text):
         return None, str(e)
 
 
-def run_eval_episode_with_model(hf_space_url, model, tokenizer, task_id, max_steps, episode_reward=0.0):
+def run_eval_episode_with_model(hf_space_url, model, tokenizer, task_id, max_steps, env_mode, episode_reward=0.0):
     """Run one evaluation episode using the SFT model via HF Space API."""
     FastLanguageModel.for_inference(model)
 
-    reset_resp = env_reset(hf_space_url, task_id=task_id, seed=None)
+    reset_resp = env_reset(hf_space_url, task_id=task_id, seed=None, mode=env_mode)
     obs_dict = reset_resp.get("observation", reset_resp)
     sla_violations = obs_dict.get("sla_violations", 0)
     rewards = []
@@ -957,9 +958,9 @@ def run_eval_episode_with_model(hf_space_url, model, tokenizer, task_id, max_ste
     }
 
 
-def run_eval_episode_with_heuristic(hf_space_url, task_id, max_steps):
+def run_eval_episode_with_heuristic(hf_space_url, task_id, max_steps, env_mode):
     """Run one evaluation episode using the heuristic baseline via HF Space API."""
-    reset_resp = env_reset(hf_space_url, task_id=task_id, seed=None)
+    reset_resp = env_reset(hf_space_url, task_id=task_id, seed=None, mode=env_mode)
     obs_dict = reset_resp.get("observation", reset_resp)
     rewards = []
 
@@ -976,7 +977,7 @@ def run_eval_episode_with_heuristic(hf_space_url, task_id, max_steps):
     return {"avg_reward": avg_reward}
 
 
-def run_quality_gate(hf_space_url, model, tokenizer, eval_episodes, eval_steps):
+def run_quality_gate(hf_space_url, model, tokenizer, eval_episodes, eval_steps, env_mode):
     """Compare SFT model vs heuristic baseline on live episodes."""
     print(f"\nRunning {eval_episodes} episodes per task ({eval_steps} steps each)...")
     print(f"{'='*70}")
@@ -988,11 +989,11 @@ def run_quality_gate(hf_space_url, model, tokenizer, eval_episodes, eval_steps):
         total_crashes = 0
 
         for ep in range(eval_episodes):
-            sft_result = run_eval_episode_with_model(hf_space_url, model, tokenizer, task_id, eval_steps)
+            sft_result = run_eval_episode_with_model(hf_space_url, model, tokenizer, task_id, eval_steps, env_mode)
             sft_rewards.append(sft_result["avg_reward"])
             total_crashes += sft_result["crashes"]
 
-            heur_result = run_eval_episode_with_heuristic(hf_space_url, task_id, eval_steps)
+            heur_result = run_eval_episode_with_heuristic(hf_space_url, task_id, eval_steps, env_mode)
             heuristic_rewards.append(heur_result["avg_reward"])
 
         sft_avg = sum(sft_rewards) / len(sft_rewards)
@@ -1040,6 +1041,9 @@ def main():
     parser.add_argument("--hf-space-url", type=str,
                         default="https://pranavkk-antiatropos.hf.space",
                         help="HF Space URL for environment API")
+    parser.add_argument("--env-mode", type=str, default="live",
+                        choices=["simulated", "hybrid", "live", "aws"],
+                        help="Environment mode passed to /reset (default: live)")
     parser.add_argument("--episodes-per-task", type=int, default=20,
                         help="Heuristic episodes per task for data gen (default: 20)")
     parser.add_argument("--max-steps", type=int, default=60,
@@ -1118,6 +1122,7 @@ def main():
     print(f"  Model:          {args.model_name}")
     print(f"  LoRA rank:      {args.lora_rank}")
     print(f"  HF Space:       {args.hf_space_url}")
+    print(f"  Env mode:       {args.env_mode}")
     print(f"  Episodes/task:  {args.episodes_per_task}")
     print(f"  Max steps:      {args.max_steps}")
     print(f"  Epochs:         {args.epochs}")
@@ -1130,7 +1135,7 @@ def main():
     # ---- Verify HF Space ----
     print("\nVerifying HF Space connectivity...")
     try:
-        test = env_reset(args.hf_space_url, "task-1")
+        test = env_reset(args.hf_space_url, "task-1", mode=args.env_mode)
         step_result = env_step(args.hf_space_url, "NO_OP", "node-0", 0.0)
         print(f"Reset OK — task_id={test.get('observation', {}).get('task_id')}")
         print(f"Step OK — reward={step_result.get('reward')}, done={step_result.get('done')}")
@@ -1155,6 +1160,7 @@ def main():
             episodes_per_task=args.episodes_per_task,
             max_steps=args.max_steps,
             no_op_cap=args.no_op_cap,
+            env_mode=args.env_mode,
         )
 
     # ---- Load model ----
@@ -1181,6 +1187,7 @@ def main():
             tokenizer=tokenizer,
             eval_episodes=args.eval_episodes,
             eval_steps=args.qg_max_steps,
+            env_mode=args.env_mode,
         )
 
     print(f"\nDone. Adapter saved to: {adapter_dir}")
