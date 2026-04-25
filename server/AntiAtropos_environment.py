@@ -122,7 +122,7 @@ class AntiAtroposEnvironment(Environment):
             self._reward_output_mode = "normalized"
         self._last_metric_time: float = 0.0
 
-    def reset(self, task_id: str = "task-1", mode: str = "simulated", seed: int | None = None) -> ClusterObservation:
+    def reset(self, task_id: str = "task-1", mode: str | None = None, seed: int | None = None) -> ClusterObservation:
         """
         Start a fresh episode with a specific task profile and mode.
         """
