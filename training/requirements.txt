@@ -2,11 +2,10 @@
 # Install: pip install -r training/requirements.txt
 
 # ---- Core ML ----
-# NOTE: torch is provided by the Docker base image (pytorch/pytorch:2.6.0).
+# NOTE: torch is provided by the Docker base image (pytorch/pytorch:2.11.0).
 # Do NOT list it here — pip's resolver may downgrade it, breaking torchao.
 # torch>=2.5.0  (pre-installed in base image)
-# Do NOT install torchao — latest torchao requires torch>2.6 which breaks
-# the base image. Unsloth+bitsandbytes handle our 4-bit QLoRA quantization.
+# torchao is also pre-installed in the 2.11.0 base image and compatible.
 transformers>=4.45.0
 accelerate>=0.34.0
 bitsandbytes>=0.43.0

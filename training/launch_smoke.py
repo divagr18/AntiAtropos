@@ -29,7 +29,7 @@ from pathlib import Path
 
 TRAINING_DIR = Path(__file__).resolve().parent
 
-DOCKER_IMAGE = "pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel"
+DOCKER_IMAGE = "pytorch/pytorch:2.11.0-cuda12.8-cudnn9-devel"
 
 
 def build_job_command() -> str:
@@ -45,6 +45,7 @@ def build_job_command() -> str:
         "cd /workspace/AntiAtropos\n"
         "\n"
         "echo '[bootstrap] Installing dependencies...'\n"
+        "pip uninstall torchao -y -q 2>/dev/null || true\n"
         "pip install -r training/requirements.txt -q\n"
         "\n"
         "echo '[bootstrap] Launching training...'\n"
