@@ -121,6 +121,7 @@ def build_job_command() -> str:
         "done\n"
         "\n"
         "echo '[bootstrap] Launching training (local server, Hub persistence)...'\n"
+        "export PYTORCH_ALLOC_CONF='expandable_segments:True'  # required by Qwen3.5 to avoid OOM fragmentation\n"
         "ANTIATROPOS_HUB_MODEL_REPO=$HUB_MODEL_REPO "
         "ANTIATROPOS_HUB_METRICS_DATASET=$HUB_METRICS_DATASET "
         "ANTIATROPOS_ENV_URL=http://localhost:8000 "
