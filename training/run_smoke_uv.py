@@ -16,7 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPO = os.environ.get("REPO", "pranavkk/AntiAtropos")
+REPO = os.environ.get("REPO", "Keshav051/AntiAtropos")
 HF_TOKEN = os.environ.get("HF_TOKEN", "")
 WORKSPACE = Path("/workspace")
 
@@ -38,7 +38,7 @@ os.chdir(str(WORKSPACE / "AntiAtropos"))
 
 print("[bootstrap] Installing full dependencies...")
 subprocess.run(
-    [sys.executable, "-m", "pip", "install", "-r", "training/requirements.txt", "-q"],
+    ["uv", "pip", "install", "-r", "training/requirements.txt", "-q"],
     check=True,
 )
 
