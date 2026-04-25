@@ -64,8 +64,11 @@ CRITICAL_NODES: list[str] = ["node-0", "node-1", "node-2"]
 
 # VIP / business-critical node weights.
 # node-0 is the payment portal, so its queue growth or failure matters more.
+# Reduced from 4.0 → 2.0 to prevent reward gradient from creating
+# a local optimum where the agent only scales node-0.
+# At 2×, node-0 is still prioritized but other nodes remain viable targets.
 VIP_NODE_WEIGHTS: dict[str, float] = {
-    "node-0": 4.0,
+    "node-0": 2.0,
 }
 
 

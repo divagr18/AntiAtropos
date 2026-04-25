@@ -1,0 +1,13 @@
+server:
+  global:
+    scrape_interval: 15s
+    evaluation_interval: 15s
+
+extraScrapeConfigs: |
+  - job_name: antiatropos-fastapi
+    scrape_protocols:
+      - PrometheusText1.0.0
+      - PrometheusText0.0.4
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['host.docker.internal:8000']

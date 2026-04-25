@@ -1,0 +1,46 @@
+# Grafana self-hosted on Kind - Simplified dashboard + datasource setup
+
+adminUser: admin
+adminPassword: antiatropos
+
+service:
+  type: ClusterIP
+  port: 80
+
+persistence:
+  enabled: false
+
+# Datasource provisioning - mount as separate file
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        uid: PBFA97CFB590B2093
+        type: prometheus
+        access: proxy
+        url: http://prometheus-server.monitoring.svc.cluster.local
+        isDefault: true
+        editable: true
+
+# Dashboard provider config
+dashboardProviders:
+  dashboardproviders.yaml:
+    apiVersion: 1
+    providers:
+      - name: AntiAtropos
+        orgId: 1
+        folder: AntiAtropos
+        type: file
+        disableDeletion: false
+        editable: true
+        updateIntervalSeconds: 30
+        options:
+          path: /var/lib/grafana/dashboards/antiatropos
+
+# Mount dashboard JSONs from ConfigMap
+extraConfigmapMounts:
+  - name: grafana-dashboards
+    configMap: grafana-dashboards
+    mountPath: /var/lib/grafana/dashboards/antiatropos
+    readOnly: true

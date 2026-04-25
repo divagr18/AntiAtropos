@@ -1,0 +1,11 @@
+# Grafana datasource provisioning - points to in-cluster Prometheus
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: PBFA97CFB590B2093
+    type: prometheus
+    access: proxy
+    url: http://prometheus-server.monitoring.svc.cluster.local
+    isDefault: true
+    editable: true

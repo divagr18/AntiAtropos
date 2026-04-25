@@ -1,12 +1,15 @@
-docker stop antiatropos-grafana 2>$null
-docker rm antiatropos-grafana 2>$null
+# Start Grafana port-forward from Kind cluster
+# Run 'deploy-local.ps1' first to ensure Grafana is deployed.
 
-Write-Host "Starting local Grafana (datasource -> host.docker.internal:9090)..."
+$port = 3000
 
-docker run -d --name antiatropos-grafana -p 3000:3000 `
-  -v "$PWD\deploy\grafana\provisioning:/etc/grafana/provisioning:ro" `
-  -e GF_AUTH_ANONYMOUS_ENABLED=true `
-  -e GF_AUTH_ANONYMOUS_ORG_ROLE=Admin `
-  grafana/grafana:latest | Out-Null
+Write-Host "Starting Grafana port-forward on localhost:$port..."
 
-Write-Host "Grafana is running at http://localhost:3000"
+# Kill any existing on that port
+$existing = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
+if ($existing) {
+    Stop-Process -Id $existing.OwningProcess -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+}
+
+kubectl port-forward -n monitoring svc/grafana ${port}:80
