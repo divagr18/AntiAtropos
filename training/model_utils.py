@@ -269,8 +269,21 @@ def save_checkpoint(model, tokenizer, output_dir: str, step: int) -> str:
     return ckpt_dir
 
 
-def push_to_hub(local_dir: str, hub_repo: str, commit_message: str = "") -> None:
-    """Push a local directory to a Hub model repo."""
+def push_to_hub(
+    local_dir: str,
+    hub_repo: str,
+    commit_message: str = "",
+    path_in_repo: str = "",
+) -> None:
+    """Push a local directory to a Hub model repo.
+
+    Args:
+        local_dir:     Local folder to upload.
+        hub_repo:      HF model repo (e.g. 'Keshav051/antiatropos-qlora').
+        commit_message: Commit message.
+        path_in_repo:  Subfolder INSIDE the Hub repo (e.g. 'run_001/checkpoint-0005').
+                       If empty, uploads to the repo root (legacy behaviour).
+    """
     if not hub_repo:
         print("[model_utils] No hub_model_repo configured, skipping push")
         return
@@ -278,13 +291,18 @@ def push_to_hub(local_dir: str, hub_repo: str, commit_message: str = "") -> None
     try:
         from huggingface_hub import upload_folder
 
-        upload_folder(
+        kwargs = dict(
             folder_path=local_dir,
             repo_id=hub_repo,
             repo_type="model",
-            commit_message=commit_message or f"Upload from AntiAtropos training",
+            commit_message=commit_message or "Upload from AntiAtropos training",
         )
-        print(f"[model_utils] Pushed to {hub_repo}")
+        if path_in_repo:
+            kwargs["path_in_repo"] = path_in_repo
+
+        upload_folder(**kwargs)
+        dest = f"{hub_repo}/{path_in_repo}" if path_in_repo else hub_repo
+        print(f"[model_utils] Pushed → {dest}")
     except Exception as e:
         print(f"[model_utils] Push failed: {e}")
 

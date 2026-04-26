@@ -916,7 +916,12 @@ def train(cfg: Dict[str, Any]) -> None:
             print(f"  [ckpt] Saved → {ckpt_dir}  "
                   f"(reward={avg_reward:.4f}  loss={loss.item():.4f})", flush=True)
             if push_to_hub_flag and hub_model_repo:
-                push_to_hub(str(ckpt_dir), hub_model_repo, ckpt_name)
+                push_to_hub(
+                    str(ckpt_dir),
+                    hub_model_repo,
+                    commit_message=f"[{run_id}] {ckpt_name}",
+                    path_in_repo=f"{run_id}/{ckpt_name}",
+                )
 
         # ---- Evaluation ----
         if (iteration + 1) % eval_interval == 0:
@@ -975,16 +980,15 @@ def train(cfg: Dict[str, Any]) -> None:
     tokenizer.save_pretrained(final_dir)
     print(f"[train] Final adapter saved to {final_dir}")
 
-    # Push to Hub
+    # Push to Hub — scoped under run_id/final_adapter/ so it never overwrites other runs
     if push_to_hub_flag and hub_model_repo:
-        push_to_hub(final_dir, hub_model_repo,
-                   f"AntiAtropos QLoRA final — {run_id}")
+        push_to_hub(
+            final_dir,
+            hub_model_repo,
+            commit_message=f"[{run_id}] final_adapter",
+            path_in_repo=f"{run_id}/final_adapter",
+        )
 
-    # Flush remaining metrics
-    if hub_metrics_dataset and metrics_buffer:
-        for row in metrics_buffer:
-            push_train_metrics(row, hub_metrics_dataset)
-        metrics_buffer.clear()
 
     # Final evaluation
     final_eval = evaluate(
