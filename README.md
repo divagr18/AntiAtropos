@@ -31,13 +31,13 @@ pinned: false
 
 ---
 
-> **Hackathon Submission:** We are building for **"Theme #3: World Modelling for Professional Tasks."**
-> AntiAtropos is a world model for infrastructure. By modeling a cluster as a physical system governed by Lyapunov stability, we move beyond reactive scripts to agents that understand the "Physics of Failure"—allowing for mathematically-grounded reliability in complex, real-world environments.
+> **Hackathon Submission:** We are building for **"Theme #3: World Modelling for Professional Tasks."**  
+> AntiAtropos governs clusters the way physics governs a pendulum—by minimizing Lyapunov energy. Perfect SLA at **50% lower cost**.
 
 ## Demo Video
 [![AntiAtropos Demo Video](https://img.youtube.com/vi/46SX0HocpSs/0.jpg)](https://youtu.be/46SX0HocpSs)
 
-AntiAtropos is a production-grade Autonomous SRE (Site Reliability Engineering) Control Environment. It treats a microservice cluster not as a collection of scripts, but as a **Physics Engine**. By modeling infrastructure using **Fluid Queue Dynamics** and **Lyapunov Stability Theory**, AntiAtropos provides a training ground for agents that can reason about the "Thermodynamics of the Cloud."
+AntiAtropos is a **Reinforcement Learning environment** where an AI agent learns to stabilize a 5-node microservice cluster by treating it as a physical system. Using **QLoRA REINFORCE** on a Qwen3.5-4B model, the agent is trained to minimize Lyapunov graph energy under a Drift-Plus-Penalty objective that balances stability against infrastructure cost. The trained policy scales predictively, reroutes around failures, and holds the line during traffic surges.
 
 ---
 
