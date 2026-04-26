@@ -80,15 +80,16 @@ generation_do_sample: true
 
 # ---- Evaluation ----
 eval_interval: 50                     # Evaluate every N iterations
-eval_episodes: 3                      # Episodes per task during eval
-eval_max_steps: 60
+eval_episodes: 2                      # Episodes per task during eval
+eval_max_steps: 30                     # 30 steps × 2 episodes per task = 60 total
 
 # ---- Checkpointing ----
 checkpoint_interval: 5                # Save checkpoint every 5 iters (every ~15 min)
 save_total_limit: 5                   # Max checkpoints on Hub
 
-# ---- Metrics ----
-push_interval: 10                     # Push metrics to Hub every N iterations
+# ---- Metrics & Logging ----
+# Metrics, logs, eval results, and plots are pushed to hub_model_repo/<run_id>/
+# alongside checkpoints. No separate dataset repo needed.
 
 # ---- Output ----
 output_dir: "/workspace/antiatropos_checkpoints"  # Base dir — run_id subfolder auto-created
@@ -100,7 +101,8 @@ plot_dpi: 150                         # Resolution
 
 # ---- Hugging Face Hub ----
 hub_model_repo: ""                    # e.g. "pranavkk/antiatropos-qlora-qwen3.5-4b"
-hub_metrics_dataset: ""               # e.g. "pranavkk/antiatropos-training-metrics"
+# All metrics, logs, eval results, and plots are pushed to this repo under <run_id>/
+# along with checkpoints.
 push_to_hub: true                     # Push adapter + metrics after training
 
 # ---- Reproducibility ----

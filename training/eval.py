@@ -5,7 +5,8 @@ Runs episodes with:
   1. The fine-tuned model (current LoRA adapter)
   2. The heuristic baseline
 
-Compares average rewards across tasks. Pushes results to Hub metrics dataset.
+Compares average rewards across tasks. Results are saved locally and pushed
+via push_run_files_to_hub (in train.py) under hub_model_repo/<run_id>/eval_results.json.
 """
 
 from __future__ import annotations
@@ -128,70 +129,12 @@ def evaluate(
     # Save eval results
     import os
     os.makedirs(output_dir, exist_ok=True)
-    with open(f"{output_dir}/eval_results.json", "w") as f:
+    eval_path = f"{output_dir}/eval_results.json"
+    with open(eval_path, "w") as f:
         json.dump(summary, f, indent=2)
+    print(f"  [eval] Saved results → {eval_path}")
 
     return summary
 
 
-def push_eval_results(
-    results: Dict[str, Any],
-    hub_dataset: str,
-    run_id: str,
-    iteration: int,
-) -> None:
-    """Push eval results as a row to the HF metrics dataset."""
-    if not hub_dataset:
-        return
 
-    row = {
-        "run_id": run_id,
-        "step": iteration,
-        "type": "eval",
-        **{f"eval_{k}": v for k, v in results.items() if not isinstance(v, dict)},
-    }
-    # Flatten per-task results
-    for task_id, task_results in results.get("per_task", {}).items():
-        for metric, value in task_results.items():
-            row[f"eval_{task_id}_{metric}"] = value
-
-    _append_to_dataset(row, hub_dataset)
-
-
-def _append_to_dataset(row: Dict[str, Any], hub_dataset: str) -> None:
-    """Append a row to a JSONL file on Hub (creates if not exists)."""
-    try:
-        from huggingface_hub import HfApi
-        api = HfApi()
-
-        # Download existing data or start fresh
-        import tempfile, os
-        tmp_dir = tempfile.mkdtemp()
-        jsonl_path = os.path.join(tmp_dir, "metrics.jsonl")
-
-        try:
-            api.hf_hub_download(
-                repo_id=hub_dataset,
-                filename="metrics.jsonl",
-                repo_type="dataset",
-                local_dir=tmp_dir,
-            )
-        except Exception:
-            pass  # File doesn't exist yet — that's fine
-
-        # Append row
-        with open(jsonl_path, "a") as f:
-            f.write(json.dumps(row) + "\n")
-
-        # Upload back
-        api.upload_file(
-            path_or_fileobj=jsonl_path,
-            path_in_repo="metrics.jsonl",
-            repo_id=hub_dataset,
-            repo_type="dataset",
-            commit_message=f"AntiAtropos metrics — {row.get('run_id', 'unknown')} step {row.get('step', '?')}",
-        )
-        print(f"[eval] Metrics pushed to {hub_dataset}")
-
-    except Exception as e:
-        print(f"[eval] Failed to push metrics: {e}")

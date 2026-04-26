@@ -66,7 +66,7 @@ from openenv_loop import (
     rollout_episode,
     rollout_heuristic_episode,
 )
-from eval import evaluate, push_eval_results
+from eval import evaluate
 from plotting import (
     generate_all_plots,
     push_plots_to_hub,
@@ -516,63 +516,22 @@ def grpo_loss_fn(
 
 
 # ────────────────────────────────────────────────────────────
-# Metrics Push
+# Run Files Push (to hub_model_repo/<run_id>/)
 # ────────────────────────────────────────────────────────────
-
-def push_train_metrics(
-    metrics: Dict[str, Any],
-    hub_dataset: str,
-) -> None:
-    """Push training metrics row to the Hub dataset."""
-    if not hub_dataset:
-        return
-
-    try:
-        from huggingface_hub import HfApi
-        api = HfApi()
-        import tempfile
-
-        tmp_dir = tempfile.mkdtemp()
-        jsonl_path = os.path.join(tmp_dir, "metrics.jsonl")
-
-        try:
-            api.hf_hub_download(
-                repo_id=hub_dataset,
-                filename="metrics.jsonl",
-                repo_type="dataset",
-                local_dir=tmp_dir,
-            )
-        except Exception:
-            pass
-
-        with open(jsonl_path, "a") as f:
-            f.write(json.dumps(metrics) + "\n")
-
-        api.upload_file(
-            path_or_fileobj=jsonl_path,
-            path_in_repo="metrics.jsonl",
-            repo_id=hub_dataset,
-            repo_type="dataset",
-            commit_message=f"train metrics — {metrics.get('run_id')} iter {metrics.get('iteration')}",
-        )
-    except Exception as e:
-        print(f"[train] Metrics push failed: {e}")
 
 
 def push_run_files_to_hub(
     run_id: str,
     output_dir: Path,
-    hub_dataset: str,
+    hub_model_repo: str,
     iteration: int,
 ) -> None:
-    """Upload step_metrics.jsonl, iter_metrics.jsonl, and training.log to HF Hub.
+    """Upload step_metrics.jsonl, iter_metrics.jsonl, training.log, and eval results.
 
-    Files are uploaded under <run_id>/ prefix in the metrics dataset so each
-    run's data is isolated and you can diff runs on the Hub viewer.
-
-    Called every push_interval iterations and at the end of training.
+    Files are uploaded under <run_id>/ in the model repo alongside checkpoints.
+    Called every checkpoint_interval iterations and at the end of training.
     """
-    if not hub_dataset:
+    if not hub_model_repo:
         return
 
     files_to_push = [
@@ -581,6 +540,14 @@ def push_run_files_to_hub(
         ("training.log",        f"{run_id}/training.log"),
         ("run_info.json",       f"{run_id}/run_info.json"),
     ]
+
+    # Also push eval results if they exist
+    eval_path = output_dir / "eval" / "eval_results.json"
+    if eval_path.exists():
+        files_to_push.append(("eval/eval_results.json", f"{run_id}/eval_results.json"))
+    final_eval_path = output_dir / "final_eval" / "eval_results.json"
+    if final_eval_path.exists():
+        files_to_push.append(("final_eval/eval_results.json", f"{run_id}/final_eval_results.json"))
 
     try:
         from huggingface_hub import HfApi
@@ -594,15 +561,15 @@ def push_run_files_to_hub(
                 api.upload_file(
                     path_or_fileobj=str(local_path),
                     path_in_repo=hub_path,
-                    repo_id=hub_dataset,
-                    repo_type="dataset",
+                    repo_id=hub_model_repo,
+                    repo_type="model",
                     commit_message=f"[{run_id}] iter {iteration}: {local_name}",
                 )
                 pushed.append(local_name)
             except Exception as e:
                 print(f"  [push] Failed to push {local_name}: {e}")
         if pushed:
-            print(f"  [push] → HF dataset {hub_dataset}/{run_id}/: {', '.join(pushed)}",
+            print(f"  [push] \u2192 HF model {hub_model_repo}/{run_id}/: {', '.join(pushed)}",
                   flush=True)
     except Exception as e:
         print(f"[train] Hub file push failed: {e}")
@@ -802,7 +769,6 @@ def train(cfg: Dict[str, Any]) -> None:
     print(f"[train] Run manifest:  {run_info_path}")
 
     hub_model_repo = cfg.get("hub_model_repo", "")
-    hub_metrics_dataset = cfg.get("hub_metrics_dataset", "")
     push_to_hub_flag = cfg.get("push_to_hub", True)
 
     # ---- Verify environment ----
@@ -863,7 +829,6 @@ def train(cfg: Dict[str, Any]) -> None:
     max_grad_norm = cfg.get("max_grad_norm", 1.0)
     checkpoint_interval = cfg.get("checkpoint_interval", 10)  # default: every 10 iters
     eval_interval = cfg.get("eval_interval", 50)
-    push_interval = cfg.get("push_interval", 10)
     plot_interval = cfg.get("plot_interval", 25)
 
     # ---- Training loop ----
@@ -878,7 +843,6 @@ def train(cfg: Dict[str, Any]) -> None:
     print(f"  Max steps:     {max_steps}")
     print(f"  Learning rate: {lr}")
     print(f"  Hub model:     {hub_model_repo or '(not configured)'}")
-    print(f"  Hub metrics:   {hub_metrics_dataset or '(not configured)'}")
     print(f"  Output dir:    {output_dir}")
     print(f"{'='*70}\n")
 
@@ -1017,12 +981,7 @@ def train(cfg: Dict[str, Any]) -> None:
         if len(recent_episodes_data) > 200:  # Keep last ~200 episodes
             recent_episodes_data = recent_episodes_data[-200:]
 
-        # ---- Push metrics + run files to Hub ----
-        if (iteration + 1) % push_interval == 0 and hub_metrics_dataset:
-            # Push step_metrics.jsonl, iter_metrics.jsonl, training.log, run_info.json
-            push_run_files_to_hub(run_id, output_dir, hub_metrics_dataset, iteration + 1)
-
-        # ---- Checkpoint ----
+        # ---- Checkpoint + push run files ----
         if (iteration + 1) % checkpoint_interval == 0:
             # Pad iteration number so ls sorts correctly: checkpoint-0010, checkpoint-0050, ...
             ckpt_name = f"checkpoint-{iteration + 1:04d}"
@@ -1041,7 +1000,7 @@ def train(cfg: Dict[str, Any]) -> None:
             (ckpt_dir / "checkpoint_meta.json").write_text(
                 _json.dumps(ckpt_meta, indent=2)
             )
-            print(f"  [ckpt] Saved → {ckpt_dir}  "
+            print(f"  [ckpt] Saved \u2192 {ckpt_dir}  "
                   f"(reward={avg_reward:.4f}  loss={loss.item():.4f})", flush=True)
             if push_to_hub_flag and hub_model_repo:
                 push_to_hub(
@@ -1050,6 +1009,8 @@ def train(cfg: Dict[str, Any]) -> None:
                     commit_message=f"[{run_id}] {ckpt_name}",
                     path_in_repo=f"{run_id}/{ckpt_name}",
                 )
+                # Push run files (metrics, logs) alongside checkpoint
+                push_run_files_to_hub(run_id, output_dir, hub_model_repo, iteration + 1)
 
         # ---- Evaluation ----
         if (iteration + 1) % eval_interval == 0:
@@ -1071,10 +1032,6 @@ def train(cfg: Dict[str, Any]) -> None:
                     eval_row[f"eval_{tid}_{mk}"] = mv
             eval_metrics_history.append(eval_row)
 
-            if hub_metrics_dataset:
-                push_eval_results(
-                    eval_results, hub_metrics_dataset, run_id, iteration
-                )
             # Re-enable training mode
             model.train()
 
@@ -1089,7 +1046,7 @@ def train(cfg: Dict[str, Any]) -> None:
                     cfg=cfg,
                 )
                 if push_to_hub_flag and hub_model_repo:
-                    push_plots_to_hub(plot_paths, hub_model_repo, iteration)
+                    push_plots_to_hub(plot_paths, hub_model_repo, iteration, run_id=run_id)
             except Exception as e:
                 print(f"  [iter {iteration}] Plotting failed: {e}")
 
@@ -1123,12 +1080,6 @@ def train(cfg: Dict[str, Any]) -> None:
         client, model, tokenizer, cfg,
         output_dir=str(output_dir / "final_eval"),
     )
-
-    if hub_metrics_dataset:
-        push_eval_results(
-            final_eval, hub_metrics_dataset, run_id, num_iterations
-        )
-
     # Final plots (full training history)
     try:
         final_eval_row = {
@@ -1152,19 +1103,17 @@ def train(cfg: Dict[str, Any]) -> None:
             cfg=cfg,
         )
         if push_to_hub_flag and hub_model_repo:
-            push_plots_to_hub(plot_paths, hub_model_repo, num_iterations)
+            push_plots_to_hub(plot_paths, hub_model_repo, num_iterations, run_id=run_id)
     except Exception as e:
         print(f"[train] Final plotting failed: {e}")
 
     print(f"\n[train] All done. Final adapter: {final_dir}")
     if hub_model_repo:
         print(f"[train] Hub repo: https://huggingface.co/{hub_model_repo}")
-    if hub_metrics_dataset:
-        print(f"[train] Metrics:  https://huggingface.co/datasets/{hub_metrics_dataset}/tree/main/{run_id}")
-
-    # ── Final push of all run files (captures last iterations even if push_interval missed them)
-    if hub_metrics_dataset:
-        push_run_files_to_hub(run_id, output_dir, hub_metrics_dataset, num_iterations)
+    
+    # \u2500\u2500 Final push of all run files
+    if hub_model_repo:
+        push_run_files_to_hub(run_id, output_dir, hub_model_repo, num_iterations)
 
     # ── Flush and close the TeeLogger ────────────────────────────────────────
     # Restore original stdout/stderr so any code after train() works normally.
@@ -1265,7 +1214,6 @@ def main():
     if args.no_push:
         cfg["push_to_hub"] = False
         cfg["hub_model_repo"] = ""
-        cfg["hub_metrics_dataset"] = ""
 
     # Allow HF_TOKEN from env
     hf_token = os.getenv("HF_TOKEN") or os.getenv("HUGGING_FACE_HUB_TOKEN")

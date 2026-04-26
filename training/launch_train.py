@@ -2,7 +2,7 @@
 """
 launch_train.py — Launch full AntiAtropos training on Hugging Face Jobs.
 
-Pushes model checkpoints, metrics dataset, and plots to HF Hub.
+Pushes model checkpoints, metrics, logs, and plots to HF Hub model repo.
 The local server is co-located for zero-latency environment interaction.
 Supports automatic resume from latest Hub checkpoint.
 
@@ -10,56 +10,38 @@ Prerequisites:
   1. pip install "huggingface_hub>=0.25.0"
   2. huggingface-cli login   (or set HF_TOKEN env var)
   3. HF Pro/Team account (required for GPU jobs)
-  4. The Hub model and dataset repos are auto-created if they don't exist.
-     Alternatively create them manually:
+  4. The Hub model repo is auto-created if it doesn't exist.
+     Alternatively create it manually:
        hf repo create <hub-model-repo> --type model
-       hf repo create <hub-metrics-dataset> --type dataset
 
 Lifecycle:
-  ┌─────────────────────────────────────────────┐
-  │  HF Job (A10G, ~4h)                        │
-  │  ┌──────────────────────────────────────┐   │
-  │  │  uvicorn :8000  ←──→  train.py       │   │
-  │  │  (simulator)          (GPU model)     │   │
-  │  └──────────┬───────────────────────────┘   │
-  │             │ push adapter + plots           │
-  │             ▼                                │
-  │      HF Hub Model Repo                       │
-  │      (checkpoint-25, checkpoint-50, ...)     │
-  │             │ push metrics.jsonl              │
-  │             ▼                                │
-  │      HF Hub Metrics Dataset                  │
-  └─────────────────────────────────────────────┘
+  All run artifacts (checkpoints, metrics, logs, eval results, plots)
+  are pushed to <hub-model-repo>/<run_id>/ on the Hub.
 
 Usage:
-  # Quick test (∼10 min):
+  # Quick test (~10 min):
   python training/launch_train.py \
     --hub-model-repo Keshav051/antiatropos-qlora \
-    --hub-metrics-dataset Keshav051/antiatropos-training-metrics \
     --num-iterations 20 --num-episodes 4
 
-  # Full training (a10g-large ≈ $0.34/hr, ∼2h):
+  # Full training (a10g-large ~ $0.34/hr, ~2h):
   python training/launch_train.py \
-    --hub-model-repo Keshav051/antiatropos-qlora \
-    --hub-metrics-dataset Keshav051/antiatropos-training-metrics
+    --hub-model-repo Keshav051/antiatropos-qlora
 
   # Custom flavor / longer timeout:
   python training/launch_train.py \
     --hub-model-repo Keshav051/antiatropos-qlora \
-    --hub-metrics-dataset Keshav051/antiatropos-training-metrics \
     --flavor a10g-xlarge --timeout 12h \
     --num-iterations 2000 --num-episodes 24
 
   # Resume from latest Hub checkpoint:
   python training/launch_train.py \
     --hub-model-repo Keshav051/antiatropos-qlora \
-    --hub-metrics-dataset Keshav051/antiatropos-training-metrics \
     --run-id exp_002
 
   # Dry run (prints job command without launching):
   python training/launch_train.py \
     --hub-model-repo Keshav051/antiatropos-qlora \
-    --hub-metrics-dataset Keshav051/antiatropos-training-metrics \
     --dry-run
 """
 
@@ -76,12 +58,12 @@ TRAINING_DIR = Path(__file__).resolve().parent
 
 DOCKER_IMAGE = "pytorch/pytorch:2.10.0-cuda12.6-cudnn9-devel"
 
-DEFAULT_NUM_ITERATIONS = 500
-DEFAULT_NUM_EPISODES = 4
+DEFAULT_NUM_ITERATIONS = 15
+DEFAULT_NUM_EPISODES = 6
 DEFAULT_MAX_STEPS = 20
 DEFAULT_EVAL_INTERVAL = 50
-DEFAULT_CHECKPOINT_INTERVAL = 25
-DEFAULT_PLOT_INTERVAL = 25
+DEFAULT_CHECKPOINT_INTERVAL = 5
+DEFAULT_PLOT_INTERVAL = 10
 
 
 def build_job_command() -> str:
@@ -123,7 +105,6 @@ def build_job_command() -> str:
         "echo '[bootstrap] Launching training (local server, Hub persistence)...'\n"
         "export PYTORCH_ALLOC_CONF='expandable_segments:True'  # required by Qwen3.5 to avoid OOM fragmentation\n"
         "ANTIATROPOS_HUB_MODEL_REPO=$HUB_MODEL_REPO "
-        "ANTIATROPOS_HUB_METRICS_DATASET=$HUB_METRICS_DATASET "
         "ANTIATROPOS_ENV_URL=http://localhost:8000 "
         "python training/train.py "
         "--run-id $RUN_ID "
@@ -146,12 +127,14 @@ def build_job_command() -> str:
 
 def ensure_hub_repos(
     hub_model_repo: str,
-    hub_metrics_dataset: str,
     hf_token: Optional[str],
 ) -> None:
-    """Check if Hub repos exist; create them automatically if not."""
+    """Check if the Hub model repo exists; create it automatically if not."""
     if not hf_token:
         print("  [hub] No HF_TOKEN available, skipping repo check")
+        return
+
+    if not hub_model_repo:
         return
 
     try:
@@ -159,35 +142,23 @@ def ensure_hub_repos(
 
         api = HfApi()
 
-        for repo_id, repo_type in [
-            (hub_model_repo, "model"),
-            (hub_metrics_dataset, "dataset"),
-        ]:
-            base_url = (
-                "https://huggingface.co"
-                if repo_type == "model"
-                else "https://huggingface.co/datasets"
+        try:
+            info = api.repo_info(repo_id=hub_model_repo, repo_type="model")
+            print(f"  [hub] Repo OK: https://huggingface.co/{hub_model_repo}")
+        except Exception:
+            print(f"  [hub] Creating repo: {hub_model_repo} (model)...")
+            api.create_repo(
+                repo_id=hub_model_repo,
+                repo_type="model",
+                private=True,
+                exist_ok=True,
             )
-            try:
-                info = api.repo_info(repo_id=repo_id, repo_type=repo_type)
-                print(f"  [hub] Repo OK: {base_url}/{repo_id}")
-            except Exception:
-                print(f"  [hub] Creating repo: {repo_id} ({repo_type})...")
-                api.create_repo(
-                    repo_id=repo_id,
-                    repo_type=repo_type,
-                    private=True,
-                    exist_ok=True,
-                )
-                print(f"  [hub] Created: {base_url}/{repo_id}")
+            print(f"  [hub] Created: https://huggingface.co/{hub_model_repo}")
     except Exception as e:
-        print(f"\n  [hub] WARNING: Could not verify/create Hub repos: {e}")
-        print("  [hub] Create them manually:")
+        print(f"\n  [hub] WARNING: Could not verify/create Hub repo: {e}")
+        print("  [hub] Create it manually:")
         print(f"    hf repo create {hub_model_repo} --type model")
-        print(f"    hf repo create {hub_metrics_dataset} --type dataset")
-        print(f"    Then visit:")
-        print(f"      https://huggingface.co/{hub_model_repo}")
-        print(f"      https://huggingface.co/datasets/{hub_metrics_dataset}")
+        print(f"    Then visit: https://huggingface.co/{hub_model_repo}")
 
 
 def main() -> None:
@@ -212,14 +183,8 @@ def main() -> None:
     parser.add_argument(
         "--hub-model-repo",
         required=True,
-        help="HF Hub model repo for checkpoints, final adapter, and plots "
-        "(e.g. Keshav051/antiatropos-qlora)",
-    )
-    parser.add_argument(
-        "--hub-metrics-dataset",
-        required=True,
-        help="HF Hub dataset repo for training metrics.jsonl "
-        "(e.g. Keshav051/antiatropos-training-metrics)",
+        help="HF Hub model repo for checkpoints, metrics, logs, and plots "
+        "(e.g. Keshav051/antiatropos-qlora). All run artifacts go under <run_id>/.",
     )
     parser.add_argument(
         "--run-id",
@@ -300,7 +265,6 @@ def main() -> None:
     print(f"  Timeout:             {args.timeout}")
     print(f"  Code repo:           {args.repo}")
     print(f"  Hub model repo:      {args.hub_model_repo}")
-    print(f"  Hub metrics dataset: {args.hub_metrics_dataset}")
     print(f"  Run ID:              {run_id}")
     print(f"  Loss type:           {args.loss_type}")
     if args.loss_type == "grpo":
@@ -361,7 +325,7 @@ def main() -> None:
     # ---- Ensure Hub repos exist ----
     if not args.no_create_repos and hf_token:
         ensure_hub_repos(
-            args.hub_model_repo, args.hub_metrics_dataset, hf_token
+            args.hub_model_repo, hf_token
         )
 
     # ---- Launch via run_job ----
@@ -385,7 +349,6 @@ def main() -> None:
             "REPO": args.repo,
             "RUN_ID": run_id,
             "HUB_MODEL_REPO": args.hub_model_repo,
-            "HUB_METRICS_DATASET": args.hub_metrics_dataset,
             "NUM_ITERATIONS": str(args.num_iterations),
             "NUM_EPISODES": str(args.num_episodes),
             "MAX_STEPS": str(args.max_steps),

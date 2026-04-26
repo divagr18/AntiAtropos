@@ -520,6 +520,7 @@ def push_plots_to_hub(
     plot_paths: List[str],
     hub_repo: str,
     iteration: int,
+    run_id: str = "",
 ) -> None:
     if not hub_repo or not plot_paths:
         return
@@ -528,14 +529,15 @@ def push_plots_to_hub(
         api = HfApi()
         for path in plot_paths:
             filename = Path(path).name
+            prefix = f"{run_id}/" if run_id else ""
             api.upload_file(
                 path_or_fileobj=path,
-                path_in_repo=f"plots/iter_{iteration}/{filename}",
+                path_in_repo=f"{prefix}plots/{filename}",
                 repo_id=hub_repo,
                 repo_type="model",
-                commit_message=f"Training plots - iteration {iteration}",
+                commit_message=f"[{run_id}] Training plots - iteration {iteration}",
             )
-        print(f"[plotting] Pushed {len(plot_paths)} plots to {hub_repo}")
+        print(f"[plotting] Pushed {len(plot_paths)} plots to {hub_repo}/{prefix}plots/")
     except Exception as e:
         print(f"[plotting] Push failed: {e}")
 
