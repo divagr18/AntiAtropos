@@ -48,47 +48,76 @@ def gpu_scaled_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
     (1024 is plenty) and spend VRAM on rank + episodes instead.
     """
     tier = detect_gpu_tier()
-    overrides: Dict[str, Any] = {}
 
-    # seq_len=1024 is sufficient for SRE obs+action (~740 tokens peak)
-    # Only go higher on A100 where VRAM is abundant
+    # GPU-tier safe DEFAULTS — applied only if the config value is BELOW these floors.
+    # These are not caps: if the user deliberately sets a higher value (e.g. lora_rank=64),
+    # it is preserved. The override only kicks in to prevent unsafe low values.
+    #
+    # A10G headroom (verified empirically):
+    #   base model: 3.3 GiB  |  one forward (bf16, seq=512, batch=1): 8.9 GiB
+    #   peak with loss_batch_size=2: ~17.8 GiB  |  22.3 GiB total  →  ~4.5 GiB headroom
+    #   lora_rank=64 vs 32: +83 MiB difference — negligible
     if tier == "a100":
-        overrides["max_seq_length"] = 2048  # Room for few-shot demos
-        overrides["lora_rank"] = 48
-        overrides["lora_alpha"] = 48
-        overrides["per_device_train_batch_size"] = 4
-        overrides["loss_batch_size"] = 4
+        safe_defaults = {
+            "max_seq_length": 2048,
+            "lora_rank": 48,
+            "lora_alpha": 48,
+            "per_device_train_batch_size": 4,
+            "loss_batch_size": 4,
+        }
     elif tier == "a10g":
-        # A10G OOM root cause: Qwen3.5 vocab=151,936.
-        # logits tensor at batch=4, seq=512: 4 × 512 × 151936 × 2 bytes = ~623 MiB.
-        # Only 416 MiB was free when the OOM hit — exact match.
-        # Fix: loss_batch_size=2 halves the logit peak. seq_len stays 512 (<=350 token real usage).
-        overrides["max_seq_length"] = 512   # Must stay low: logits at 1024 blow past 22 GiB
-        overrides["lora_rank"] = 32
-        overrides["lora_alpha"] = 32
-        overrides["per_device_train_batch_size"] = 2
-        overrides["loss_batch_size"] = 1    # OOM fix: batch=1 halves activation peak (~4 GiB headroom)
-    else:  # t4
-        overrides["max_seq_length"] = 512
-        overrides["lora_rank"] = 16
-        overrides["lora_alpha"] = 16
-        overrides["per_device_train_batch_size"] = 1
-        overrides["loss_batch_size"] = 1
+        safe_defaults = {
+            "max_seq_length": 512,    # keep tight: logits at 1024 blow past 22 GiB
+            "lora_rank": 64,          # verified safe: +83 MiB vs rank-32
+            "lora_alpha": 64,         # keep == lora_rank
+            "per_device_train_batch_size": 2,
+            "loss_batch_size": 2,     # verified safe: peak ~17.8 GiB with 4.5 GiB headroom
+        }
+        # Hard floors — values below these will always OOM on A10G
+        hard_floors = {
+            "max_seq_length": 256,
+            "loss_batch_size": 1,
+        }
+    else:  # t4 / unknown
+        safe_defaults = {
+            "max_seq_length": 512,
+            "lora_rank": 16,
+            "lora_alpha": 16,
+            "per_device_train_batch_size": 1,
+            "loss_batch_size": 1,
+        }
+        hard_floors = {}
 
-    # Only override if user hasn't explicitly set via env vars
-    for key, default_val in overrides.items():
+    # Apply: only override if config is missing the key entirely, or below the hard floor.
+    # Env vars (ANTIATROPOS_<KEY>=<value>) always win over everything.
+    hard_floors = locals().get("hard_floors", {})
+    for key, default_val in safe_defaults.items():
         env_key = f"ANTIATROPOS_{key.upper()}"
+
+        # Env var always wins
         if env_key in os.environ:
             val = os.environ[env_key]
-            # Type conversion
-            if isinstance(default_val, int):
-                overrides[key] = int(val)
-            elif isinstance(default_val, float):
-                overrides[key] = float(val)
-        if key in cfg and cfg[key] != overrides[key]:
-            print(f"[model_utils] GPU {tier}: overriding {key} "
-                  f"{cfg[key]} -> {overrides[key]}")
-            cfg[key] = overrides[key]
+            cfg[key] = int(val) if isinstance(default_val, int) else float(val)
+            print(f"[model_utils] env override: {key} = {cfg[key]}")
+            continue
+
+        current = cfg.get(key)
+        floor = hard_floors.get(key)
+
+        if current is None:
+            # Key not set at all — apply safe default
+            cfg[key] = default_val
+            print(f"[model_utils] GPU {tier}: setting {key} = {default_val} (not in config)")
+        elif floor is not None and current < floor:
+            # Below hard floor — unsafe, must override
+            print(f"[model_utils] GPU {tier}: {key}={current} is below safe floor {floor}, "
+                  f"raising to {floor}")
+            cfg[key] = floor
+        else:
+            # User set a value >= floor — respect it
+            if current != default_val:
+                print(f"[model_utils] GPU {tier}: keeping user config {key}={current} "
+                      f"(default was {default_val})")
 
     return cfg
 

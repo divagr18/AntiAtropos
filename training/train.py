@@ -448,6 +448,55 @@ def push_train_metrics(
         print(f"[train] Metrics push failed: {e}")
 
 
+def push_run_files_to_hub(
+    run_id: str,
+    output_dir: Path,
+    hub_dataset: str,
+    iteration: int,
+) -> None:
+    """Upload step_metrics.jsonl, iter_metrics.jsonl, and training.log to HF Hub.
+
+    Files are uploaded under <run_id>/ prefix in the metrics dataset so each
+    run's data is isolated and you can diff runs on the Hub viewer.
+
+    Called every push_interval iterations and at the end of training.
+    """
+    if not hub_dataset:
+        return
+
+    files_to_push = [
+        ("step_metrics.jsonl",  f"{run_id}/step_metrics.jsonl"),
+        ("iter_metrics.jsonl",  f"{run_id}/iter_metrics.jsonl"),
+        ("training.log",        f"{run_id}/training.log"),
+        ("run_info.json",       f"{run_id}/run_info.json"),
+    ]
+
+    try:
+        from huggingface_hub import HfApi
+        api = HfApi()
+        pushed = []
+        for local_name, hub_path in files_to_push:
+            local_path = output_dir / local_name
+            if not local_path.exists():
+                continue
+            try:
+                api.upload_file(
+                    path_or_fileobj=str(local_path),
+                    path_in_repo=hub_path,
+                    repo_id=hub_dataset,
+                    repo_type="dataset",
+                    commit_message=f"[{run_id}] iter {iteration}: {local_name}",
+                )
+                pushed.append(local_name)
+            except Exception as e:
+                print(f"  [push] Failed to push {local_name}: {e}")
+        if pushed:
+            print(f"  [push] → HF dataset {hub_dataset}/{run_id}/: {', '.join(pushed)}",
+                  flush=True)
+    except Exception as e:
+        print(f"[train] Hub file push failed: {e}")
+
+
 # ────────────────────────────────────────────────────────────
 # Local JSONL Metrics Writers
 # ────────────────────────────────────────────────────────────
@@ -840,11 +889,10 @@ def train(cfg: Dict[str, Any]) -> None:
         if len(recent_episodes_data) > 200:  # Keep last ~200 episodes
             recent_episodes_data = recent_episodes_data[-200:]
 
-        # ---- Push metrics ----
+        # ---- Push metrics + run files to Hub ----
         if (iteration + 1) % push_interval == 0 and hub_metrics_dataset:
-            for row in metrics_buffer:
-                push_train_metrics(row, hub_metrics_dataset)
-            metrics_buffer.clear()
+            # Push step_metrics.jsonl, iter_metrics.jsonl, training.log, run_info.json
+            push_run_files_to_hub(run_id, output_dir, hub_metrics_dataset, iteration + 1)
 
         # ---- Checkpoint ----
         if (iteration + 1) % checkpoint_interval == 0:
@@ -979,6 +1027,12 @@ def train(cfg: Dict[str, Any]) -> None:
     print(f"\n[train] All done. Final adapter: {final_dir}")
     if hub_model_repo:
         print(f"[train] Hub repo: https://huggingface.co/{hub_model_repo}")
+    if hub_metrics_dataset:
+        print(f"[train] Metrics:  https://huggingface.co/datasets/{hub_metrics_dataset}/tree/main/{run_id}")
+
+    # ── Final push of all run files (captures last iterations even if push_interval missed them)
+    if hub_metrics_dataset:
+        push_run_files_to_hub(run_id, output_dir, hub_metrics_dataset, num_iterations)
 
     # ── Flush and close the TeeLogger ────────────────────────────────────────
     # Restore original stdout/stderr so any code after train() works normally.
