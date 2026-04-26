@@ -202,6 +202,8 @@ def reinforce_baseline_loss_fn(
         attention_mask = torch.stack(padded_masks)
 
         # Forward pass WITH gradient (critical for REINFORCE)
+        # Flush fragmented generation KV-cache before allocating activation memory.
+        torch.cuda.empty_cache()
         outputs = model(
             input_ids=input_ids.to(model.device),
             attention_mask=attention_mask.to(model.device),
@@ -209,20 +211,32 @@ def reinforce_baseline_loss_fn(
         logits = outputs.logits  # (batch, seq_len, vocab_size)
 
         # Shift for next-token prediction
-        shift_logits = logits[:, :-1, :]
-        shift_labels = input_ids[:, 1:]
+        shift_logits = logits[:, :-1, :].contiguous()   # (B, S-1, V)
+        shift_labels = input_ids[:, 1:].contiguous()     # (B, S-1)
 
-        # Log softmax
-        log_probs_all = torch.nn.functional.log_softmax(shift_logits, dim=-1)
-
-        # Gather log probs for the actual tokens
-        token_log_probs = log_probs_all.gather(
-            2, shift_labels.unsqueeze(-1)
-        ).squeeze(-1)  # (batch, seq_len-1)
+        # --- Memory-efficient log-prob computation ---
+        # log_softmax(shift_logits) would materialize a full float32 tensor:
+        #   B × S × V × 4 bytes = 2 × 512 × 151936 × 4 ≈ 624 MiB → OOM on A10G.
+        # cross_entropy(reduction='none') uses a fused CUDA kernel that computes
+        # only the scalar NLL per token without ever materialising the full
+        # [B*S, V] float32 probability distribution.
+        # We negate to recover log_prob (cross_entropy returns -log_prob).
+        B, S_minus1 = shift_labels.shape
+        token_nll = torch.nn.functional.cross_entropy(
+            shift_logits.view(B * S_minus1, -1).to(model.device),
+            shift_labels.view(B * S_minus1).to(model.device),
+            reduction="none",
+            ignore_index=-100,
+        ).view(B, S_minus1)  # (B, S-1) — negative log-probs, scalar per token
+        token_log_probs = -token_nll  # log π(a|s) — negative cross-entropy
 
         # Mask out padding positions (left-padded: zeros at start)
-        shift_mask = attention_mask[:, 1:]
+        shift_mask = attention_mask[:, 1:].to(model.device)
         token_log_probs = token_log_probs * shift_mask
+
+        # Free logits immediately — no longer needed, saves ~300 MiB
+        del outputs, logits, shift_logits, token_nll
+        torch.cuda.empty_cache()
 
         # Sum log probs over non-padded tokens per sequence
         seq_log_probs = token_log_probs.sum(dim=1)  # (batch,)
@@ -457,17 +471,10 @@ def train(cfg: Dict[str, Any]) -> None:
         print(f"[train] Resuming from iteration {start_iteration}")
     else:
         model = attach_lora(model, cfg, seed=seed)
-
-    # Enable gradient checkpointing to cap activation memory during training forward
-    try:
-        model.gradient_checkpointing_enable(
-            gradient_checkpointing_kwargs={"use_reentrant": False}
-        )
-    except TypeError:
-        model.gradient_checkpointing_enable()
-    if hasattr(model, "enable_input_require_grads"):
-        model.enable_input_require_grads()
-    print("[train] Gradient checkpointing enabled")
+        # Unsloth's attach_lora already enables gradient checkpointing via
+        # use_gradient_checkpointing="unsloth" in get_peft_model().
+        # Do NOT call gradient_checkpointing_enable() again — it conflicts
+        # with Unsloth's custom implementation and can increase VRAM usage.
 
     # ---- Optimizer ----
     lr = cfg.get("learning_rate", 2e-4)

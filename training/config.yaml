@@ -46,9 +46,13 @@ loss_type: "reinforce_baseline"       # reinforce | reinforce_baseline | grpo
 num_episodes_per_iteration: 4         # Safe now: max_seq_len=512 + loss_batch_size=2 + CPU offload
 num_iterations: 500                   # Total training iterations
 parallel_episodes: true               # Batch generation across episodes (10x faster)
-# A10G OOM fix: Qwen3.5 vocab=151936 → logits at batch=4×seq=512 = ~624MB (matches OOM report).
-# Dropping to 2 halves the logit tensor peak and stays comfortably under 22.3 GiB.
-loss_batch_size: 2                    # A10G safe: batch=4 triggered logit OOM on vocab=151936
+# A10G OOM analysis: Qwen3.5-4B forward pass peak:
+#   - Activations (36 layers, bf16, batch=2, seq=512): ~6-8 GiB
+#   - Logit tensor (151936 vocab, cross_entropy): ~312 MiB
+#   - KV-cache remnants from rollout generation: ~1-2 GiB
+#   - Total peak: ~18-21 GiB on a 22.3 GiB card. No headroom.
+# loss_batch_size=1, empty_cache() before forward pass to free up fragmentation.
+loss_batch_size: 1                    # A10G: batch=2 activation peak too high for 22.3 GiB
 learning_rate: 2.0e-4
 per_device_train_batch_size: 2        # A10G can handle 2 with seq_len=1024
 gradient_accumulation_steps: 4        # Effective batch = 2*4 = 8 transitions

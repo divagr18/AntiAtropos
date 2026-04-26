@@ -67,7 +67,7 @@ def gpu_scaled_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
         overrides["lora_rank"] = 32
         overrides["lora_alpha"] = 32
         overrides["per_device_train_batch_size"] = 2
-        overrides["loss_batch_size"] = 2    # OOM fix: halves logit tensor peak to ~312 MiB
+        overrides["loss_batch_size"] = 1    # OOM fix: batch=1 halves activation peak (~4 GiB headroom)
     else:  # t4
         overrides["max_seq_length"] = 512
         overrides["lora_rank"] = 16
