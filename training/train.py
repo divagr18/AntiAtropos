@@ -230,42 +230,55 @@ def reinforce_baseline_loss_fn(
             print(f"  [loss_fwd b{batch_idx+1}/{n_batches}] "
                   f"post-fwd peak={peak:.2f}GiB free={free2/1024**3:.1f}GiB", flush=True)
 
-        # ── Memory-efficient log-prob via fused cross_entropy kernel ──────────
+        # ── Memory-efficient log-prob via log_softmax (shared with entropy) ──
         logits = outputs.logits
         shift_logits = logits[:, :-1, :].contiguous()
         shift_labels  = input_ids[:, 1:].contiguous()
         B, S_minus1 = shift_labels.shape
 
-        token_nll = torch.nn.functional.cross_entropy(
-            shift_logits.view(B * S_minus1, -1).to(model.device),
-            shift_labels.view(B * S_minus1).to(model.device),
-            reduction="none",
-            ignore_index=-100,
-        ).view(B, S_minus1)
-        token_log_probs = -token_nll
+        # Compute log_softmax once, use for both NLL (chosen tokens) and entropy
+        log_probs_all = shift_logits.log_softmax(dim=-1)  # (B, S_minus1, V)
+
+        # NLL for chosen tokens (same as cross_entropy but shares log_softmax)
+        safe_labels = shift_labels.clone()
+        safe_labels[safe_labels == -100] = 0  # Avoid negative-index wrap in gather
+        valid_mask = (shift_labels != -100).to(log_probs_all.device)
+        token_nll = -log_probs_all.gather(
+            dim=-1,
+            index=safe_labels.unsqueeze(-1).to(log_probs_all.device),
+        ).squeeze(-1)  # (B, S_minus1)
+        token_nll = token_nll * valid_mask  # Zero out ignored positions
+
+        # Entropy of the policy distribution (discourages premature convergence)
+        probs_all = log_probs_all.exp()
+        entropy_per_token = -(probs_all * log_probs_all).sum(dim=-1)  # (B, S_minus1)
+        del log_probs_all, probs_all
 
         shift_mask = attention_mask[:, 1:].to(model.device)
-        token_log_probs = token_log_probs * shift_mask
+        token_log_probs = (-token_nll) * shift_mask
         seq_log_probs = token_log_probs.sum(dim=1)  # (B,)
+        entropy = (entropy_per_token * shift_mask).sum(dim=1)  # (B,)
 
-        # Free logits immediately — cross_entropy output is all we need
-        del outputs, logits, shift_logits, token_nll, token_log_probs
+        # Free logits immediately
+        del outputs, logits, shift_logits, token_nll, token_log_probs, entropy_per_token
         torch.cuda.empty_cache()
 
-        # ── Per-mini-batch loss scaled for correct gradient averaging ─────────
-        # Divide by n_batches so that summing gradients across all mini-batches
-        # equals the mean over the full batch (standard gradient accumulation).
+        # ── Per-mini-batch loss: REINFORCE + entropy bonus ────────────────────
+        ent_coef = cfg.get("entropy_coef", 0.01)
         batch_advs_gpu = batch_advs.to(model.device)
-        batch_loss = -(batch_advs_gpu * seq_log_probs).mean() / n_batches
+        avg_entropy = entropy.mean()
+        batch_loss = (
+            -(batch_advs_gpu * seq_log_probs).mean()  # REINFORCE
+            - ent_coef * avg_entropy                   # Entropy bonus (maximise exploration)
+        ) / n_batches
+        print(f"    [entropy b{batch_idx+1}/{n_batches}] avg_token_entropy={avg_entropy:.2f}  "
+              f"ent_coef={ent_coef}", flush=True)
 
         # ── Backward immediately — frees entire computation graph ─────────────
-        # Gradients accumulate in model.parameters().grad across mini-batches.
-        # The caller in train.py checks `if loss.requires_grad` and skips
-        # its backward() call because we return a detached tensor.
         batch_loss.backward()
 
         total_loss_val += batch_loss.item() * n_batches  # unscale for logging
-        del batch_loss, seq_log_probs, batch_advs_gpu
+        del batch_loss, seq_log_probs, batch_advs_gpu, entropy, avg_entropy
         torch.cuda.empty_cache()
 
     # Return detached scalar for logging (requires_grad=False → caller skips backward)

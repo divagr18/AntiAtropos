@@ -70,6 +70,7 @@ rloo_k: 2                            # Leave-one-out group size
 reward_gamma: 0.99                    # Discount factor for returns
 reward_gae_lambda: 0.95              # GAE lambda (if using GAE)
 advantage_normalize: true             # Normalize advantages across batch
+entropy_coef: 0.01                    # Entropy bonus: higher = more exploration, prevents action collapse
 
 # ---- Generation ----
 generation_max_new_tokens: 50         # JSON action is ~30 tokens; 50 is safe cap
