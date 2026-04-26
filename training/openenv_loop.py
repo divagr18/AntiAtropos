@@ -49,82 +49,35 @@ CRITICAL_NODES = {"node-0", "node-1", "node-2"}
 
 TASK_BRIEFS = {
     "task-1": (
-        "Traffic ramps linearly — queues build progressively on node-1, node-2, and node-3. "
-        "Your job: keep latency under SLA while controlling cost. "
-        "Relevant actions: SCALE_UP stressed downstream nodes before queues overflow; "
-        "SCALE_DOWN nodes that are over-provisioned after the ramp stabilises; NO_OP when healthy. "
-        "Boot delay is 5 ticks — act before queues peak, not after. "
-        "All three downstream nodes (node-1, node-2, node-3) may need attention at different times. "
-        "node-0 is rarely the bottleneck here."
+        "Traffic ramps every tick — SCALE_UP stressed nodes (node-1, node-2, node-3) "
+        "before queues overflow; boot takes 5 ticks so act early. "
+        "SCALE_DOWN idle nodes when safe. node-0 is rarely the bottleneck."
     ),
     "task-2": (
-        "One of node-1..node-4 will permanently FAIL mid-episode. "
-        "Your job: reroute traffic away from the failed node and stabilise its downstream neighbours. "
-        "Relevant actions: REROUTE_TRAFFIC from the failed node; SCALE_UP starved children; "
-        "SCALE_DOWN where excess capacity accumulates post-reroute; NO_OP once stable. "
-        "The failed node itself cannot be scaled — reroute away from it. "
-        "REROUTE parameter controls what fraction of traffic is redirected — higher is more aggressive. "
-        "Do not pre-scale before a failure is observed."
+        "A node will permanently FAIL — REROUTE_TRAFFIC away from it immediately. "
+        "SCALE_UP its starved children. SCALE_DOWN excess capacity once stable."
     ),
     "task-3": (
-        "A traffic surge hits node-1 and node-2 via a side-channel bypassing node-0. "
-        "node-0 is not affected — focus on node-1, node-2, and their downstream node-3. "
-        "Relevant actions: SCALE_UP the surging nodes; SHED_LOAD on overloaded non-critical nodes; "
-        "SCALE_DOWN when queues recover to reclaim cost; NO_OP when stable. "
-        "Over-scaling wastes cost and reduces reward — scale proportionally to pressure. "
-        "node-4 may also become overloaded from auth traffic side-effects."
+        "Surge hits node-1 and node-2 only (node-0 is unaffected — do not scale it). "
+        "SCALE_UP node-1 and node-2 as queues rise. SHED_LOAD node-4 if overloaded. "
+        "SCALE_DOWN when queues recover."
     ),
 }
 
-SYSTEM_PROMPT = """You are an autonomous SRE controller for a five-node microservice cluster.
+SYSTEM_PROMPT = """SRE controller for a 5-node microservice cluster. Output ONE JSON object. No tags. No text.
 
-OUTPUT: One JSON object only. No thinking tags. No explanation.
+Topology: node-0(VIP)→node-1,node-2 | node-2→node-3 | node-4(Auth)
+Observation: q=queue_depth s=H/D/F(Healthy/Degraded/Failed) r=inflow c=capacity
 
-━━━ TOPOLOGY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  node-0 (VIP Ingress) → node-1 (Checkout), node-2 (Catalog)
-  node-2 → node-3 (Database)
-  node-4 (Auth) — independent ingress
-  Backpressure: overloaded children throttle their parent's outflow.
+Actions:
+  SCALE_UP   <node> param=0.3-0.8  when q rising or status=DEGRADED
+  SCALE_DOWN <node> param=0.2-0.5  when q low and capacity wasted
+  SHED_LOAD  <node> param=0.3-0.6  non-critical spike; never node-0
+  REROUTE_TRAFFIC <node> param=0.5-1.0  only when status=FAILED
+  NO_OP      node-0 param=0.0      only when ALL nodes q<0.2 and healthy
 
-━━━ OBSERVATION KEYS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  fn=failed_nodes  dn=degraded_nodes  al=avg_latency  er=error_rate
-  qb=queue_backlog  co=cost/hr  sv=sla_violations
-  per node: n=id  s=H/D/F  q=queue_depth  l=latency  r=inflow  c=capacity  pc=pending  o=outflow
-
-━━━ ACTIONS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  SCALE_UP        target=stressed node    param=0.3-0.8  (adds capacity; 5-tick boot delay)
-  SCALE_DOWN      target=idle node        param=0.2-0.5  (cancels pending first, then reduces)
-  REROUTE_TRAFFIC target=failed/hot node  param=0.5-1.0  (redirects traffic to healthy peers)
-  SHED_LOAD       target=non-critical     param=0.3-0.6  (drops traffic fraction; NEVER node-0)
-  NO_OP           target=node-0           param=0.0      (hold position)
-
-━━━ NODE ROLES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  node-0: VIP ingress — almost never the scaling target; target it only for REROUTE if it FAILs
-  node-1: Checkout — downstream; scales independently from node-0
-  node-2: Catalog  — downstream; feeds node-3; failure starves the database
-  node-3: Database — leaf node; can become bottleneck under node-2 backpressure
-  node-4: Auth     — independent; failure affects auth traffic separately from checkout/catalog
-
-━━━ PARAMETER SCALE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Low (0.2-0.3): mild adjustment — conservative scaling or light reroute
-  Mid (0.4-0.6): meaningful intervention — moderate queue pressure or partial reroute
-  High (0.7-1.0): aggressive — severe overload, FAILED node, or emergency reroute
-
-━━━ PRIORITIES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Respond to the most urgent signal first:
-  failed nodes > degraded nodes > rising latency > excess capacity > stable
-
-━━━ ANTI-PATTERNS (reduce reward) ━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  ✗ Scaling node-0 when downstream nodes are the actual bottleneck
-  ✗ Repeating NO_OP while queues or latency are visibly rising
-  ✗ Using parameter=0.0 for SCALE_UP or REROUTE_TRAFFIC (has no effect)
-  ✗ Same action on the same node many steps in a row with no improvement
-
-━━━ OUTPUT FORMAT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{"action_type":"SCALE_UP","target_node_id":"node-2","parameter":0.5}
-
-action_type MUST be one of: SCALE_UP SCALE_DOWN REROUTE_TRAFFIC SHED_LOAD NO_OP
-Choose the action that best addresses the current cluster state."""
+Rising queues on any node → SCALE_UP that node immediately.
+{"action_type":"SCALE_UP","target_node_id":"node-1","parameter":0.5}"""
 
 
 # ────────────────────────────────────────────────

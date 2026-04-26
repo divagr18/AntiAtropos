@@ -477,8 +477,31 @@ def train(cfg: Dict[str, Any]) -> None:
         torch.cuda.manual_seed_all(seed)
 
     run_id = cfg.get("run_id", "exp_001")
-    output_dir = Path(cfg.get("output_dir", "/tmp/antiatropos_train"))
+
+    # ── Run-specific output directory ───────────────────────────────────────
+    # Structure: <base_output_dir>/<run_id>/
+    #   checkpoint-0010/   ← saved every checkpoint_interval iters
+    #   checkpoint-0020/
+    #   ...
+    #   final_adapter/     ← saved at end of training
+    #   run_info.json      ← written at startup; identifies this run
+    #
+    # Using run_id as a subfolder means multiple runs never overwrite each other.
+    base_output_dir = Path(cfg.get("output_dir", "/workspace/antiatropos_checkpoints"))
+    output_dir = base_output_dir / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write run manifest so checkpoints are always identifiable
+    import json as _json
+    run_info = {
+        "run_id": run_id,
+        "started_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+        "config": {k: v for k, v in cfg.items() if not k.startswith("_")},
+    }
+    run_info_path = output_dir / "run_info.json"
+    run_info_path.write_text(_json.dumps(run_info, indent=2, default=str))
+    print(f"[train] Run directory: {output_dir}")
+    print(f"[train] Run manifest:  {run_info_path}")
 
     hub_model_repo = cfg.get("hub_model_repo", "")
     hub_metrics_dataset = cfg.get("hub_metrics_dataset", "")
@@ -540,7 +563,7 @@ def train(cfg: Dict[str, Any]) -> None:
     max_steps = cfg.get("max_steps_per_episode", 60)
     tasks = cfg.get("tasks", ["task-1", "task-2", "task-3"])
     max_grad_norm = cfg.get("max_grad_norm", 1.0)
-    checkpoint_interval = cfg.get("checkpoint_interval", 25)
+    checkpoint_interval = cfg.get("checkpoint_interval", 10)  # default: every 10 iters
     eval_interval = cfg.get("eval_interval", 50)
     push_interval = cfg.get("push_interval", 10)
     plot_interval = cfg.get("plot_interval", 25)
@@ -673,12 +696,27 @@ def train(cfg: Dict[str, Any]) -> None:
 
         # ---- Checkpoint ----
         if (iteration + 1) % checkpoint_interval == 0:
-            ckpt_dir = save_checkpoint(
-                model, tokenizer, str(output_dir), iteration
+            # Pad iteration number so ls sorts correctly: checkpoint-0010, checkpoint-0050, ...
+            ckpt_name = f"checkpoint-{iteration + 1:04d}"
+            ckpt_dir = output_dir / ckpt_name
+            ckpt_dir.mkdir(parents=True, exist_ok=True)
+            model.save_pretrained(str(ckpt_dir))
+            tokenizer.save_pretrained(str(ckpt_dir))
+            # Write a small metadata file so you know exactly what's in each checkpoint
+            ckpt_meta = {
+                "run_id": run_id,
+                "iteration": iteration + 1,
+                "avg_reward": avg_reward,
+                "loss": loss.item(),
+                "saved_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+            }
+            (ckpt_dir / "checkpoint_meta.json").write_text(
+                _json.dumps(ckpt_meta, indent=2)
             )
+            print(f"  [ckpt] Saved → {ckpt_dir}  "
+                  f"(reward={avg_reward:.4f}  loss={loss.item():.4f})", flush=True)
             if push_to_hub_flag and hub_model_repo:
-                push_to_hub(ckpt_dir, hub_model_repo,
-                           f"checkpoint-{iteration}")
+                push_to_hub(str(ckpt_dir), hub_model_repo, ckpt_name)
 
         # ---- Evaluation ----
         if (iteration + 1) % eval_interval == 0:
