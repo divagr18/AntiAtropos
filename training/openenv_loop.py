@@ -306,6 +306,7 @@ class Transition:
     action: ParsedAction       # The action taken
     reward: float              # Reward from environment
     log_prob: float = 0.0     # Log probability of action under policy
+    obs_dict: Optional[Dict] = None  # Raw observation dict (for step-level metrics logging)
 
 
 @dataclass
@@ -443,6 +444,7 @@ def rollout_episode(
             attention_mask=inputs["attention_mask"].squeeze(0),
             action=action,
             reward=step_reward,
+            obs_dict=obs_dict,  # raw cluster state for per-step metrics
         )
         episode.transitions.append(transition)
 
@@ -702,6 +704,7 @@ def rollout_batch(
                 attention_mask=all_attention_masks[idx],
                 action=actions[idx],
                 reward=step_reward,
+                obs_dict=obs_dicts[i],  # raw cluster state for per-step metrics
             )
             episodes[i].transitions.append(transition)
 

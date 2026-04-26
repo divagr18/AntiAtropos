@@ -449,8 +449,136 @@ def push_train_metrics(
 
 
 # ────────────────────────────────────────────────────────────
-# Main Training Loop
+# Local JSONL Metrics Writers
 # ────────────────────────────────────────────────────────────
+
+def write_step_metrics(
+    run_id: str,
+    iteration: int,
+    episode_idx: int,
+    task_id: str,
+    step: int,
+    transition,          # Transition dataclass from openenv_loop
+    output_dir: Path,
+) -> None:
+    """Append one per-step row to step_metrics.jsonl.
+
+    Each row captures the full cluster state at that step:
+    action chosen, reward received, and all per-node + cluster-level
+    metrics so you can graph queue depth, latency, cost, SLA violations,
+    action distribution, etc. over time.
+    """
+    obs = transition.obs_dict or {}
+    action = transition.action
+
+    row: Dict[str, Any] = {
+        # ── Identity ──────────────────────────────────────────────
+        "run_id":        run_id,
+        "iteration":     iteration,
+        "episode_idx":   episode_idx,
+        "task_id":       task_id,
+        "step":          step,
+        "ts":            __import__("datetime").datetime.utcnow().isoformat() + "Z",
+
+        # ── Action ────────────────────────────────────────────────
+        "action_type":   action.action_type,
+        "target_node":   action.target_node_id,
+        "parameter":     round(action.parameter, 4),
+        "is_valid":      action.is_valid,
+
+        # ── Reward ────────────────────────────────────────────────
+        "reward":        round(transition.reward, 6),
+
+        # ── Cluster-level metrics ──────────────────────────────────
+        "avg_latency_ms":      round(obs.get("average_latency_ms", 0.0), 3),
+        "error_rate":          round(obs.get("error_rate", 0.0), 6),
+        "total_queue_backlog": round(obs.get("total_queue_backlog", 0.0), 4),
+        "cost_per_hour":       round(obs.get("current_cost_per_hour", 0.0), 4),
+        "sla_violations":      obs.get("sla_violations", 0),
+    }
+
+    # ── Per-node metrics (flat columns: n0_q, n0_l, n0_s, ...) ──
+    for node in obs.get("nodes", []):
+        nid = node.get("node_id", "")
+        key = nid.replace("-", "")  # "node-0" → "node0"
+        row[f"{key}_status"]   = node.get("status", "")[:1]   # H/D/F
+        row[f"{key}_queue"]    = round(node.get("queue_depth", 0.0), 4)
+        row[f"{key}_latency"]  = round(node.get("latency_ms", 0.0), 2)
+        row[f"{key}_inflow"]   = round(node.get("incoming_request_rate", 0.0), 2)
+        row[f"{key}_outflow"]  = round(node.get("outflow_rate", 0.0), 2)
+        row[f"{key}_capacity"] = round(node.get("capacity", 0.0), 4)
+        row[f"{key}_pending"]  = round(node.get("pending_capacity", 0.0), 4)
+
+    path = output_dir / "step_metrics.jsonl"
+    with open(path, "a") as f:
+        f.write(json.dumps(row) + "\n")
+
+
+def write_iter_metrics(
+    run_id: str,
+    iteration: int,
+    loss: float,
+    avg_reward: float,
+    grad_norm: float,
+    total_invalid: int,
+    num_episodes: int,
+    iter_time_s: float,
+    output_dir: Path,
+) -> None:
+    """Append one per-iteration row to iter_metrics.jsonl."""
+    row = {
+        "run_id":        run_id,
+        "iteration":     iteration,
+        "ts":            __import__("datetime").datetime.utcnow().isoformat() + "Z",
+        "loss":          round(loss, 6),
+        "avg_reward":    round(avg_reward, 6),
+        "grad_norm":     round(grad_norm, 4),
+        "invalid_actions": total_invalid,
+        "num_episodes":  num_episodes,
+        "iter_time_s":   round(iter_time_s, 2),
+    }
+    path = output_dir / "iter_metrics.jsonl"
+    with open(path, "a") as f:
+        f.write(json.dumps(row) + "\n")
+
+
+
+class _TeeLogger:
+    """Duplicates writes to both the original stream and a log file.
+
+    Activated at the start of train() so that every print() — VRAM stats,
+    step logs, entropy, iteration summaries, tracebacks — goes to both
+    the HF job terminal stream AND a persistent training.log on disk.
+    """
+    def __init__(self, stream, log_path: Path):
+        self._stream = stream
+        self._file = open(log_path, "a", buffering=1, encoding="utf-8")  # line-buffered
+
+    def write(self, data: str) -> None:
+        self._stream.write(data)
+        self._file.write(data)
+
+    def flush(self) -> None:
+        self._stream.flush()
+        self._file.flush()
+
+    def fileno(self) -> int:
+        return self._stream.fileno()  # subprocess / os compatibility
+
+    def isatty(self) -> bool:
+        return False
+
+    def close(self) -> None:
+        try:
+            self._file.flush()
+            self._file.close()
+        except Exception:
+            pass
+
+    @property
+    def original_stream(self):
+        return self._stream
+
 
 def _log_vram(where: str) -> None:
     """Print CUDA memory usage at key diagnostic points."""
@@ -491,6 +619,16 @@ def train(cfg: Dict[str, Any]) -> None:
     output_dir = base_output_dir / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # ── Activate full-run logging to disk ────────────────────────────────────
+    # Every print() from here on is tee'd to training.log (line-buffered).
+    # This mirrors the HF job terminal stream to a persistent file so you
+    # can inspect the full log even after the job completes or crashes.
+    log_path = output_dir / "training.log"
+    _orig_stdout = sys.stdout
+    _orig_stderr = sys.stderr
+    sys.stdout = _TeeLogger(sys.stdout, log_path)
+    sys.stderr = _TeeLogger(sys.stderr, log_path)
+    print(f"[train] Full log: {log_path}")
     # Write run manifest so checkpoints are always identifiable
     import json as _json
     run_info = {
@@ -660,27 +798,41 @@ def train(cfg: Dict[str, Any]) -> None:
         total_invalid = sum(ep.num_invalid for ep in episodes)
         iter_time = time.time() - iter_start
 
+        # ---- Write per-step metrics (one row per episode step) ----
+        # Done here (post-training) because training may mutate episode objects.
+        for ep_idx, ep in enumerate(episodes):
+            for step_idx, t in enumerate(ep.transitions):
+                write_step_metrics(
+                    run_id=run_id,
+                    iteration=iteration,
+                    episode_idx=ep_idx,
+                    task_id=ep.task_id,
+                    step=step_idx + 1,
+                    transition=t,
+                    output_dir=output_dir,
+                )
+
+        # ---- Write per-iteration metrics ----
+        _grad_norm_val = (
+            grad_norm.item() if torch.is_tensor(grad_norm) else float(grad_norm)
+        )
+        write_iter_metrics(
+            run_id=run_id,
+            iteration=iteration,
+            loss=loss.item(),
+            avg_reward=avg_reward,
+            grad_norm=_grad_norm_val,
+            total_invalid=total_invalid,
+            num_episodes=len(episodes),
+            iter_time_s=iter_time,
+            output_dir=output_dir,
+        )
+
         print(f"  [iter {iteration:4d}] loss={loss.item():.4f}  "
               f"avg_reward={avg_reward:.4f}  "
               f"invalid={total_invalid}  "
-              f"grad_norm={grad_norm:.4f}  "
+              f"grad_norm={_grad_norm_val:.4f}  "
               f"time={iter_time:.1f}s")
-
-        # ---- Buffer metrics ----
-        metrics_row = {
-            "run_id": run_id,
-            "iteration": iteration,
-            "type": "train",
-            "loss": loss.item(),
-            "avg_reward": avg_reward,
-            "invalid_actions": total_invalid,
-            "grad_norm": grad_norm if isinstance(grad_norm, float)
-                         else grad_norm.item() if torch.is_tensor(grad_norm)
-                         else 0.0,
-            "num_episodes": len(episodes),
-            "iter_time_s": iter_time,
-        }
-        metrics_buffer.append(metrics_row)
 
         # Store episode data for plotting (keep recent window)
         ep_data = episodes_to_plot_data(episodes)
@@ -827,6 +979,16 @@ def train(cfg: Dict[str, Any]) -> None:
     print(f"\n[train] All done. Final adapter: {final_dir}")
     if hub_model_repo:
         print(f"[train] Hub repo: https://huggingface.co/{hub_model_repo}")
+
+    # ── Flush and close the TeeLogger ────────────────────────────────────────
+    # Restore original stdout/stderr so any code after train() works normally.
+    print(f"[train] Full training log saved to: {log_path}", flush=True)
+    if isinstance(sys.stdout, _TeeLogger):
+        sys.stdout.close()
+        sys.stdout = _orig_stdout
+    if isinstance(sys.stderr, _TeeLogger):
+        sys.stderr.close()
+        sys.stderr = _orig_stderr
 
 
 # ────────────────────────────────────────────────────────────
