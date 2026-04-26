@@ -133,20 +133,28 @@ def reinforce_baseline_loss_fn(
 ) -> torch.Tensor:
     """Compute REINFORCE with baseline loss across episodes.
 
-    For each episode:
-      1. Re-encode the (obs, action) pairs as full sequences
-      2. Compute log-prob of the generated tokens under the current policy
-      3. Use discounted returns as advantages (with baseline = mean return)
-      4. Loss = -sum(advantage * log_prob)
+    Uses per-mini-batch gradient accumulation:
+      - Pre-compute ALL advantages on CPU first (enables global normalization).
+      - For each mini-batch: forward → compute loss → backward() immediately.
+      - Frees the computation graph after every mini-batch.
+      - Returns a detached scalar; gradients already sit in model.parameters().grad.
 
-    Transitions are batched into groups for efficient forward passes
-    (instead of one-at-a-time, which wastes GPU).
+    This keeps peak VRAM to ONE forward pass worth of activations (~8-9 GiB)
+    instead of accumulating all mini-batch graphs simultaneously (which caused
+    OOM when 3 batches × ~8.9 GiB each = 26+ GiB were held concurrently).
+
+    Caller (train.py) must check `if loss.requires_grad` before calling
+    loss.backward() — this function returns requires_grad=False so the
+    caller's backward() is skipped cleanly.
     """
+    import math as _math
     gamma = cfg.get("reward_gamma", 0.99)
     normalize_adv = cfg.get("advantage_normalize", True)
-    loss_batch_size = cfg.get("loss_batch_size", 32)
+    loss_batch_size = cfg.get("loss_batch_size", 1)
+    max_seq_len_cap = cfg.get("max_seq_length", 512)
+    pad_id = tokenizer.pad_token_id or tokenizer.eos_token_id
 
-    # Collect all (transition, return) pairs
+    # ── Phase 1: Collect all (transition, return) pairs (CPU) ──────────────
     all_pairs: List[Tuple] = []
     for ep in episodes:
         if not ep.transitions:
@@ -158,122 +166,112 @@ def reinforce_baseline_loss_fn(
                 all_pairs.append((trans, ret))
 
     if not all_pairs:
-        return torch.tensor(0.0, requires_grad=True, device=model.device)
+        return torch.tensor(0.0, device=model.device)
 
-    all_log_probs = []
-    all_advantages = []
-    pad_id = tokenizer.pad_token_id or tokenizer.eos_token_id
+    # ── Phase 2: Compute normalized advantages on CPU (global normalization) ─
+    raw_returns = torch.tensor([p[1] for p in all_pairs], dtype=torch.float32)
+    if normalize_adv and len(raw_returns) > 1:
+        advantages = (raw_returns - raw_returns.mean()) / (raw_returns.std() + 1e-8)
+    else:
+        advantages = raw_returns
+    # advantages stays on CPU until we move per-batch slices to GPU
 
-    # Max sequence length cap — prevents a single long outlier from inflating
-    # the entire batch's padding budget.
-    # A10G OOM: 4 × 512 × vocab(151936) × 2 bytes = ~624 MiB logit tensor.
-    # Capping at max_seq_length ensures max_len never exceeds the model limit.
-    max_seq_len_cap = cfg.get("max_seq_length", 512)
+    # ── Phase 3: Gradient accumulation — one forward/backward per mini-batch ─
+    # Each iteration: build batch → forward → loss → backward → del graph.
+    # Only one forward pass worth of activations lives in VRAM at any time.
+    n_batches = _math.ceil(len(all_pairs) / loss_batch_size)
+    total_loss_val = 0.0
 
-    # Process transitions in batches for GPU efficiency
-    for batch_start in range(0, len(all_pairs), loss_batch_size):
+    for batch_idx, batch_start in enumerate(range(0, len(all_pairs), loss_batch_size)):
         batch = all_pairs[batch_start:batch_start + loss_batch_size]
+        batch_advs = advantages[batch_start:batch_start + loss_batch_size]  # CPU tensor
+
         batch_ids = [p[0].input_ids for p in batch]
         batch_masks = [p[0].attention_mask for p in batch]
-        batch_returns = [p[1] for p in batch]
 
-        # Truncate sequences that exceed the cap (take the tail — keeps the action tokens)
-        batch_ids = [ids[-max_seq_len_cap:] if ids.shape[0] > max_seq_len_cap else ids for ids in batch_ids]
-        batch_masks = [m[-max_seq_len_cap:] if m.shape[0] > max_seq_len_cap else m for m in batch_masks]
+        # Truncate outlier-length sequences (tail keeps action tokens)
+        batch_ids  = [ids[-max_seq_len_cap:]  if ids.shape[0]  > max_seq_len_cap else ids  for ids  in batch_ids]
+        batch_masks = [m[-max_seq_len_cap:]   if m.shape[0]    > max_seq_len_cap else m    for m    in batch_masks]
 
-        # Left-pad to same length (correct for causal LM forward pass)
+        # Left-pad to same length within mini-batch
         max_len = max(ids.shape[0] for ids in batch_ids)
-        padded_ids = []
-        padded_masks = []
+        padded_ids, padded_masks = [], []
         for ids, mask in zip(batch_ids, batch_masks):
             pad_len = max_len - ids.shape[0]
             if pad_len > 0:
-                padded_ids.append(torch.cat([
-                    torch.full((pad_len,), pad_id, device=ids.device), ids
-                ]))
-                padded_masks.append(torch.cat([
-                    torch.zeros(pad_len, device=mask.device, dtype=mask.dtype), mask
-                ]))
+                padded_ids.append(torch.cat([torch.full((pad_len,), pad_id, device=ids.device), ids]))
+                padded_masks.append(torch.cat([torch.zeros(pad_len, device=mask.device, dtype=mask.dtype), mask]))
             else:
                 padded_ids.append(ids)
                 padded_masks.append(mask)
 
-        input_ids = torch.stack(padded_ids)
+        input_ids     = torch.stack(padded_ids)
         attention_mask = torch.stack(padded_masks)
 
-        # Forward pass WITH gradient (critical for REINFORCE)
-        # Flush fragmented generation KV-cache before allocating activation memory.
+        # ── Forward pass ─────────────────────────────────────────────────────
         torch.cuda.empty_cache()
         if torch.cuda.is_available():
             alloc = torch.cuda.memory_allocated() / 1024**3
-            free, total = torch.cuda.mem_get_info()
+            free, total_mem = torch.cuda.mem_get_info()
             torch.cuda.reset_peak_memory_stats()
-            print(f"  [loss_fwd] input_ids={input_ids.shape} "
-                  f"alloc={alloc:.2f}GiB free={free/1024**3:.1f}/{total/1024**3:.1f}GiB",
-                  flush=True)
+            print(f"  [loss_fwd b{batch_idx+1}/{n_batches}] "
+                  f"shape={input_ids.shape} alloc={alloc:.2f}GiB "
+                  f"free={free/1024**3:.1f}/{total_mem/1024**3:.1f}GiB", flush=True)
+
         outputs = model(
             input_ids=input_ids.to(model.device),
             attention_mask=attention_mask.to(model.device),
-            use_cache=False,  # CRITICAL: disables KV-cache during training forward.
-                              # model.generate() needs KV-cache; model() for loss does NOT.
-                              # Without this, the model allocates KV-cache for all 36 layers
-                              # across the full sequence, wasting ~1-2 GiB of VRAM.
+            use_cache=False,  # No KV-cache needed for single-pass loss forward.
         )
+
         if torch.cuda.is_available():
-            alloc_after = torch.cuda.memory_allocated() / 1024**3
             peak = torch.cuda.max_memory_allocated() / 1024**3
             free2, _ = torch.cuda.mem_get_info()
-            print(f"  [loss_fwd] post-forward alloc={alloc_after:.2f}GiB "
-                  f"peak={peak:.2f}GiB free={free2/1024**3:.1f}GiB", flush=True)
-        logits = outputs.logits  # (batch, seq_len, vocab_size)
+            print(f"  [loss_fwd b{batch_idx+1}/{n_batches}] "
+                  f"post-fwd peak={peak:.2f}GiB free={free2/1024**3:.1f}GiB", flush=True)
 
-        # Shift for next-token prediction
-        shift_logits = logits[:, :-1, :].contiguous()   # (B, S-1, V)
-        shift_labels = input_ids[:, 1:].contiguous()     # (B, S-1)
-
-        # --- Memory-efficient log-prob computation ---
-        # log_softmax(shift_logits) would materialize a full float32 tensor:
-        #   B × S × V × 4 bytes = 2 × 512 × 151936 × 4 ≈ 624 MiB → OOM on A10G.
-        # cross_entropy(reduction='none') uses a fused CUDA kernel that computes
-        # only the scalar NLL per token without ever materialising the full
-        # [B*S, V] float32 probability distribution.
-        # We negate to recover log_prob (cross_entropy returns -log_prob).
+        # ── Memory-efficient log-prob via fused cross_entropy kernel ──────────
+        logits = outputs.logits
+        shift_logits = logits[:, :-1, :].contiguous()
+        shift_labels  = input_ids[:, 1:].contiguous()
         B, S_minus1 = shift_labels.shape
+
         token_nll = torch.nn.functional.cross_entropy(
             shift_logits.view(B * S_minus1, -1).to(model.device),
             shift_labels.view(B * S_minus1).to(model.device),
             reduction="none",
             ignore_index=-100,
-        ).view(B, S_minus1)  # (B, S-1) — negative log-probs, scalar per token
-        token_log_probs = -token_nll  # log π(a|s) — negative cross-entropy
+        ).view(B, S_minus1)
+        token_log_probs = -token_nll
 
-        # Mask out padding positions (left-padded: zeros at start)
         shift_mask = attention_mask[:, 1:].to(model.device)
         token_log_probs = token_log_probs * shift_mask
+        seq_log_probs = token_log_probs.sum(dim=1)  # (B,)
 
-        # Free logits immediately — no longer needed, saves ~300 MiB
-        del outputs, logits, shift_logits, token_nll
+        # Free logits immediately — cross_entropy output is all we need
+        del outputs, logits, shift_logits, token_nll, token_log_probs
         torch.cuda.empty_cache()
 
-        # Sum log probs over non-padded tokens per sequence
-        seq_log_probs = token_log_probs.sum(dim=1)  # (batch,)
+        # ── Per-mini-batch loss scaled for correct gradient averaging ─────────
+        # Divide by n_batches so that summing gradients across all mini-batches
+        # equals the mean over the full batch (standard gradient accumulation).
+        batch_advs_gpu = batch_advs.to(model.device)
+        batch_loss = -(batch_advs_gpu * seq_log_probs).mean() / n_batches
 
-        all_log_probs.append(seq_log_probs)
-        all_advantages.extend(batch_returns)
+        # ── Backward immediately — frees entire computation graph ─────────────
+        # Gradients accumulate in model.parameters().grad across mini-batches.
+        # The caller in train.py checks `if loss.requires_grad` and skips
+        # its backward() call because we return a detached tensor.
+        batch_loss.backward()
 
-    # Concatenate all batches
-    log_probs = torch.cat(all_log_probs)  # has gradient
-    advantages = torch.tensor(all_advantages, device=model.device).detach()
+        total_loss_val += batch_loss.item() * n_batches  # unscale for logging
+        del batch_loss, seq_log_probs, batch_advs_gpu
+        torch.cuda.empty_cache()
 
-    # Normalize advantages
-    if normalize_adv and len(advantages) > 1:
-        advantages = (advantages - advantages.mean()) / (
-            advantages.std() + 1e-8
-        )
+    # Return detached scalar for logging (requires_grad=False → caller skips backward)
+    return torch.tensor(total_loss_val / n_batches, device=model.device)
 
-    # REINFORCE loss: -E[A * log_pi]  (gradient flows through log_probs)
-    loss = -(advantages * log_probs).mean()
-    return loss
+
 
 
 def grpo_loss_fn(
