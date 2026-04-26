@@ -303,9 +303,9 @@ class Transition:
     obs_text: str              # Formatted observation (LLM input)
     input_ids: Any             # Tokenized full sequence IDs (prompt + action)
     attention_mask: Any        # Tokenized full sequence attention mask
-    prompt_len: int = 0        # Number of tokens in the prompt (before generated action)
     action: ParsedAction       # The action taken
     reward: float              # Reward from environment
+    prompt_len: int = 0        # Number of tokens in the prompt (before generated action)
     log_prob: float = 0.0     # Log probability of action under policy
     obs_dict: Optional[Dict] = None  # Raw observation dict (for step-level metrics logging)
 
