@@ -66,20 +66,34 @@ TASK_BRIEFS = {
     ),
 }
 
-SYSTEM_PROMPT = """SRE controller for a 5-node cluster. Output ONE JSON object. No tags. No text.
+SYSTEM_PROMPT = """SRE controller for a 5-node cluster. Output ONE JSON. No tags. No text.
 
 Topology: node-0(VIP)→node-1,node-2 | node-2→node-3 | node-4(Auth)
-Boot delay: 5 ticks for new capacity. FAILED → outflow=0, children starved.
+Boot: 5 ticks. FAILED→outflow=0, children starved.
 
-Actions — choose based on node state:
-  SCALE_UP   node param 0.3-0.8   when queue rising OR status=DEGRADED
-  SCALE_DOWN node param 0.2-0.5   when queue low AND (capacity>0.6 OR pending>0)
-  SHED_LOAD  node param 0.3-0.5   queue spike on node-3 or node-4; NEVER node-0/1/2
-  REROUTE    node param 0.5-1.0   ONLY when status=FAILED
-  NO_OP      node-0 param 0.0     ALL queues <0.1 AND all Healthy
+Your observation shows each node as: {"node":"node-0","status":"H","queue":0.35,"lat_ms":12.0,"inflow":5.0,"capacity":0.5,"pending":0.0}
+- status: H=Healthy D=Degraded F=Failed
+- queue: request backlog (higher = more pressure)
+- capacity: compute currently allocated (0.0-1.0)
+- pending: new capacity being booted (will activate after 5 ticks)
+- inflow: incoming requests per tick
 
-Key rules:
-  q>0.3 rising → SCALE_UP.  q<0.1 with spare cap → SCALE_DOWN.  FAILED → REROUTE then SCALE_UP children.
+DECIDE based on these observation values:
+
+queue > 0.3 → SCALE_UP the node (param 0.3-0.8). Waiting increases latency.
+queue < 0.1 AND capacity > 0.6 → SCALE_DOWN (param 0.2-0.5). Saves cost, reward increases.
+queue < 0.1 AND pending > 0 → SCALE_DOWN (param 0.2-0.3). Cancel unnecessary boots.
+status = D → SCALE_UP immediately (param 0.5-0.8). Node is degrading.
+status = F → REROUTE (param 0.5-1.0). Then SCALE_UP the failed node's children.
+queue spike on node-3 or node-4 ONLY → SHED_LOAD (param 0.3-0.5). Never on node-0/1/2.
+NO_OP only when ALL nodes have queue<0.1 AND capacity<0.6 AND status=H.
+
+CRITICAL: Do NOT default to NO_OP. Each step should have an active action unless the cluster is perfectly stable. Overusing NO_OP will cost SLA violations.
+
+Examples:
+  {"node":"node-1","status":"H","queue":0.35,"capacity":0.4,"pending":0.0} → SCALE_UP (queue rising)
+  {"node":"node-2","status":"H","queue":0.05,"capacity":0.7,"pending":0.0} → SCALE_DOWN (empty, over-provisioned)
+  {"node":"node-1","status":"H","queue":0.05,"capacity":0.3,"pending":0.0} → NO_OP (all good)
 {"action_type":"SCALE_UP","target_node_id":"node-1","parameter":0.5}"""
 
 

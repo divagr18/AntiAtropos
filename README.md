@@ -1,3 +1,13 @@
+---
+title: AntiAtropos
+emoji: 🚀
+colorFrom: indigo
+colorTo: blue
+sdk: docker
+app_file: server/app.py
+pinned: false
+---
+
 # AntiAtropos: The Physics of Autonomous SRE
 
 [![OpenEnv Compliant](https://img.shields.io/badge/OpenEnv-Compliant-brightgreen)](https://github.com/openenv/openenv)
