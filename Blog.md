@@ -35,10 +35,11 @@ In the best case, this workflow is partially automated. Horizontal Pod Autoscale
 
 More importantly, **no existing system provides a mathematical guarantee**. There is no production autoscaler today that can prove it will keep queues bounded. There is no incident response tool that can prove its actions are cost-optimal. The industry runs on heuristics — rules of thumb encoded as YAML, battle-tested through painful outages, but ultimately ad-hoc.
 
-AntiAtropos is the first infrastructure control environment to replace heuristics with **provable stability guarantees**. It models the cluster as a fluid queue network, defines equilibrium through a Lyapunov energy function, and trains agents to minimize a Drift-Plus-Penalty objective.
+AntiAtropos is the first infrastructure control environment to replace SRE heuristics with **RL-based physics control**. It models the cluster as a fluid queue network, defines equilibrium through a Lyapunov energy function, and trains a Qwen3.5-4B model via **QLoRA REINFORCE** to minimize a Drift-Plus-Penalty objective—producing a policy that keeps queues bounded at minimum cost.
 
-### The Bottom Line: Performance without the Premium
-The unique selling point of AntiAtropos is **Efficiency**. In head-to-head benchmarks, our agent achieved perfect SLA compliance while being **50% cheaper** than traditional heuristic-based autoscalers. By understanding the underlying physics of the cluster, the agent eliminates the "panic-scaling" that plagues modern cloud infrastructure.
+### The Bottom Line: 50% Cost Savings at Perfect SLA
+
+This is not theoretical. In head-to-head benchmarks against a production-grade heuristic autoscaler, AntiAtropos maintained **perfect SLA compliance** while spending **half the infrastructure cost**. The agent learned to scale predictively rather than reactively, eliminating the "panic-scaling" that traditional threshold-based systems rely on. By understanding the physics of the cluster, it anticipates load before it arrives.
 
 ![Cost Comparison: AntiAtropos vs Heuristic Autoscaler](/images/Cost%20comparison.png)
 *Figure 1: AntiAtropos (Blue) maintains stability at half the resource cost of a production-grade heuristic scaler (Orange).*
