@@ -631,11 +631,20 @@ def rollout_batch(
             )
 
         # ── Parse actions ──
+        # Free the generation output tensor immediately — it holds the full
+        # KV-cache for all 36 layers on GPU. Without this, each step
+        # accumulates a stale KV-cache tensor that is never freed.
         actions = []
+        decoded_texts = []
         for idx in range(len(active_indices)):
             generated_text = tokenizer.decode(
                 outputs[idx][input_lens[idx]:], skip_special_tokens=True
             )
+            decoded_texts.append(generated_text)
+        del outputs  # Free KV-cache before parsing (no GPU ops needed for parsing)
+        torch.cuda.empty_cache()
+
+        for idx, generated_text in enumerate(decoded_texts):
             generated_text = re.sub(
                 '\x3cthink\x3e.*?\x3c/think\x3e', '',
                 generated_text, flags=re.DOTALL

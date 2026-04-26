@@ -204,10 +204,27 @@ def reinforce_baseline_loss_fn(
         # Forward pass WITH gradient (critical for REINFORCE)
         # Flush fragmented generation KV-cache before allocating activation memory.
         torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            alloc = torch.cuda.memory_allocated() / 1024**3
+            free, total = torch.cuda.mem_get_info()
+            torch.cuda.reset_peak_memory_stats()
+            print(f"  [loss_fwd] input_ids={input_ids.shape} "
+                  f"alloc={alloc:.2f}GiB free={free/1024**3:.1f}/{total/1024**3:.1f}GiB",
+                  flush=True)
         outputs = model(
             input_ids=input_ids.to(model.device),
             attention_mask=attention_mask.to(model.device),
+            use_cache=False,  # CRITICAL: disables KV-cache during training forward.
+                              # model.generate() needs KV-cache; model() for loss does NOT.
+                              # Without this, the model allocates KV-cache for all 36 layers
+                              # across the full sequence, wasting ~1-2 GiB of VRAM.
         )
+        if torch.cuda.is_available():
+            alloc_after = torch.cuda.memory_allocated() / 1024**3
+            peak = torch.cuda.max_memory_allocated() / 1024**3
+            free2, _ = torch.cuda.mem_get_info()
+            print(f"  [loss_fwd] post-forward alloc={alloc_after:.2f}GiB "
+                  f"peak={peak:.2f}GiB free={free2/1024**3:.1f}GiB", flush=True)
         logits = outputs.logits  # (batch, seq_len, vocab_size)
 
         # Shift for next-token prediction
