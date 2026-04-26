@@ -18,7 +18,7 @@
 run_id: "run_001"                    # Unique run identifier — change per run (used for checkpoint subfolder)
 
 # ---- Environment (OpenEnv) ----
-env_url: "https://pranavkk-antiatropos.hf.space"
+env_url: "https://keshav051-antiatropos.hf.space"
 tasks: ["task-1", "task-2", "task-3"]
 max_steps_per_episode: 20            # 20 steps: task-2 failure can occur mid-ep; need recovery steps
 env_mode: "simulated"                # "simulated" | "live" | "hybrid" — set to "live" for real k8s

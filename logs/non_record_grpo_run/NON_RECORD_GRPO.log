@@ -1,0 +1,2411 @@
+[train] Full log: /workspace/antiatropos_checkpoints/grpo_run_001/training.log
+/workspace/AntiAtropos/training/train.py:763: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  "started_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+[train] Run directory: /workspace/antiatropos_checkpoints/grpo_run_001
+[train] Run manifest:  /workspace/antiatropos_checkpoints/grpo_run_001/run_info.json
+[openenv] Connectivity OK — task_id=task-1, reward=0.7484116759410081
+
+[train] Loading model...
+🦥 Unsloth: Will patch your computer to enable 2x faster free finetuning.
+Unsloth: Your Flash Attention 2 installation seems to be broken. Using Xformers instead. No performance changes will be seen.
+🦥 Unsloth Zoo will now patch everything to make training faster!
+[model_utils] Loading Qwen/Qwen3.5-4B (seq_len=768, 4bit=True)
+Unsloth: WARNING `trust_remote_code` is True.
+Are you certain you want to do remote code execution?
+==((====))==  Unsloth 2026.4.8: Fast Qwen3_5 patching. Transformers: 5.5.0.
+   \\   /|    NVIDIA A10G. Num GPUs = 1. Max memory: 22.301 GB. Platform: Linux.
+O^O/ \_/ \    Torch: 2.10.0+cu126. CUDA: 8.6. CUDA Toolkit: 12.6. Triton: 3.6.0
+\        /    Bfloat16 = TRUE. FA [Xformers = None. FA2 = False]
+ "-____-"     Free license: http://github.com/unslothai/unsloth
+Unsloth: Fast downloading is enabled - ignore downloading bars which are red colored!
+
+model.safetensors.index.json:   0%|          | 0.00/76.2k [00:00<?, ?B/s][Amodel.safetensors.index.json: 100%|##########| 76.2k/76.2k [00:00<00:00, 57.8MB/s]
+
+Downloading (incomplete total...): 0.00B [00:00, ?B/s][A
+Fetching 2 files:   0%|          | 0/2 [00:00<?, ?it/s][A
+Downloading (incomplete total...):   0%|          | 0.00/5.33G [00:00<?, ?B/s][A
+Downloading (incomplete total...):   0%|          | 0.00/9.32G [00:00<?, ?B/s][A
+Downloading (incomplete total...):   0%|          | 348k/9.32G [00:01<7:34:04, 342kB/s][A
+Downloading (incomplete total...):  14%|#3        | 1.27G/9.32G [00:02<00:12, 667MB/s] [A
+Downloading (incomplete total...):  41%|####      | 3.78G/9.32G [00:03<00:03, 1.73GB/s][A
+Downloading (incomplete total...):  41%|####      | 3.78G/9.32G [00:03<00:03, 1.73GB/s][A
+Downloading (incomplete total...):  97%|#########6| 9.02G/9.32G [00:04<00:00, 2.82GB/s][A
+Fetching 2 files:  50%|#####     | 1/2 [00:04<00:04,  4.81s/it][AFetching 2 files: 100%|##########| 2/2 [00:04<00:00,  2.41s/it]
+
+Download complete: 100%|##########| 9.32G/9.32G [00:04<00:00, 2.82GB/s]                [ADownload complete: 100%|##########| 9.32G/9.32G [00:04<00:00, 1.93GB/s]
+The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
+
+Loading weights:   0%|          | 0/723 [00:00<?, ?it/s][A
+Loading weights:  55%|#####5    | 399/723 [00:01<00:00, 397.07it/s][ALoading weights: 100%|##########| 723/723 [00:01<00:00, 604.72it/s]
+
+preprocessor_config.json:   0%|          | 0.00/390 [00:00<?, ?B/s][Apreprocessor_config.json: 100%|##########| 390/390 [00:00<00:00, 2.51MB/s]
+
+chat_template.jinja:   0%|          | 0.00/7.76k [00:00<?, ?B/s][Achat_template.jinja: 100%|##########| 7.76k/7.76k [00:00<00:00, 53.2MB/s]
+
+tokenizer_config.json:   0%|          | 0.00/16.7k [00:00<?, ?B/s][Atokenizer_config.json: 100%|##########| 16.7k/16.7k [00:00<00:00, 70.8MB/s]
+
+tokenizer.json:   0%|          | 0.00/12.8M [00:00<?, ?B/s][Atokenizer.json: 100%|##########| 12.8M/12.8M [00:00<00:00, 60.3MB/s]
+
+video_preprocessor_config.json:   0%|          | 0.00/385 [00:00<?, ?B/s][Avideo_preprocessor_config.json: 100%|##########| 385/385 [00:00<00:00, 3.50MB/s]
+  [VRAM @model_loaded]  alloc=  3.12GiB  reserved=  3.14GiB  peak=  3.12GiB  free=18.8/22.3GiB
+[model_utils] Attaching LoRA: rank=64, alpha=64, dropout=0.0, targets=7 modules
+[model_utils] VRAM: 3.68 / 23.95 GiB
+[model_utils] Trainable: 84,934,656 / 2,688,659,968 (3.16%)
+[train] Loss function: grpo
+
+======================================================================
+ANTIATROPOS QLORA TRAINING
+======================================================================
+  Run ID:        grpo_run_001
+  Loss type:     grpo
+  Iterations:    10
+  Episodes/iter: 6
+  Tasks:         ['task-1', 'task-2', 'task-3']
+  Max steps:     15
+  Learning rate: 1e-05
+  Hub model:     Keshav051/antiatropos-qlora
+  Output dir:    /workspace/antiatropos_checkpoints/grpo_run_001
+======================================================================
+
+  [VRAM @eval_after_attach]  alloc=  3.43GiB  reserved=  3.45GiB  peak=  3.43GiB  free=18.5/22.3GiB
+  [grpo] WARNING: num_episodes=6 ≠ grpo_k(4) × num_tasks(3)=12. Forcing to 12.
+  [VRAM @i0_pre_rollout]  alloc=  3.43GiB  reserved=  3.45GiB  peak=  3.43GiB  free=18.5/22.3GiB
+  E0 S 1 | NO_OP       node-0 p=0.00      | 0.8219  | INVALID: invalid target_node_id: null
+  E1 S 1 | NO_OP       node-0 p=0.00      | 0.7363  | 
+  E2 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S 1 | NO_OP       node-0 p=0.00      | 0.6080  | 
+  E4 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 1 | NO_OP       node-0 p=0.00      | 0.6647  | 
+  E9 S 1 | NO_OP       node-0 p=0.00      | 0.8781  | 
+  E10 S 1 | NO_OP       node-0 p=0.00      | 0.6953  | 
+  E11 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 2 | SCALE_UP    node-1 p=0.30      | 0.7530  | 
+  E1 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S 2 | SCALE_UP    node-1 p=0.50      | 0.7300  | 
+  E3 S 2 | SCALE_UP    node-1 p=0.70      | 0.5577  | 
+  E4 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 2 | NO_OP       node-0 p=0.00      | 0.7728  | INVALID: invalid target_node_id: null
+  E6 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 2 | NO_OP       node-0 p=0.00      | 0.6800  | 
+  E11 S 2 | NO_OP       node-0 p=0.00      | 0.8671  | 
+  E0 S 3 | NO_OP       node-0 p=0.00      | 0.6088  | 
+  E1 S 3 | SCALE_UP    node-3 p=0.70      | 0.5577  | 
+  E2 S 3 | SCALE_UP    node-1 p=0.40      | 0.5578  | 
+  E3 S 3 | NO_OP       node-0 p=0.00      | 0.6605  | 
+  E4 S 3 | NO_OP       node-0 p=0.00      | 0.8473  | 
+  E5 S 3 | NO_OP       node-0 p=0.00      | 0.8050  | 
+  E6 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S 3 | NO_OP       node-0 p=0.00      | 0.7542  | INVALID: invalid target_node_id: none
+  E0 S 4 | NO_OP       node-0 p=0.00      | 0.6294  | 
+  E1 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E3 S 4 | SCALE_UP    node-1 p=0.30      | 0.5577  | 
+  E4 S 4 | NO_OP       node-0 p=0.00      | 0.6899  | 
+  E5 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S 4 | NO_OP       node-0 p=0.00      | 0.6081  | 
+  E8 S 4 | NO_OP       node-0 p=0.00      | 0.6271  | 
+  E9 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 4 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E11 S 4 | NO_OP       node-0 p=0.00      | 0.6115  | INVALID: invalid target_node_id: none
+  E0 S 5 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E1 S 5 | SCALE_UP    node-1 p=0.70      | 0.6202  | 
+  E2 S 5 | SCALE_DOWN  node-4 p=0.30      | 0.5651  | 
+  E3 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E5 S 5 | NO_OP       node-0 p=0.00      | 0.8669  | 
+  E6 S 5 | NO_OP       node-0 p=0.00      | 0.8325  | 
+  E7 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 5 | NO_OP       node-0 p=0.00      | 0.6084  | INVALID: invalid target_node_id: null
+  E9 S 5 | NO_OP       node-0 p=0.00      | 0.7852  | INVALID: invalid target_node_id: null
+  E10 S 5 | NO_OP       node-0 p=0.00      | 0.7022  | 
+  E11 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 6 | SCALE_UP    node-1 p=0.40      | 0.5577  | 
+  E1 S 6 | SCALE_UP    node-1 p=0.30      | 0.5577  | 
+  E2 S 6 | SCALE_UP    node-1 p=0.70      | 0.5577  | 
+  E3 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E4 S 6 | NO_OP       node-0 p=0.00      | 0.6535  | 
+  E5 S 6 | NO_OP       node-0 p=0.00      | 0.6182  | 
+  E6 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E7 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 6 | NO_OP       node-0 p=0.00      | 0.8077  | 
+  E9 S 6 | NO_OP       node-0 p=0.00      | 0.6105  | 
+  E10 S 6 | NO_OP       node-0 p=0.00      | 0.8676  | 
+  E11 S 6 | NO_OP       node-0 p=0.00      | 0.7823  | 
+  E0 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E1 S 7 | SCALE_UP    node-1 p=0.50      | 0.5691  | 
+  E2 S 7 | SCALE_DOWN  node-1 p=0.30      | 0.8225  | 
+  E3 S 7 | NO_OP       node-0 p=0.00      | 0.7017  | 
+  E4 S 7 | NO_OP       node-0 p=0.00      | 0.6114  | 
+  E5 S 7 | NO_OP       node-0 p=0.00      | 0.8669  | INVALID: invalid target_node_id: null
+  E6 S 7 | SCALE_DOWN  node-1 p=0.30      | 0.7360  | 
+  E7 S 7 | NO_OP       node-0 p=0.00      | 0.8799  | 
+  E8 S 7 | NO_OP       node-0 p=0.00      | 0.6088  | 
+  E9 S 7 | NO_OP       node-0 p=0.00      | 0.6083  | 
+  E10 S 7 | NO_OP       node-0 p=0.00      | 0.6312  | 
+  E11 S 7 | NO_OP       node-0 p=0.00      | 0.7806  | INVALID: invalid target_node_id: null
+  E0 S 8 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E1 S 8 | NO_OP       node-0 p=0.00      | 0.7976  | 
+  E2 S 8 | NO_OP       node-0 p=0.00      | 0.6131  | INVALID: invalid target_node_id: null
+  E3 S 8 | NO_OP       node-0 p=0.00      | 0.8389  | 
+  E4 S 8 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E5 S 8 | NO_OP       node-0 p=0.00      | 0.6079  | 
+  E6 S 8 | NO_OP       node-0 p=0.00      | 0.6081  | 
+  E7 S 8 | NO_OP       node-0 p=0.00      | 0.6089  | INVALID: invalid target_node_id: none
+  E8 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 8 | NO_OP       node-0 p=0.00      | 0.6428  | 
+  E11 S 8 | NO_OP       node-0 p=0.00      | 0.6117  | 
+  E0 S 9 | SCALE_DOWN  node-3 p=0.40      | 0.5577  | 
+  E1 S 9 | NO_OP       node-0 p=0.00      | 0.8474  | 
+  E2 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E3 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E4 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S 9 | NO_OP       node-0 p=0.00      | 0.6852  | INVALID: invalid target_node_id: null
+  E7 S 9 | NO_OP       node-0 p=0.00      | 0.6124  | 
+  E8 S 9 | NO_OP       node-0 p=0.00      | 0.6611  | INVALID: invalid target_node_id: null
+  E9 S 9 | NO_OP       node-0 p=0.00      | 0.6381  | 
+  E10 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S 9 | NO_OP       node-0 p=0.00      | 0.6731  | 
+  E0 S10 | NO_OP       node-0 p=0.00      | 0.6115  | 
+  E1 S10 | NO_OP       node-0 p=0.00      | 0.6143  | 
+  E2 S10 | SCALE_UP    node-1 p=0.40      | 0.5577  | 
+  E3 S10 | SCALE_UP    node-1 p=0.30      | 0.5577  | 
+  E4 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S10 | NO_OP       node-0 p=0.00      | 0.6186  | 
+  E6 S10 | NO_OP       node-0 p=0.00      | 0.6156  | INVALID: invalid target_node_id: null
+  E7 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S10 | NO_OP       node-0 p=0.00      | 0.7107  | 
+  E9 S10 | NO_OP       node-0 p=0.00      | 0.6100  | 
+  E10 S10 | NO_OP       node-0 p=0.00      | 0.6492  | INVALID: invalid target_node_id: none
+  E11 S10 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E0 S11 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E1 S11 | SCALE_UP    node-1 p=0.30      | 0.7135  | 
+  E2 S11 | SCALE_UP    node-1 p=0.50      | 0.5588  | 
+  E3 S11 | NO_OP       node-0 p=0.00      | 0.8327  | 
+  E4 S11 | NO_OP       node-0 p=0.00      | 0.6362  | INVALID: invalid target_node_id: null
+  E5 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S11 | NO_OP       node-0 p=0.00      | 0.8349  | 
+  E7 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S11 | NO_OP       node-0 p=0.00      | 0.7894  | 
+  E9 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S11 | NO_OP       node-0 p=0.00      | 0.8658  | 
+  E0 S12 | NO_OP       node-0 p=0.00      | 0.7276  | 
+  E1 S12 | SCALE_UP    node-1 p=0.30      | 0.5663  | 
+  E2 S12 | SCALE_DOWN  node-4 p=0.30      | 0.5844  | 
+  E3 S12 | NO_OP       node-0 p=0.00      | 0.6612  | 
+  E4 S12 | NO_OP       node-0 p=0.00      | 0.6180  | INVALID: invalid target_node_id: none
+  E5 S12 | NO_OP       node-0 p=0.00      | 0.6155  | 
+  E6 S12 | NO_OP       node-0 p=0.00      | 0.8596  | INVALID: invalid target_node_id: null
+  E7 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S12 | NO_OP       node-0 p=0.00      | 0.6623  | 
+  E9 S12 | NO_OP       node-0 p=0.00      | 0.8530  | 
+  E10 S12 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E11 S12 | NO_OP       node-0 p=0.00      | 0.6126  | 
+  E0 S13 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E1 S13 | SCALE_UP    node-3 p=0.40      | 0.5577  | 
+  E2 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S13 | SCALE_UP    node-1 p=0.30      | 0.5577  | 
+  E4 S13 | NO_OP       node-0 p=0.00      | 0.7000  | 
+  E5 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S13 | NO_OP       node-0 p=0.00      | 0.6767  | INVALID: invalid target_node_id: null
+  E8 S13 | NO_OP       node-0 p=0.00      | 0.8385  | 
+  E9 S13 | NO_OP       node-0 p=0.00      | 0.7511  | 
+  E10 S13 | NO_OP       node-0 p=0.00      | 0.8249  | 
+  E11 S13 | NO_OP       node-0 p=0.00      | 0.8362  | 
+  E0 S14 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E1 S14 | SCALE_UP    node-1 p=0.40      | 0.5577  | 
+  E2 S14 | SCALE_UP    node-1 p=0.50      | 0.5617  | 
+  E3 S14 | NO_OP       node-0 p=0.00      | 0.8435  | INVALID: invalid target_node_id: none
+  E4 S14 | NO_OP       node-0 p=0.00      | 0.8766  | INVALID: invalid target_node_id: null
+  E5 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S14 | NO_OP       node-0 p=0.00      | 0.6577  | 
+  E7 S14 | NO_OP       node-0 p=0.00      | 0.6256  | 
+  E8 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S14 | NO_OP       node-0 p=0.00      | 0.6088  | 
+  E10 S14 | NO_OP       node-0 p=0.00      | 0.6846  | 
+  E11 S14 | NO_OP       node-0 p=0.00      | 0.7240  | INVALID: invalid target_node_id: null
+  E0 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S15 | SCALE_UP    node-1 p=0.50      | 0.5579  | 
+  E2 S15 | NO_OP       node-0 p=0.00      | 0.6087  | 
+  E3 S15 | NO_OP       node-0 p=0.00      | 0.6309  | 
+  E4 S15 | NO_OP       node-0 p=0.00      | 0.8305  | 
+  E5 S15 | NO_OP       node-0 p=0.00      | 0.7508  | 
+  E6 S15 | NO_OP       node-0 p=0.00      | 0.6558  | INVALID: invalid target_node_id: null
+  E7 S15 | NO_OP       node-0 p=0.00      | 0.8369  | 
+  E8 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S15 | NO_OP       node-0 p=0.00      | 0.7934  | 
+  [VRAM @i0_after_offload]  alloc=  3.43GiB  reserved=  3.45GiB  peak=  6.66GiB  free=18.5/22.3GiB
+  [VRAM @i0_after_train]  alloc=  3.43GiB  reserved=  3.45GiB  peak=  6.66GiB  free=18.5/22.3GiB
+  [VRAM @i0_post_grad]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.03GiB  free=17.3/22.3GiB
+/workspace/AntiAtropos/training/train.py:608: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  "ts":            __import__("datetime").datetime.utcnow().isoformat() + "Z",
+/workspace/AntiAtropos/training/train.py:659: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  "ts":            __import__("datetime").datetime.utcnow().isoformat() + "Z",
+  [iter    0] loss=0.0341  avg_reward=0.6592  invalid=31  grad_norm=0.4827  time=620.2s
+  [VRAM @i1_pre_rollout]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.03GiB  free=17.3/22.3GiB
+  E0 S 1 | SCALE_UP    node-1 p=0.30      | 0.5577  | 
+  E1 S 1 | SCALE_UP    node-1 p=0.50      | 0.6796  | 
+  E2 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E5 S 1 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E6 S 1 | NO_OP       node-0 p=0.00      | 0.7434  | INVALID: invalid target_node_id: null
+  E7 S 1 | NO_OP       node-0 p=0.00      | 0.8679  | 
+  E8 S 1 | NO_OP       node-0 p=0.00      | 0.6085  | 
+  E9 S 1 | NO_OP       node-0 p=0.00      | 0.6079  | INVALID: invalid target_node_id: none
+  E10 S 1 | NO_OP       node-0 p=0.00      | 0.8524  | 
+  E11 S 1 | NO_OP       node-0 p=0.00      | 0.6080  | 
+  E0 S 2 | SCALE_UP    node-1 p=0.30      | 0.5582  | 
+  E1 S 2 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E2 S 2 | SCALE_UP    node-1 p=0.50      | 0.6253  | 
+  E3 S 2 | SCALE_UP    node-1 p=0.30      | 0.8043  | 
+  E4 S 2 | NO_OP       node-0 p=0.00      | 0.7213  | 
+  E5 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E7 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: none
+  E8 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 2 | NO_OP       node-0 p=0.00      | 0.6081  | 
+  E10 S 2 | NO_OP       node-0 p=0.00      | 0.6080  | 
+  E11 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 3 | NO_OP       node-0 p=0.00      | 0.6280  | 
+  E1 S 3 | SCALE_UP    node-1 p=0.30      | 0.7296  | 
+  E2 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S 3 | SCALE_UP    node-1 p=0.50      | 0.7920  | 
+  E4 S 3 | NO_OP       node-0 p=0.00      | 0.8043  | INVALID: invalid target_node_id: null
+  E5 S 3 | NO_OP       node-0 p=0.00      | 0.6779  | 
+  E6 S 3 | NO_OP       node-0 p=0.00      | 0.8513  | 
+  E7 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 3 | NO_OP       node-0 p=0.00      | 0.8284  | 
+  E9 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S 3 | NO_OP       node-0 p=0.00      | 0.7223  | INVALID: invalid target_node_id: null
+  E0 S 4 | SCALE_UP    node-3 p=0.50      | 0.5577  | 
+  E1 S 4 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E2 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S 4 | SCALE_UP    node-1 p=0.50      | 0.5653  | 
+  E4 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 4 | NO_OP       node-0 p=0.00      | 0.6250  | 
+  E6 S 4 | NO_OP       node-0 p=0.00      | 0.6084  | 
+  E7 S 4 | NO_OP       node-0 p=0.00      | 0.8588  | 
+  E8 S 4 | NO_OP       node-0 p=0.00      | 0.7108  | 
+  E9 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 4 | NO_OP       node-0 p=0.00      | 0.8254  | 
+  E11 S 4 | NO_OP       node-0 p=0.00      | 0.8102  | INVALID: invalid target_node_id: null
+  E0 S 5 | NO_OP       node-0 p=0.00      | 0.8260  | 
+  E1 S 5 | NO_OP       node-0 p=0.00      | 0.6136  | INVALID: invalid target_node_id: null
+  E2 S 5 | SCALE_DOWN  node-4 p=0.20      | 0.6982  | 
+  E3 S 5 | SCALE_UP    node-1 p=0.30      | 0.6383  | 
+  E4 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E5 S 5 | NO_OP       node-0 p=0.00      | 0.8463  | INVALID: invalid target_node_id: null
+  E6 S 5 | NO_OP       node-0 p=0.00      | 0.8238  | 
+  E7 S 5 | NO_OP       node-0 p=0.00      | 0.8165  | INVALID: invalid target_node_id: null
+  E8 S 5 | NO_OP       node-0 p=0.00      | 0.6079  | 
+  E9 S 5 | NO_OP       node-0 p=0.00      | 0.8596  | INVALID: invalid target_node_id: null
+  E10 S 5 | NO_OP       node-0 p=0.00      | 0.7759  | 
+  E11 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E0 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S 6 | SCALE_UP    node-1 p=0.50      | 0.5645  | 
+  E2 S 6 | SCALE_UP    node-1 p=0.70      | 0.5860  | 
+  E3 S 6 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E4 S 6 | NO_OP       node-0 p=0.00      | 0.6936  | 
+  E5 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S 6 | NO_OP       node-0 p=0.00      | 0.7163  | 
+  E8 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S 6 | NO_OP       node-0 p=0.00      | 0.8524  | 
+  E0 S 7 | SCALE_UP    node-1 p=0.40      | 0.6684  | 
+  E1 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S 7 | NO_OP       node-0 p=0.00      | 0.6081  | 
+  E5 S 7 | NO_OP       node-0 p=0.00      | 0.8537  | 
+  E6 S 7 | NO_OP       node-0 p=0.00      | 0.7414  | 
+  E7 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 7 | NO_OP       node-0 p=0.00      | 0.6080  | 
+  E9 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 7 | NO_OP       node-0 p=0.00      | 0.8500  | 
+  E11 S 7 | NO_OP       node-0 p=0.00      | 0.8231  | INVALID: invalid target_node_id: null
+  E0 S 8 | SCALE_UP    node-1 p=0.70      | 0.5577  | 
+  E1 S 8 | SCALE_UP    node-1 p=0.70      | 0.5607  | 
+  E2 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S 8 | NO_OP       node-0 p=0.00      | 0.7841  | 
+  E4 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 8 | NO_OP       node-0 p=0.00      | 0.6083  | 
+  E6 S 8 | NO_OP       node-0 p=0.00      | 0.6091  | 
+  E7 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S 8 | NO_OP       node-0 p=0.00      | 0.6484  | INVALID: invalid target_node_id: null
+  E0 S 9 | SCALE_UP    node-1 p=0.60      | 0.5626  | 
+  E1 S 9 | SCALE_UP    node-1 p=0.60      | 0.5935  | 
+  E2 S 9 | SCALE_UP    node-1 p=0.50      | 0.5738  | 
+  E3 S 9 | NO_OP       node-0 p=0.00      | 0.6113  | 
+  E4 S 9 | NO_OP       node-0 p=0.00      | 0.6080  | 
+  E5 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E6 S 9 | NO_OP       node-0 p=0.00      | 0.7516  | INVALID: invalid target_node_id: null
+  E7 S 9 | NO_OP       node-0 p=0.00      | 0.7936  | INVALID: invalid target_node_id: null
+  E8 S 9 | NO_OP       node-0 p=0.00      | 0.7146  | INVALID: invalid target_node_id: none
+  E9 S 9 | NO_OP       node-0 p=0.00      | 0.8419  | 
+  E10 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S 9 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E0 S10 | SCALE_DOWN  node-1 p=0.30      | 0.6986  | 
+  E1 S10 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E2 S10 | SCALE_UP    node-1 p=0.30      | 0.5577  | 
+  E3 S10 | SCALE_DOWN  node-4 p=0.30      | 0.7645  | 
+  E4 S10 | NO_OP       node-0 p=0.00      | 0.8698  | 
+  E5 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S10 | NO_OP       node-0 p=0.00      | 0.6078  | INVALID: invalid target_node_id: null
+  E9 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S10 | NO_OP       node-0 p=0.00      | 0.6166  | 
+  E11 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S11 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E1 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S11 | SCALE_UP    node-1 p=0.30      | 0.5577  | 
+  E3 S11 | SCALE_UP    node-1 p=0.60      | 0.5577  | 
+  E4 S11 | NO_OP       node-0 p=0.00      | 0.7007  | 
+  E5 S11 | NO_OP       node-0 p=0.00      | 0.7582  | INVALID: invalid target_node_id: null
+  E6 S11 | NO_OP       node-0 p=0.00      | 0.6143  | 
+  E7 S11 | NO_OP       node-0 p=0.00      | 0.7957  | 
+  E8 S11 | NO_OP       node-0 p=0.00      | 0.6079  | 
+  E9 S11 | NO_OP       node-0 p=0.00      | 0.7819  | 
+  E10 S11 | NO_OP       node-0 p=0.00      | 0.8520  | 
+  E11 S11 | NO_OP       node-0 p=0.00      | 0.7160  | 
+  E0 S12 | NO_OP       node-0 p=0.00      | 0.6557  | 
+  E1 S12 | SCALE_UP    node-1 p=0.50      | 0.7986  | 
+  E2 S12 | NO_OP       node-0 p=0.00      | 0.8327  | 
+  E3 S12 | NO_OP       node-0 p=0.00      | 0.6078  | INVALID: invalid target_node_id: null
+  E4 S12 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E5 S12 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E6 S12 | NO_OP       node-0 p=0.00      | 0.6390  | 
+  E7 S12 | NO_OP       node-0 p=0.00      | 0.8641  | 
+  E8 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S12 | NO_OP       node-0 p=0.00      | 0.8588  | 
+  E10 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S13 | SCALE_UP    node-1 p=0.50      | 0.5585  | 
+  E1 S13 | NO_OP       node-0 p=0.00      | 0.8311  | 
+  E2 S13 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E3 S13 | SCALE_UP    node-3 p=0.30      | 0.5847  | 
+  E4 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S13 | NO_OP       node-0 p=0.00      | 0.6079  | 
+  E6 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S13 | NO_OP       node-0 p=0.00      | 0.6243  | 
+  E8 S13 | SCALE_UP    node-1 p=0.30      | 0.7395  | 
+  E9 S13 | NO_OP       node-0 p=0.00      | 0.8475  | 
+  E10 S13 | NO_OP       node-0 p=0.00      | 0.8536  | 
+  E11 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S14 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: none
+  E3 S14 | NO_OP       node-0 p=0.00      | 0.7613  | 
+  E4 S14 | NO_OP       node-0 p=0.00      | 0.6116  | 
+  E5 S14 | NO_OP       node-0 p=0.00      | 0.7177  | 
+  E6 S14 | NO_OP       node-0 p=0.00      | 0.7064  | 
+  E7 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S14 | NO_OP       node-0 p=0.00      | 0.7017  | 
+  E10 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S14 | SCALE_DOWN  node-1 p=0.20      | 0.5577  | 
+  E0 S15 | NO_OP       node-0 p=0.00      | 0.7844  | 
+  E1 S15 | NO_OP       node-0 p=0.00      | 0.6158  | INVALID: invalid target_node_id: null
+  E2 S15 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E3 S15 | SCALE_UP    node-3 p=0.50      | 0.5577  | 
+  E4 S15 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E5 S15 | NO_OP       node-0 p=0.00      | 0.7703  | 
+  E6 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S15 | NO_OP       node-0 p=0.00      | 0.8531  | 
+  E10 S15 | NO_OP       node-0 p=0.00      | 0.8674  | 
+  E11 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  [VRAM @i1_after_offload]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.03GiB  free=17.3/22.3GiB
+  [VRAM @i1_after_train]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.03GiB  free=17.3/22.3GiB
+  [VRAM @i1_post_grad]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  [iter    1] loss=-0.0201  avg_reward=0.6647  invalid=29  grad_norm=0.3276  time=613.1s
+  [VRAM @i2_pre_rollout]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  E0 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S 1 | NO_OP       node-0 p=0.00      | 0.8449  | 
+  E3 S 1 | NO_OP       node-0 p=0.00      | 0.7581  | 
+  E4 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E5 S 1 | NO_OP       node-0 p=0.00      | 0.7166  | 
+  E6 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 1 | NO_OP       node-0 p=0.00      | 0.8462  | 
+  E9 S 1 | NO_OP       node-0 p=0.00      | 0.8514  | 
+  E10 S 1 | NO_OP       node-0 p=0.00      | 0.6491  | 
+  E11 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E0 S 2 | SCALE_UP    node-1 p=0.50      | 0.6809  | 
+  E1 S 2 | SCALE_UP    node-1 p=0.40      | 0.5577  | 
+  E2 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S 2 | SCALE_UP    node-1 p=0.40      | 0.7986  | 
+  E4 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E5 S 2 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E6 S 2 | NO_OP       node-0 p=0.00      | 0.6694  | 
+  E7 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 2 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E9 S 2 | NO_OP       node-0 p=0.00      | 0.7136  | 
+  E10 S 2 | NO_OP       node-0 p=0.00      | 0.6151  | 
+  E11 S 2 | SCALE_UP    node-1 p=0.50      | 0.5617  | 
+  E0 S 3 | SCALE_UP    node-1 p=0.40      | 0.5577  | 
+  E1 S 3 | NO_OP       node-0 p=0.00      | 0.7550  | 
+  E2 S 3 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E3 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S 3 | NO_OP       node-0 p=0.00      | 0.8050  | 
+  E5 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S 3 | NO_OP       node-0 p=0.00      | 0.6629  | INVALID: invalid target_node_id: null
+  E8 S 3 | NO_OP       node-0 p=0.00      | 0.8658  | INVALID: invalid target_node_id: null
+  E9 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S 4 | SCALE_UP    node-1 p=0.40      | 0.5577  | 
+  E2 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S 4 | NO_OP       node-0 p=0.00      | 0.6220  | 
+  E4 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E6 S 4 | NO_OP       node-0 p=0.00      | 0.6663  | INVALID: invalid target_node_id: none
+  E7 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 4 | NO_OP       node-0 p=0.00      | 0.6223  | INVALID: invalid target_node_id: null
+  E9 S 4 | NO_OP       node-0 p=0.00      | 0.6600  | 
+  E10 S 4 | NO_OP       node-0 p=0.00      | 0.8336  | INVALID: invalid target_node_id: null
+  E11 S 4 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E0 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S 5 | NO_OP       node-0 p=0.00      | 0.8076  | 
+  E2 S 5 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E3 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S 5 | NO_OP       node-0 p=0.00      | 0.6518  | 
+  E5 S 5 | NO_OP       node-0 p=0.00      | 0.7858  | 
+  E6 S 5 | NO_OP       node-0 p=0.00      | 0.6272  | 
+  E7 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E8 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 5 | NO_OP       node-0 p=0.00      | 0.8166  | 
+  E10 S 5 | NO_OP       node-0 p=0.00      | 0.7406  | INVALID: invalid target_node_id: null
+  E11 S 5 | NO_OP       node-0 p=0.00      | 0.7903  | INVALID: invalid target_node_id: null
+  E0 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S 6 | SCALE_UP    node-1 p=0.50      | 0.5803  | 
+  E2 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S 6 | SCALE_UP    node-1 p=0.40      | 0.5579  | 
+  E4 S 6 | NO_OP       node-0 p=0.00      | 0.8193  | 
+  E5 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S 6 | NO_OP       node-0 p=0.00      | 0.8799  | 
+  E7 S 6 | NO_OP       node-0 p=0.00      | 0.6573  | INVALID: invalid target_node_id: null
+  E8 S 6 | SCALE_UP    node-1 p=0.30      | 0.5581  | 
+  E9 S 6 | NO_OP       node-0 p=0.00      | 0.7337  | 
+  E10 S 6 | NO_OP       node-0 p=0.00      | 0.7317  | 
+  E11 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 7 | NO_OP       node-0 p=0.00      | 0.6112  | 
+  E1 S 7 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E2 S 7 | SCALE_UP    node-1 p=0.40      | 0.5615  | 
+  E3 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E4 S 7 | NO_OP       node-0 p=0.00      | 0.6954  | 
+  E5 S 7 | NO_OP       node-0 p=0.00      | 0.8466  | 
+  E6 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E7 S 7 | NO_OP       node-0 p=0.00      | 0.6085  | 
+  E8 S 7 | NO_OP       node-0 p=0.00      | 0.6479  | INVALID: invalid target_node_id: null
+  E9 S 7 | NO_OP       node-0 p=0.00      | 0.8348  | 
+  E10 S 7 | NO_OP       node-0 p=0.00      | 0.7347  | 
+  E11 S 7 | SCALE_UP    node-1 p=0.70      | 0.5584  | 
+  E0 S 8 | SCALE_DOWN  node-1 p=0.30      | 0.5894  | 
+  E1 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S 8 | SCALE_UP    node-1 p=0.30      | 0.6902  | 
+  E3 S 8 | NO_OP       node-0 p=0.00      | 0.8019  | 
+  E4 S 8 | NO_OP       node-0 p=0.00      | 0.6267  | INVALID: invalid target_node_id: null
+  E5 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S 8 | NO_OP       node-0 p=0.00      | 0.8383  | 
+  E7 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 8 | NO_OP       node-0 p=0.00      | 0.6861  | 
+  E9 S 8 | NO_OP       node-0 p=0.00      | 0.8324  | 
+  E10 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S 8 | NO_OP       node-0 p=0.00      | 0.7523  | 
+  E0 S 9 | SCALE_UP    node-1 p=0.30      | 0.5577  | 
+  E1 S 9 | NO_OP       node-0 p=0.00      | 0.8250  | 
+  E2 S 9 | NO_OP       node-0 p=0.00      | 0.6390  | 
+  E3 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S 9 | NO_OP       node-0 p=0.00      | 0.7051  | 
+  E7 S 9 | NO_OP       node-0 p=0.00      | 0.6880  | 
+  E8 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 9 | NO_OP       node-0 p=0.00      | 0.6089  | 
+  E10 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S 9 | NO_OP       node-0 p=0.00      | 0.8298  | 
+  E0 S10 | SCALE_UP    node-1 p=0.70      | 0.5631  | 
+  E1 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S10 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E3 S10 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E4 S10 | NO_OP       node-0 p=0.00      | 0.6089  | INVALID: invalid target_node_id: none
+  E5 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S10 | NO_OP       node-0 p=0.00      | 0.6811  | 
+  E7 S10 | NO_OP       node-0 p=0.00      | 0.6314  | INVALID: invalid target_node_id: null
+  E8 S10 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E9 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S10 | NO_OP       node-0 p=0.00      | 0.8102  | 
+  E11 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S11 | NO_OP       node-0 p=0.00      | 0.6086  | INVALID: invalid target_node_id: null
+  E1 S11 | SCALE_UP    node-1 p=0.60      | 0.5577  | 
+  E2 S11 | SCALE_UP    node-3 p=0.50      | 0.5577  | 
+  E3 S11 | SCALE_UP    node-1 p=0.50      | 0.5726  | 
+  E4 S11 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E5 S11 | NO_OP       node-0 p=0.00      | 0.6102  | 
+  E6 S11 | NO_OP       node-0 p=0.00      | 0.6141  | INVALID: invalid target_node_id: null
+  E7 S11 | NO_OP       node-0 p=0.00      | 0.8492  | 
+  E8 S11 | NO_OP       node-0 p=0.00      | 0.8600  | 
+  E9 S11 | NO_OP       node-0 p=0.00      | 0.6453  | INVALID: invalid target_node_id: null
+  E10 S11 | NO_OP       node-0 p=0.00      | 0.6154  | 
+  E11 S11 | NO_OP       node-0 p=0.00      | 0.6879  | 
+  E0 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S12 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E2 S12 | NO_OP       node-0 p=0.00      | 0.8641  | 
+  E3 S12 | NO_OP       node-0 p=0.00      | 0.6966  | 
+  E4 S12 | NO_OP       node-0 p=0.00      | 0.8581  | 
+  E5 S12 | NO_OP       node-0 p=0.00      | 0.8722  | INVALID: invalid target_node_id: none
+  E6 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S12 | NO_OP       node-0 p=0.00      | 0.7932  | 
+  E8 S12 | NO_OP       node-0 p=0.00      | 0.6087  | 
+  E9 S12 | NO_OP       node-0 p=0.00      | 0.6085  | INVALID: invalid target_node_id: null
+  E10 S12 | NO_OP       node-0 p=0.00      | 0.7423  | 
+  E11 S12 | NO_OP       node-0 p=0.00      | 0.8146  | INVALID: invalid target_node_id: null
+  E0 S13 | SCALE_DOWN  node-4 p=0.50      | 0.5593  | 
+  E1 S13 | NO_OP       node-0 p=0.00      | 0.6152  | 
+  E2 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S13 | SCALE_UP    node-1 p=0.50      | 0.5582  | 
+  E4 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S13 | NO_OP       node-0 p=0.00      | 0.6739  | 
+  E6 S13 | NO_OP       node-0 p=0.00      | 0.8028  | 
+  E7 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S13 | NO_OP       node-0 p=0.00      | 0.8643  | 
+  E9 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S13 | NO_OP       node-0 p=0.00      | 0.6603  | 
+  E11 S13 | NO_OP       node-0 p=0.00      | 0.7110  | 
+  E0 S14 | SCALE_UP    node-1 p=0.30      | 0.5577  | 
+  E1 S14 | SCALE_DOWN  node-1 p=0.20      | 0.5577  | 
+  E2 S14 | NO_OP       node-0 p=0.00      | 0.7540  | 
+  E3 S14 | SCALE_UP    node-1 p=0.50      | 0.5619  | 
+  E4 S14 | NO_OP       node-0 p=0.00      | 0.6251  | 
+  E5 S14 | NO_OP       node-0 p=0.00      | 0.6405  | 
+  E6 S14 | NO_OP       node-0 p=0.00      | 0.6728  | 
+  E7 S14 | NO_OP       node-0 p=0.00      | 0.8710  | 
+  E8 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S14 | NO_OP       node-0 p=0.00      | 0.6521  | 
+  E11 S14 | NO_OP       node-0 p=0.00      | 0.8587  | INVALID: invalid target_node_id: null
+  E0 S15 | SCALE_UP    node-3 p=0.50      | 0.5808  | 
+  E1 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S15 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E3 S15 | NO_OP       node-0 p=0.00      | 0.6091  | 
+  E4 S15 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E5 S15 | NO_OP       node-0 p=0.00      | 0.6260  | 
+  E6 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S15 | NO_OP       node-0 p=0.00      | 0.6125  | 
+  E8 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S15 | NO_OP       node-0 p=0.00      | 0.8260  | 
+  E10 S15 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E11 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  [VRAM @i2_after_offload]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  [VRAM @i2_after_train]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  [VRAM @i2_post_grad]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  [iter    2] loss=0.0114  avg_reward=0.6600  invalid=30  grad_norm=0.3574  time=607.6s
+  [VRAM @i3_pre_rollout]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  E0 S 1 | NO_OP       node-0 p=0.00      | 0.6281  | 
+  E1 S 1 | NO_OP       node-0 p=0.00      | 0.7610  | INVALID: invalid target_node_id: null
+  E2 S 1 | NO_OP       node-0 p=0.00      | 0.6396  | 
+  E3 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S 1 | NO_OP       node-0 p=0.00      | 0.8598  | INVALID: invalid target_node_id: none
+  E5 S 1 | NO_OP       node-0 p=0.00      | 0.8106  | 
+  E6 S 1 | NO_OP       node-0 p=0.00      | 0.7770  | 
+  E7 S 1 | NO_OP       node-0 p=0.00      | 0.6458  | 
+  E8 S 1 | NO_OP       node-0 p=0.00      | 0.7159  | 
+  E9 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 2 | NO_OP       node-0 p=0.00      | 0.6443  | 
+  E1 S 2 | SCALE_UP    node-1 p=0.40      | 0.5577  | 
+  E2 S 2 | SCALE_UP    node-3 p=0.50      | 0.6746  | 
+  E3 S 2 | NO_OP       node-0 p=0.00      | 0.8259  | INVALID: invalid target_node_id: null
+  E4 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 2 | NO_OP       node-0 p=0.00      | 0.6969  | 
+  E6 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E8 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E9 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 2 | NO_OP       node-0 p=0.00      | 0.7294  | 
+  E11 S 2 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E0 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S 3 | NO_OP       node-0 p=0.00      | 0.8699  | 
+  E3 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E4 S 3 | NO_OP       node-0 p=0.00      | 0.8172  | 
+  E5 S 3 | NO_OP       node-0 p=0.00      | 0.8420  | 
+  E6 S 3 | NO_OP       node-0 p=0.00      | 0.7165  | 
+  E7 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 3 | NO_OP       node-0 p=0.00      | 0.6079  | 
+  E9 S 3 | NO_OP       node-0 p=0.00      | 0.8676  | INVALID: invalid target_node_id: null
+  E10 S 3 | NO_OP       node-0 p=0.00      | 0.8659  | INVALID: invalid target_node_id: null
+  E11 S 3 | NO_OP       node-0 p=0.00      | 0.6183  | 
+  E0 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S 4 | SCALE_UP    node-1 p=0.70      | 0.5644  | 
+  E2 S 4 | SCALE_UP    node-1 p=0.30      | 0.5581  | 
+  E3 S 4 | NO_OP       node-0 p=0.00      | 0.6953  | 
+  E4 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 4 | NO_OP       node-0 p=0.00      | 0.7941  | INVALID: invalid target_node_id: null
+  E6 S 4 | NO_OP       node-0 p=0.00      | 0.6079  | INVALID: invalid target_node_id: null
+  E7 S 4 | NO_OP       node-0 p=0.00      | 0.7368  | 
+  E8 S 4 | NO_OP       node-0 p=0.00      | 0.6123  | 
+  E9 S 4 | NO_OP       node-0 p=0.00      | 0.7726  | 
+  E10 S 4 | NO_OP       node-0 p=0.00      | 0.6080  | 
+  E11 S 4 | NO_OP       node-0 p=0.00      | 0.6562  | 
+  E0 S 5 | SCALE_UP    node-3 p=0.70      | 0.6330  | 
+  E1 S 5 | SCALE_DOWN  node-1 p=0.20      | 0.5856  | 
+  E2 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E3 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S 5 | NO_OP       node-0 p=0.00      | 0.8650  | 
+  E5 S 5 | NO_OP       node-0 p=0.00      | 0.8431  | 
+  E6 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E7 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 5 | NO_OP       node-0 p=0.00      | 0.8231  | INVALID: invalid target_node_id: null
+  E10 S 5 | NO_OP       node-0 p=0.00      | 0.7690  | 
+  E11 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 6 | SCALE_UP    node-1 p=0.70      | 0.5577  | 
+  E1 S 6 | SCALE_DOWN  node-1 p=0.30      | 0.7560  | 
+  E2 S 6 | NO_OP       node-0 p=0.00      | 0.6084  | 
+  E3 S 6 | SCALE_DOWN  node-1 p=0.20      | 0.7873  | 
+  E4 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 6 | NO_OP       node-0 p=0.00      | 0.7826  | 
+  E6 S 6 | NO_OP       node-0 p=0.00      | 0.7886  | 
+  E7 S 6 | NO_OP       node-0 p=0.00      | 0.6106  | 
+  E8 S 6 | NO_OP       node-0 p=0.00      | 0.7467  | INVALID: invalid target_node_id: null
+  E9 S 6 | NO_OP       node-0 p=0.00      | 0.8261  | INVALID: invalid target_node_id: null
+  E10 S 6 | NO_OP       node-0 p=0.00      | 0.6440  | 
+  E11 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 7 | SCALE_UP    node-1 p=0.30      | 0.5955  | 
+  E1 S 7 | SCALE_UP    node-3 p=0.50      | 0.5577  | 
+  E2 S 7 | SCALE_UP    node-3 p=0.40      | 0.6053  | 
+  E3 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E4 S 7 | NO_OP       node-0 p=0.00      | 0.7445  | INVALID: invalid target_node_id: null
+  E5 S 7 | NO_OP       node-0 p=0.00      | 0.6197  | 
+  E6 S 7 | NO_OP       node-0 p=0.00      | 0.7749  | 
+  E7 S 7 | NO_OP       node-0 p=0.00      | 0.7407  | 
+  E8 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 7 | NO_OP       node-0 p=0.00      | 0.7561  | 
+  E10 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S 7 | NO_OP       node-0 p=0.00      | 0.7982  | 
+  E0 S 8 | SCALE_UP    node-1 p=0.40      | 0.5577  | 
+  E1 S 8 | SCALE_DOWN  node-1 p=0.30      | 0.7787  | 
+  E2 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S 8 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E7 S 8 | NO_OP       node-0 p=0.00      | 0.7401  | INVALID: invalid target_node_id: null
+  E8 S 8 | NO_OP       node-0 p=0.00      | 0.8385  | 
+  E9 S 8 | NO_OP       node-0 p=0.00      | 0.6859  | 
+  E10 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 9 | NO_OP       node-0 p=0.00      | 0.6092  | 
+  E1 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S 9 | SCALE_UP    node-1 p=0.30      | 0.5902  | 
+  E3 S 9 | NO_OP       node-0 p=0.00      | 0.6080  | 
+  E4 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 9 | NO_OP       node-0 p=0.00      | 0.6079  | 
+  E6 S 9 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E7 S 9 | NO_OP       node-0 p=0.00      | 0.8632  | 
+  E8 S 9 | NO_OP       node-0 p=0.00      | 0.8088  | 
+  E9 S 9 | NO_OP       node-0 p=0.00      | 0.6763  | 
+  E10 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S 9 | SCALE_DOWN  node-1 p=0.40      | 0.5577  | 
+  E0 S10 | SCALE_UP    node-1 p=0.50      | 0.6703  | 
+  E1 S10 | NO_OP       node-0 p=0.00      | 0.6276  | 
+  E2 S10 | SCALE_UP    node-1 p=0.50      | 0.7806  | 
+  E3 S10 | SCALE_UP    node-1 p=0.30      | 0.6387  | 
+  E4 S10 | NO_OP       node-0 p=0.00      | 0.6079  | 
+  E5 S10 | NO_OP       node-0 p=0.00      | 0.6236  | INVALID: invalid target_node_id: none
+  E6 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S10 | NO_OP       node-0 p=0.00      | 0.6084  | 
+  E8 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S10 | NO_OP       node-0 p=0.00      | 0.6081  | 
+  E10 S10 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E11 S10 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E0 S11 | SCALE_UP    node-1 p=0.40      | 0.5577  | 
+  E1 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S11 | NO_OP       node-0 p=0.00      | 0.6508  | 
+  E3 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S11 | NO_OP       node-0 p=0.00      | 0.7465  | 
+  E5 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S11 | SCALE_DOWN  node-1 p=0.30      | 0.5577  | 
+  E9 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S11 | NO_OP       node-0 p=0.00      | 0.6164  | INVALID: invalid target_node_id: null
+  E11 S11 | NO_OP       node-0 p=0.00      | 0.6079  | 
+  E0 S12 | NO_OP       node-0 p=0.00      | 0.8607  | 
+  E1 S12 | SCALE_DOWN  node-0 p=0.20      | 0.5578  | 
+  E2 S12 | SCALE_UP    node-1 p=0.50      | 0.5583  | 
+  E3 S12 | SCALE_DOWN  node-1 p=0.20      | 0.7027  | 
+  E4 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S12 | NO_OP       node-0 p=0.00      | 0.6415  | 
+  E6 S12 | NO_OP       node-0 p=0.00      | 0.6540  | 
+  E7 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S12 | NO_OP       node-0 p=0.00      | 0.6084  | 
+  E10 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S13 | NO_OP       node-0 p=0.00      | 0.8067  | 
+  E1 S13 | SCALE_UP    node-1 p=0.50      | 0.5658  | 
+  E2 S13 | SCALE_UP    node-3 p=0.50      | 0.7514  | 
+  E3 S13 | SCALE_UP    node-1 p=0.40      | 0.5577  | 
+  E4 S13 | NO_OP       node-0 p=0.00      | 0.7262  | INVALID: invalid target_node_id: null
+  E5 S13 | NO_OP       node-0 p=0.00      | 0.8261  | 
+  E6 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S13 | NO_OP       node-0 p=0.00      | 0.6119  | 
+  E8 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S13 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E0 S14 | NO_OP       node-0 p=0.00      | 0.6686  | 
+  E1 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S14 | SCALE_UP    node-1 p=0.40      | 0.5577  | 
+  E3 S14 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E4 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S14 | NO_OP       node-0 p=0.00      | 0.6461  | 
+  E6 S14 | NO_OP       node-0 p=0.00      | 0.7116  | 
+  E7 S14 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E8 S14 | NO_OP       node-0 p=0.00      | 0.6491  | 
+  E9 S14 | NO_OP       node-0 p=0.00      | 0.7975  | 
+  E10 S14 | SCALE_DOWN  node-1 p=0.30      | 0.8211  | 
+  E11 S14 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E0 S15 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E1 S15 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E2 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S15 | NO_OP       node-0 p=0.00      | 0.6082  | 
+  E5 S15 | NO_OP       node-0 p=0.00      | 0.6096  | 
+  E6 S15 | NO_OP       node-0 p=0.00      | 0.6770  | 
+  E7 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S15 | NO_OP       node-0 p=0.00      | 0.6419  | 
+  E9 S15 | SCALE_UP    node-1 p=0.30      | 0.7259  | 
+  E10 S15 | NO_OP       node-0 p=0.00      | 0.8604  | 
+  E11 S15 | NO_OP       node-0 p=0.00      | 0.7880  | INVALID: invalid target_node_id: null
+  [VRAM @i3_after_offload]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  [VRAM @i3_after_train]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  [VRAM @i3_post_grad]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  [iter    3] loss=0.0025  avg_reward=0.6605  invalid=28  grad_norm=0.4292  time=607.5s
+  [VRAM @i4_pre_rollout]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  E0 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S 1 | NO_OP       node-0 p=0.00      | 0.7174  | 
+  E2 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E4 S 1 | NO_OP       node-0 p=0.00      | 0.7315  | 
+  E5 S 1 | NO_OP       node-0 p=0.00      | 0.6336  | 
+  E6 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S 1 | NO_OP       node-0 p=0.00      | 0.6082  | 
+  E8 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 1 | NO_OP       node-0 p=0.00      | 0.6214  | 
+  E10 S 1 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E11 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 2 | SCALE_UP    node-1 p=0.40      | 0.5577  | 
+  E1 S 2 | SCALE_UP    node-3 p=0.30      | 0.7207  | 
+  E2 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 2 | NO_OP       node-0 p=0.00      | 0.8332  | 
+  E6 S 2 | NO_OP       node-0 p=0.00      | 0.8529  | 
+  E7 S 2 | NO_OP       node-0 p=0.00      | 0.8326  | 
+  E8 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 2 | NO_OP       node-0 p=0.00      | 0.7039  | 
+  E10 S 2 | NO_OP       node-0 p=0.00      | 0.7075  | 
+  E11 S 2 | NO_OP       node-0 p=0.00      | 0.8484  | 
+  E0 S 3 | SCALE_UP    node-1 p=0.30      | 0.7086  | 
+  E1 S 3 | SCALE_UP    node-1 p=0.70      | 0.5622  | 
+  E2 S 3 | SCALE_UP    node-1 p=0.70      | 0.5625  | 
+  E3 S 3 | SCALE_UP    node-1 p=0.30      | 0.5577  | 
+  E4 S 3 | NO_OP       node-0 p=0.00      | 0.6094  | INVALID: invalid target_node_id: null
+  E5 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E6 S 3 | NO_OP       node-0 p=0.00      | 0.6081  | 
+  E7 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S 3 | NO_OP       node-0 p=0.00      | 0.8269  | INVALID: invalid target_node_id: null
+  E0 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S 4 | SCALE_UP    node-1 p=0.50      | 0.7703  | 
+  E2 S 4 | NO_OP       node-0 p=0.00      | 0.8262  | 
+  E3 S 4 | NO_OP       node-0 p=0.00      | 0.7992  | 
+  E4 S 4 | NO_OP       node-0 p=0.00      | 0.7005  | 
+  E5 S 4 | NO_OP       node-0 p=0.00      | 0.6079  | 
+  E6 S 4 | NO_OP       node-0 p=0.00      | 0.8544  | 
+  E7 S 4 | NO_OP       node-0 p=0.00      | 0.6078  | INVALID: invalid target_node_id: none
+  E8 S 4 | NO_OP       node-0 p=0.00      | 0.6081  | INVALID: invalid target_node_id: null
+  E9 S 4 | NO_OP       node-0 p=0.00      | 0.6883  | 
+  E10 S 4 | NO_OP       node-0 p=0.00      | 0.7686  | INVALID: invalid target_node_id: null
+  E11 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 5 | SCALE_UP    node-3 p=0.30      | 0.5577  | 
+  E1 S 5 | SCALE_UP    node-1 p=0.60      | 0.7212  | 
+  E2 S 5 | NO_OP       node-0 p=0.00      | 0.7794  | 
+  E3 S 5 | NO_OP       node-0 p=0.00      | 0.6460  | 
+  E4 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 5 | NO_OP       node-0 p=0.00      | 0.8673  | 
+  E6 S 5 | NO_OP       node-0 p=0.00      | 0.8528  | 
+  E7 S 5 | NO_OP       node-0 p=0.00      | 0.6088  | 
+  E8 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E10 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 6 | NO_OP       node-0 p=0.00      | 0.7395  | 
+  E1 S 6 | SCALE_UP    node-1 p=0.50      | 0.5814  | 
+  E2 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S 6 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E4 S 6 | NO_OP       node-0 p=0.00      | 0.6376  | INVALID: invalid target_node_id: null
+  E5 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S 6 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E7 S 6 | NO_OP       node-0 p=0.00      | 0.7543  | 
+  E8 S 6 | NO_OP       node-0 p=0.00      | 0.6884  | INVALID: invalid target_node_id: null
+  E9 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 6 | NO_OP       node-0 p=0.00      | 0.8493  | 
+  E11 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 7 | NO_OP       node-0 p=0.00      | 0.7376  | 
+  E1 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S 7 | SCALE_UP    node-1 p=0.30      | 0.8115  | 
+  E3 S 7 | NO_OP       node-0 p=0.00      | 0.6471  | INVALID: invalid target_node_id: null
+  E4 S 7 | NO_OP       node-0 p=0.00      | 0.6918  | 
+  E5 S 7 | NO_OP       node-0 p=0.00      | 0.6279  | INVALID: invalid target_node_id: null
+  E6 S 7 | NO_OP       node-0 p=0.00      | 0.6907  | 
+  E7 S 7 | NO_OP       node-0 p=0.00      | 0.7814  | 
+  E8 S 7 | NO_OP       node-0 p=0.00      | 0.7612  | 
+  E9 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 7 | NO_OP       node-0 p=0.00      | 0.7263  | 
+  E11 S 7 | NO_OP       node-0 p=0.00      | 0.6196  | 
+  E0 S 8 | NO_OP       node-0 p=0.00      | 0.7669  | 
+  E1 S 8 | SCALE_UP    node-1 p=0.30      | 0.5599  | 
+  E2 S 8 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E3 S 8 | NO_OP       node-0 p=0.00      | 0.6978  | 
+  E4 S 8 | NO_OP       node-0 p=0.00      | 0.7451  | 
+  E5 S 8 | NO_OP       node-0 p=0.00      | 0.7002  | 
+  E6 S 8 | NO_OP       node-0 p=0.00      | 0.8524  | 
+  E7 S 8 | NO_OP       node-0 p=0.00      | 0.6092  | 
+  E8 S 8 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E9 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S 9 | SCALE_UP    node-1 p=0.30      | 0.5654  | 
+  E3 S 9 | NO_OP       node-0 p=0.00      | 0.8105  | 
+  E4 S 9 | NO_OP       node-0 p=0.00      | 0.6268  | 
+  E5 S 9 | NO_OP       node-0 p=0.00      | 0.8568  | 
+  E6 S 9 | NO_OP       node-0 p=0.00      | 0.8349  | 
+  E7 S 9 | NO_OP       node-0 p=0.00      | 0.6851  | 
+  E8 S 9 | NO_OP       node-0 p=0.00      | 0.6080  | 
+  E9 S 9 | NO_OP       node-0 p=0.00      | 0.7788  | 
+  E10 S 9 | NO_OP       node-0 p=0.00      | 0.6426  | 
+  E11 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S10 | SCALE_UP    node-1 p=0.50      | 0.5674  | 
+  E1 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S10 | SCALE_UP    node-1 p=0.30      | 0.5577  | 
+  E3 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S10 | NO_OP       node-0 p=0.00      | 0.7961  | 
+  E7 S10 | NO_OP       node-0 p=0.00      | 0.7109  | 
+  E8 S10 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E9 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S10 | NO_OP       node-0 p=0.00      | 0.8087  | 
+  E11 S10 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E0 S11 | SCALE_UP    node-1 p=0.30      | 0.7285  | 
+  E1 S11 | SCALE_UP    node-1 p=0.40      | 0.5577  | 
+  E2 S11 | NO_OP       node-0 p=0.00      | 0.6459  | 
+  E3 S11 | NO_OP       node-0 p=0.00      | 0.6085  | INVALID: invalid target_node_id: null
+  E4 S11 | NO_OP       node-0 p=0.00      | 0.6357  | 
+  E5 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S11 | NO_OP       node-0 p=0.00      | 0.6080  | 
+  E7 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S11 | SCALE_UP    node-1 p=0.30      | 0.5577  | 
+  E0 S12 | SCALE_UP    node-3 p=0.40      | 0.7713  | 
+  E1 S12 | SCALE_DOWN  node-1 p=0.40      | 0.6393  | 
+  E2 S12 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E3 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S12 | NO_OP       node-0 p=0.00      | 0.6638  | INVALID: invalid target_node_id: null
+  E5 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S12 | NO_OP       node-0 p=0.00      | 0.7343  | 
+  E8 S12 | NO_OP       node-0 p=0.00      | 0.6116  | 
+  E9 S12 | NO_OP       node-0 p=0.00      | 0.7867  | 
+  E10 S12 | NO_OP       node-0 p=0.00      | 0.6096  | 
+  E11 S12 | NO_OP       node-0 p=0.00      | 0.7674  | 
+  E0 S13 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E1 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S13 | SCALE_UP    node-1 p=0.50      | 0.6407  | 
+  E4 S13 | NO_OP       node-0 p=0.00      | 0.7511  | 
+  E5 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S13 | NO_OP       node-0 p=0.00      | 0.6629  | 
+  E7 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S13 | NO_OP       node-0 p=0.00      | 0.7053  | INVALID: invalid target_node_id: null
+  E9 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S13 | NO_OP       node-0 p=0.00      | 0.8776  | 
+  E11 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S14 | NO_OP       node-0 p=0.00      | 0.8523  | 
+  E2 S14 | SCALE_UP    node-3 p=0.40      | 0.5577  | 
+  E3 S14 | NO_OP       node-0 p=0.00      | 0.6079  | 
+  E4 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S14 | NO_OP       node-0 p=0.00      | 0.6082  | 
+  E6 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S14 | NO_OP       node-0 p=0.00      | 0.7813  | INVALID: invalid target_node_id: null
+  E10 S14 | NO_OP       node-0 p=0.00      | 0.6081  | 
+  E11 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S15 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E2 S15 | SCALE_UP    node-1 p=0.50      | 0.6098  | 
+  E3 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S15 | NO_OP       node-0 p=0.00      | 0.7794  | 
+  E5 S15 | NO_OP       node-0 p=0.00      | 0.7367  | 
+  E6 S15 | NO_OP       node-0 p=0.00      | 0.7845  | INVALID: invalid target_node_id: null
+  E7 S15 | NO_OP       node-0 p=0.00      | 0.6080  | 
+  E8 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S15 | NO_OP       node-0 p=0.00      | 0.6619  | INVALID: invalid target_node_id: null
+  E10 S15 | NO_OP       node-0 p=0.00      | 0.7238  | INVALID: invalid target_node_id: null
+  E11 S15 | NO_OP       node-0 p=0.00      | 0.6837  | 
+  [VRAM @i4_after_offload]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  [VRAM @i4_after_train]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  [VRAM @i4_post_grad]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  [iter    4] loss=-0.0128  avg_reward=0.6606  invalid=21  grad_norm=0.3321  time=602.8s
+Unsloth: Restored added_tokens_decoder metadata in /workspace/antiatropos_checkpoints/grpo_run_001/checkpoint-0005/tokenizer_config.json.
+/workspace/AntiAtropos/training/train.py:998: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  "saved_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+  [ckpt] Saved → /workspace/antiatropos_checkpoints/grpo_run_001/checkpoint-0005  (reward=0.6606  loss=-0.0128)
+Processing Files (0 / 0)      : |          |  0.00B /  0.00B            
+New Data Upload               : |          |  0.00B /  0.00B            [A
+
+  ...point-0005/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors:   0%|          | 17.8kB /  340MB            [A[A[A
+
+  ...point-0005/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors:   0%|          | 17.8kB /  340MB            [A[A[A
+
+  ...point-0005/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors:   0%|          | 17.8kB /  340MB            [A[A[A
+
+  ...point-0005/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors:  20%|#9        | 66.9MB /  340MB            [A[A[A
+
+  ...point-0005/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors:  36%|###6      |  123MB /  340MB            [A[A[A
+
+  ...point-0005/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors:  53%|#####2    |  179MB /  340MB            [A[A[AProcessing Files (1 / 2)      :  55%|#####5    |  199MB /  360MB,  224MB/s  
+New Data Upload               :  67%|######6   |  179MB /  268MB,  224MB/s  [A
+
+  ...point-0005/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors:  76%|#######5  |  258MB /  340MB            [A[A[A
+
+  ...point-0005/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors:  97%|#########6|  328MB /  340MB            [A[A[A
+
+  ...point-0005/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors: 100%|#########9|  338MB /  340MB            [A[A[A
+
+  ...point-0005/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors: 100%|#########9|  339MB /  340MB            [A[A[A
+
+  ...point-0005/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors: 100%|#########9|  339MB /  340MB            [A[A[AProcessing Files (1 / 2)      : 100%|#########9|  359MB /  360MB,  188MB/s  
+New Data Upload               : 100%|#########9|  339MB /  340MB,  188MB/s  [A
+
+  ...point-0005/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors: 100%|#########9|  339MB /  340MB            [A[A[A
+
+  ...point-0005/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors: 100%|##########|  340MB /  340MB            [A[A[A
+
+  ...point-0005/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors: 100%|##########|  340MB /  340MB            [A[A[A
+
+  ...point-0005/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors: 100%|##########|  340MB /  340MB            [A[A[A
+
+  ...point-0005/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors: 100%|##########|  340MB /  340MB            [A[A[AProcessing Files (2 / 2)      : 100%|##########|  360MB /  360MB,  131MB/s  
+New Data Upload               : 100%|##########|  340MB /  340MB,  131MB/s  
+  ...point-0005/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            
+  ...adapter_model.safetensors: 100%|##########|  340MB /  340MB            
+[model_utils] Pushed → Keshav051/antiatropos-qlora/grpo_run_001/checkpoint-0005
+  [push] → HF model Keshav051/antiatropos-qlora/grpo_run_001/: step_metrics.jsonl, iter_metrics.jsonl, training.log, run_info.json
+  [VRAM @i5_pre_rollout]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  E0 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 1 | NO_OP       node-0 p=0.00      | 0.7700  | 
+  E6 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S 1 | NO_OP       node-0 p=0.00      | 0.6689  | 
+  E8 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E9 S 1 | NO_OP       node-0 p=0.00      | 0.7510  | INVALID: invalid target_node_id: null
+  E10 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S 2 | SCALE_UP    node-1 p=0.30      | 0.6060  | 
+  E2 S 2 | NO_OP       node-0 p=0.00      | 0.8125  | 
+  E3 S 2 | NO_OP       node-0 p=0.00      | 0.6136  | 
+  E4 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S 2 | NO_OP       node-0 p=0.00      | 0.6079  | 
+  E7 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 2 | NO_OP       node-0 p=0.00      | 0.6962  | 
+  E10 S 2 | NO_OP       node-0 p=0.00      | 0.6122  | INVALID: invalid target_node_id: null
+  E11 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 3 | SCALE_UP    node-1 p=0.40      | 0.5578  | 
+  E1 S 3 | NO_OP       node-0 p=0.00      | 0.6082  | 
+  E2 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S 3 | SCALE_UP    node-1 p=0.30      | 0.6827  | 
+  E4 S 3 | NO_OP       node-0 p=0.00      | 0.6945  | 
+  E5 S 3 | NO_OP       node-0 p=0.00      | 0.6126  | INVALID: invalid target_node_id: null
+  E6 S 3 | NO_OP       node-0 p=0.00      | 0.6273  | 
+  E7 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E8 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E9 S 3 | NO_OP       node-0 p=0.00      | 0.6339  | 
+  E10 S 3 | NO_OP       node-0 p=0.00      | 0.6301  | 
+  E11 S 3 | SCALE_DOWN  node-1 p=0.30      | 0.5583  | 
+  E0 S 4 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E1 S 4 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E2 S 4 | NO_OP       node-0 p=0.00      | 0.8133  | 
+  E3 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S 4 | NO_OP       node-0 p=0.00      | 0.7878  | 
+  E5 S 4 | NO_OP       node-0 p=0.00      | 0.6213  | INVALID: invalid target_node_id: null
+  E6 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S 4 | NO_OP       node-0 p=0.00      | 0.8519  | 
+  E8 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 4 | NO_OP       node-0 p=0.00      | 0.6394  | 
+  E10 S 4 | NO_OP       node-0 p=0.00      | 0.6096  | 
+  E11 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 5 | NO_OP       node-0 p=0.00      | 0.6091  | 
+  E1 S 5 | NO_OP       node-0 p=0.00      | 0.7240  | 
+  E2 S 5 | NO_OP       node-0 p=0.00      | 0.6326  | 
+  E3 S 5 | SCALE_UP    node-1 p=0.30      | 0.5577  | 
+  E4 S 5 | NO_OP       node-0 p=0.00      | 0.6118  | 
+  E5 S 5 | NO_OP       node-0 p=0.00      | 0.6097  | 
+  E6 S 5 | NO_OP       node-0 p=0.00      | 0.8364  | 
+  E7 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 5 | NO_OP       node-0 p=0.00      | 0.6127  | INVALID: invalid target_node_id: null
+  E9 S 5 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E10 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S 5 | NO_OP       node-0 p=0.00      | 0.6087  | 
+  E0 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S 6 | NO_OP       node-0 p=0.00      | 0.7780  | INVALID: invalid target_node_id: null
+  E2 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E4 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E5 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 6 | NO_OP       node-0 p=0.00      | 0.7102  | 
+  E9 S 6 | NO_OP       node-0 p=0.00      | 0.7938  | 
+  E10 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S 6 | NO_OP       node-0 p=0.00      | 0.6079  | INVALID: invalid target_node_id: null
+  E0 S 7 | SCALE_UP    node-1 p=0.40      | 0.7811  | 
+  E1 S 7 | SCALE_UP    node-1 p=0.30      | 0.6631  | 
+  E2 S 7 | NO_OP       node-0 p=0.00      | 0.6622  | 
+  E3 S 7 | SCALE_UP    node-1 p=0.50      | 0.6292  | 
+  E4 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: none
+  E7 S 7 | NO_OP       node-0 p=0.00      | 0.6368  | 
+  E8 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 7 | NO_OP       node-0 p=0.00      | 0.6195  | 
+  E11 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 8 | NO_OP       node-0 p=0.00      | 0.7829  | 
+  E1 S 8 | NO_OP       node-0 p=0.00      | 0.8250  | 
+  E2 S 8 | NO_OP       node-0 p=0.00      | 0.6097  | 
+  E3 S 8 | SCALE_UP    node-1 p=0.50      | 0.6051  | 
+  E4 S 8 | NO_OP       node-0 p=0.00      | 0.6167  | 
+  E5 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S 8 | NO_OP       node-0 p=0.00      | 0.6096  | 
+  E7 S 8 | NO_OP       node-0 p=0.00      | 0.7918  | 
+  E8 S 8 | NO_OP       node-0 p=0.00      | 0.8480  | 
+  E9 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 8 | NO_OP       node-0 p=0.00      | 0.8063  | 
+  E11 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 9 | NO_OP       node-0 p=0.00      | 0.7612  | 
+  E1 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S 9 | NO_OP       node-0 p=0.00      | 0.7052  | 
+  E3 S 9 | SCALE_UP    node-1 p=0.40      | 0.5577  | 
+  E4 S 9 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E5 S 9 | NO_OP       node-0 p=0.00      | 0.6616  | 
+  E6 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S 9 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E8 S 9 | NO_OP       node-0 p=0.00      | 0.6487  | 
+  E9 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 9 | NO_OP       node-0 p=0.00      | 0.8500  | 
+  E11 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S10 | NO_OP       node-0 p=0.00      | 0.6125  | 
+  E1 S10 | NO_OP       node-0 p=0.00      | 0.8237  | 
+  E2 S10 | SCALE_UP    node-1 p=0.50      | 0.5641  | 
+  E3 S10 | NO_OP       node-0 p=0.00      | 0.6352  | INVALID: invalid target_node_id: null
+  E4 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S10 | NO_OP       node-0 p=0.00      | 0.6221  | 
+  E6 S10 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E7 S10 | NO_OP       node-0 p=0.00      | 0.7177  | INVALID: invalid target_node_id: null
+  E8 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S10 | NO_OP       node-0 p=0.00      | 0.6324  | 
+  E11 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S11 | NO_OP       node-0 p=0.00      | 0.6506  | 
+  E1 S11 | NO_OP       node-0 p=0.00      | 0.6089  | 
+  E2 S11 | NO_OP       node-0 p=0.00      | 0.6343  | 
+  E3 S11 | NO_OP       node-0 p=0.00      | 0.6086  | 
+  E4 S11 | NO_OP       node-0 p=0.00      | 0.6131  | INVALID: invalid target_node_id: null
+  E5 S11 | NO_OP       node-0 p=0.00      | 0.6714  | 
+  E6 S11 | NO_OP       node-0 p=0.00      | 0.6207  | 
+  E7 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S11 | NO_OP       node-0 p=0.00      | 0.6402  | 
+  E10 S11 | NO_OP       node-0 p=0.00      | 0.7733  | INVALID: invalid target_node_id: null
+  E11 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S12 | SCALE_UP    node-1 p=0.40      | 0.5577  | 
+  E1 S12 | SCALE_DOWN  node-1 p=0.30      | 0.5586  | 
+  E2 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S12 | SCALE_UP    node-1 p=0.30      | 0.7167  | 
+  E4 S12 | NO_OP       node-0 p=0.00      | 0.8618  | 
+  E5 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S12 | NO_OP       node-0 p=0.00      | 0.8086  | 
+  E10 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S12 | NO_OP       node-0 p=0.00      | 0.6712  | 
+  E0 S13 | SCALE_UP    node-1 p=0.40      | 0.7217  | 
+  E1 S13 | NO_OP       node-0 p=0.00      | 0.7840  | 
+  E2 S13 | SCALE_UP    node-3 p=0.50      | 0.7594  | 
+  E3 S13 | SCALE_UP    node-1 p=0.40      | 0.6579  | 
+  E4 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S13 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E6 S13 | NO_OP       node-0 p=0.00      | 0.7491  | 
+  E7 S13 | NO_OP       node-0 p=0.00      | 0.6127  | 
+  E8 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S13 | NO_OP       node-0 p=0.00      | 0.7575  | 
+  E10 S13 | NO_OP       node-0 p=0.00      | 0.6141  | 
+  E11 S13 | NO_OP       node-0 p=0.00      | 0.7237  | INVALID: invalid target_node_id: null
+  E0 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S14 | NO_OP       node-0 p=0.00      | 0.7570  | INVALID: invalid target_node_id: null
+  E2 S14 | SCALE_UP    node-1 p=0.60      | 0.5577  | 
+  E3 S14 | NO_OP       node-0 p=0.00      | 0.8047  | 
+  E4 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S14 | NO_OP       node-0 p=0.00      | 0.6184  | 
+  E7 S14 | NO_OP       node-0 p=0.00      | 0.8403  | 
+  E8 S14 | NO_OP       node-0 p=0.00      | 0.7056  | 
+  E9 S14 | NO_OP       node-0 p=0.00      | 0.7065  | 
+  E10 S14 | NO_OP       node-0 p=0.00      | 0.6985  | INVALID: invalid target_node_id: null
+  E11 S14 | NO_OP       node-0 p=0.00      | 0.6102  | 
+  E0 S15 | NO_OP       node-0 p=0.00      | 0.7964  | 
+  E1 S15 | SCALE_UP    node-1 p=0.60      | 0.7248  | 
+  E2 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S15 | SCALE_UP    node-1 p=0.50      | 0.7489  | 
+  E4 S15 | NO_OP       node-0 p=0.00      | 0.6085  | INVALID: invalid target_node_id: null
+  E5 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S15 | NO_OP       node-0 p=0.00      | 0.6863  | 
+  E8 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S15 | NO_OP       node-0 p=0.00      | 0.6083  | 
+  E10 S15 | NO_OP       node-0 p=0.00      | 0.6661  | 
+  E11 S15 | NO_OP       node-0 p=0.00      | 0.6529  | 
+  [VRAM @i5_after_offload]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  [VRAM @i5_after_train]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  [VRAM @i5_post_grad]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  [iter    5] loss=0.0100  avg_reward=0.6507  invalid=23  grad_norm=0.3674  time=602.5s
+  [VRAM @i6_pre_rollout]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  E0 S 1 | NO_OP       node-0 p=0.00      | 0.6393  | 
+  E1 S 1 | NO_OP       node-0 p=0.00      | 0.6193  | 
+  E2 S 1 | NO_OP       node-0 p=0.00      | 0.6446  | 
+  E3 S 1 | NO_OP       node-0 p=0.00      | 0.6174  | 
+  E4 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S 1 | NO_OP       node-0 p=0.00      | 0.6112  | 
+  E7 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 1 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E9 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 1 | NO_OP       node-0 p=0.00      | 0.7737  | 
+  E11 S 1 | NO_OP       node-0 p=0.00      | 0.7656  | 
+  E0 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E1 S 2 | NO_OP       node-0 p=0.00      | 0.8007  | 
+  E2 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S 2 | NO_OP       node-0 p=0.00      | 0.6698  | 
+  E4 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S 2 | NO_OP       node-0 p=0.00      | 0.6091  | 
+  E7 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 2 | NO_OP       node-0 p=0.00      | 0.6210  | 
+  E9 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S 3 | SCALE_UP    node-1 p=0.50      | 0.6034  | 
+  E3 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S 3 | NO_OP       node-0 p=0.00      | 0.8393  | INVALID: invalid target_node_id: null
+  E5 S 3 | NO_OP       node-0 p=0.00      | 0.7544  | 
+  E6 S 3 | NO_OP       node-0 p=0.00      | 0.8092  | 
+  E7 S 3 | NO_OP       node-0 p=0.00      | 0.6144  | 
+  E8 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 3 | NO_OP       node-0 p=0.00      | 0.6888  | 
+  E10 S 3 | NO_OP       node-0 p=0.00      | 0.6086  | 
+  E11 S 3 | NO_OP       node-0 p=0.00      | 0.7806  | 
+  E0 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E1 S 4 | SCALE_UP    node-1 p=0.50      | 0.5580  | 
+  E2 S 4 | SCALE_UP    node-1 p=0.50      | 0.5693  | 
+  E3 S 4 | SCALE_UP    node-1 p=0.70      | 0.5577  | 
+  E4 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 4 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E6 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S 4 | NO_OP       node-0 p=0.00      | 0.6934  | 
+  E8 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 4 | NO_OP       node-0 p=0.00      | 0.6937  | 
+  E10 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S 4 | NO_OP       node-0 p=0.00      | 0.8316  | 
+  E0 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S 5 | SCALE_UP    node-1 p=0.30      | 0.5577  | 
+  E2 S 5 | SCALE_UP    node-1 p=0.40      | 0.5626  | 
+  E3 S 5 | NO_OP       node-0 p=0.00      | 0.6248  | INVALID: invalid target_node_id: null
+  E4 S 5 | NO_OP       node-0 p=0.00      | 0.6392  | 
+  E5 S 5 | NO_OP       node-0 p=0.00      | 0.7660  | 
+  E6 S 5 | NO_OP       node-0 p=0.00      | 0.6119  | INVALID: invalid target_node_id: null
+  E7 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E9 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 5 | NO_OP       node-0 p=0.00      | 0.8680  | 
+  E11 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 6 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E1 S 6 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E2 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E4 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E5 S 6 | NO_OP       node-0 p=0.00      | 0.6248  | INVALID: invalid target_node_id: null
+  E6 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S 6 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E8 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E9 S 6 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E10 S 6 | NO_OP       node-0 p=0.00      | 0.6384  | 
+  E11 S 6 | NO_OP       node-0 p=0.00      | 0.6237  | 
+  E0 S 7 | NO_OP       node-0 p=0.00      | 0.7505  | 
+  E1 S 7 | SCALE_UP    node-1 p=0.30      | 0.8085  | 
+  E2 S 7 | NO_OP       node-0 p=0.00      | 0.8035  | 
+  E3 S 7 | SCALE_UP    node-1 p=0.40      | 0.5695  | 
+  E4 S 7 | NO_OP       node-0 p=0.00      | 0.6080  | 
+  E5 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S 7 | NO_OP       node-0 p=0.00      | 0.6272  | 
+  E7 S 7 | NO_OP       node-0 p=0.00      | 0.6092  | 
+  E8 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S 7 | NO_OP       node-0 p=0.00      | 0.7920  | 
+  E0 S 8 | NO_OP       node-0 p=0.00      | 0.6358  | 
+  E1 S 8 | NO_OP       node-0 p=0.00      | 0.8526  | 
+  E2 S 8 | SCALE_UP    node-3 p=0.50      | 0.5577  | 
+  E3 S 8 | SCALE_UP    node-1 p=0.50      | 0.5652  | 
+  E4 S 8 | NO_OP       node-0 p=0.00      | 0.8583  | 
+  E5 S 8 | NO_OP       node-0 p=0.00      | 0.7764  | 
+  E6 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 8 | NO_OP       node-0 p=0.00      | 0.6922  | 
+  E9 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 8 | NO_OP       node-0 p=0.00      | 0.6896  | 
+  E11 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 9 | SCALE_UP    node-1 p=0.30      | 0.5577  | 
+  E1 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S 9 | NO_OP       node-0 p=0.00      | 0.7949  | 
+  E3 S 9 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E4 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S 9 | NO_OP       node-0 p=0.00      | 0.6082  | 
+  E7 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 9 | NO_OP       node-0 p=0.00      | 0.6747  | 
+  E9 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 9 | NO_OP       node-0 p=0.00      | 0.8608  | 
+  E11 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S10 | NO_OP       node-0 p=0.00      | 0.6112  | 
+  E1 S10 | SCALE_UP    node-3 p=0.50      | 0.5577  | 
+  E2 S10 | SCALE_UP    node-1 p=0.30      | 0.5577  | 
+  E3 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S10 | NO_OP       node-0 p=0.00      | 0.8442  | 
+  E6 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S10 | NO_OP       node-0 p=0.00      | 0.8670  | 
+  E8 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S10 | NO_OP       node-0 p=0.00      | 0.8755  | 
+  E10 S10 | NO_OP       node-0 p=0.00      | 0.6266  | 
+  E11 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S11 | SCALE_UP    node-3 p=0.50      | 0.6211  | 
+  E1 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S11 | NO_OP       node-0 p=0.00      | 0.7343  | 
+  E3 S11 | SCALE_UP    node-3 p=0.30      | 0.6275  | 
+  E4 S11 | NO_OP       node-0 p=0.00      | 0.8533  | 
+  E5 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S11 | NO_OP       node-0 p=0.00      | 0.8304  | 
+  E8 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S11 | NO_OP       node-0 p=0.00      | 0.6081  | 
+  E11 S11 | NO_OP       node-0 p=0.00      | 0.8326  | 
+  E0 S12 | SCALE_DOWN  node-3 p=0.30      | 0.6508  | 
+  E1 S12 | SCALE_UP    node-1 p=0.50      | 0.5694  | 
+  E2 S12 | SCALE_DOWN  node-4 p=0.30      | 0.5577  | 
+  E3 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S12 | NO_OP       node-0 p=0.00      | 0.7945  | 
+  E6 S12 | NO_OP       node-0 p=0.00      | 0.7373  | INVALID: invalid target_node_id: null
+  E7 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S12 | NO_OP       node-0 p=0.00      | 0.7828  | 
+  E10 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S12 | NO_OP       node-0 p=0.00      | 0.6081  | 
+  E0 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S13 | NO_OP       node-0 p=0.00      | 0.8642  | 
+  E2 S13 | SCALE_UP    node-1 p=0.50      | 0.8238  | 
+  E3 S13 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E4 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S13 | NO_OP       node-0 p=0.00      | 0.8529  | 
+  E6 S13 | NO_OP       node-0 p=0.00      | 0.8454  | 
+  E7 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S13 | NO_OP       node-0 p=0.00      | 0.6479  | 
+  E11 S13 | NO_OP       node-0 p=0.00      | 0.6578  | 
+  E0 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S14 | SCALE_UP    node-1 p=0.50      | 0.5620  | 
+  E2 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S14 | NO_OP       node-0 p=0.00      | 0.8555  | 
+  E5 S14 | NO_OP       node-0 p=0.00      | 0.6102  | 
+  E6 S14 | NO_OP       node-0 p=0.00      | 0.6085  | 
+  E7 S14 | NO_OP       node-0 p=0.00      | 0.7460  | 
+  E8 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S14 | NO_OP       node-0 p=0.00      | 0.6088  | 
+  E10 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S15 | NO_OP       node-0 p=0.00      | 0.6110  | 
+  E1 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S15 | SCALE_UP    node-1 p=0.50      | 0.5628  | 
+  E4 S15 | NO_OP       node-0 p=0.00      | 0.6433  | 
+  E5 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S15 | NO_OP       node-0 p=0.00      | 0.6098  | 
+  E7 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S15 | NO_OP       node-0 p=0.00      | 0.6814  | 
+  E10 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  [VRAM @i6_after_offload]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  [VRAM @i6_after_train]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  [VRAM @i6_post_grad]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  [iter    6] loss=-0.0581  avg_reward=0.6488  invalid=11  grad_norm=0.5594  time=605.5s
+  [VRAM @i7_pre_rollout]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  E0 S 1 | NO_OP       node-0 p=0.00      | 0.6089  | 
+  E1 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 1 | NO_OP       node-0 p=0.00      | 0.8568  | 
+  E6 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S 1 | NO_OP       node-0 p=0.00      | 0.6089  | 
+  E8 S 1 | NO_OP       node-0 p=0.00      | 0.6588  | 
+  E9 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S 1 | NO_OP       node-0 p=0.00      | 0.7810  | 
+  E0 S 2 | NO_OP       node-0 p=0.00      | 0.8153  | 
+  E1 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E2 S 2 | SCALE_UP    node-1 p=0.40      | 0.5643  | 
+  E3 S 2 | NO_OP       node-0 p=0.00      | 0.8716  | 
+  E4 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 2 | NO_OP       node-0 p=0.00      | 0.6313  | 
+  E6 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 2 | NO_OP       node-0 p=0.00      | 0.6110  | 
+  E9 S 2 | NO_OP       node-0 p=0.00      | 0.6428  | 
+  E10 S 2 | NO_OP       node-0 p=0.00      | 0.6139  | 
+  E11 S 2 | NO_OP       node-0 p=0.00      | 0.7521  | 
+  E0 S 3 | NO_OP       node-0 p=0.00      | 0.7036  | 
+  E1 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S 3 | SCALE_UP    node-1 p=0.30      | 0.5585  | 
+  E3 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S 3 | NO_OP       node-0 p=0.00      | 0.8558  | 
+  E5 S 3 | NO_OP       node-0 p=0.00      | 0.6173  | 
+  E6 S 3 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E7 S 3 | NO_OP       node-0 p=0.00      | 0.6600  | 
+  E8 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 3 | NO_OP       node-0 p=0.00      | 0.6078  | INVALID: invalid target_node_id: null
+  E11 S 3 | NO_OP       node-0 p=0.00      | 0.6095  | 
+  E0 S 4 | NO_OP       node-0 p=0.00      | 0.6136  | 
+  E1 S 4 | NO_OP       node-0 p=0.00      | 0.7790  | 
+  E2 S 4 | SCALE_UP    node-1 p=0.50      | 0.5580  | 
+  E3 S 4 | NO_OP       node-0 p=0.00      | 0.6428  | 
+  E4 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 4 | NO_OP       node-0 p=0.00      | 0.7381  | 
+  E6 S 4 | NO_OP       node-0 p=0.00      | 0.8596  | 
+  E7 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 4 | NO_OP       node-0 p=0.00      | 0.8117  | 
+  E10 S 4 | NO_OP       node-0 p=0.00      | 0.6155  | 
+  E11 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 5 | SCALE_UP    node-1 p=0.50      | 0.5633  | 
+  E1 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S 5 | SCALE_UP    node-3 p=0.50      | 0.5577  | 
+  E3 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 5 | NO_OP       node-0 p=0.00      | 0.6902  | 
+  E6 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S 5 | NO_OP       node-0 p=0.00      | 0.8203  | 
+  E8 S 5 | NO_OP       node-0 p=0.00      | 0.6284  | 
+  E9 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S 5 | NO_OP       node-0 p=0.00      | 0.8487  | 
+  E0 S 6 | NO_OP       node-0 p=0.00      | 0.6345  | 
+  E1 S 6 | NO_OP       node-0 p=0.00      | 0.8391  | 
+  E2 S 6 | NO_OP       node-0 p=0.00      | 0.6467  | 
+  E3 S 6 | NO_OP       node-0 p=0.00      | 0.7227  | 
+  E4 S 6 | NO_OP       node-0 p=0.00      | 0.6355  | 
+  E5 S 6 | NO_OP       node-0 p=0.00      | 0.8575  | 
+  E6 S 6 | NO_OP       node-0 p=0.00      | 0.7182  | 
+  E7 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 6 | NO_OP       node-0 p=0.00      | 0.6104  | 
+  E9 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 6 | NO_OP       node-0 p=0.00      | 0.8273  | 
+  E11 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 7 | SCALE_UP    node-1 p=0.40      | 0.5577  | 
+  E1 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S 7 | SCALE_UP    node-1 p=0.50      | 0.7728  | 
+  E3 S 7 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E4 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 7 | NO_OP       node-0 p=0.00      | 0.6081  | INVALID: invalid target_node_id: null
+  E6 S 7 | NO_OP       node-0 p=0.00      | 0.6121  | INVALID: invalid target_node_id: null
+  E7 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 7 | NO_OP       node-0 p=0.00      | 0.6381  | 
+  E9 S 7 | NO_OP       node-0 p=0.00      | 0.6280  | 
+  E10 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S 8 | SCALE_UP    node-1 p=0.30      | 0.5577  | 
+  E2 S 8 | NO_OP       node-0 p=0.00      | 0.7585  | 
+  E3 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E8 S 8 | NO_OP       node-0 p=0.00      | 0.6085  | 
+  E9 S 8 | NO_OP       node-0 p=0.00      | 0.7113  | INVALID: invalid target_node_id: null
+  E10 S 8 | NO_OP       node-0 p=0.00      | 0.6617  | 
+  E11 S 8 | NO_OP       node-0 p=0.00      | 0.6913  | 
+  E0 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S 9 | NO_OP       node-0 p=0.00      | 0.6085  | 
+  E4 S 9 | NO_OP       node-0 p=0.00      | 0.6098  | 
+  E5 S 9 | NO_OP       node-0 p=0.00      | 0.8293  | INVALID: invalid target_node_id: null
+  E6 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 9 | NO_OP       node-0 p=0.00      | 0.7724  | 
+  E10 S 9 | NO_OP       node-0 p=0.00      | 0.6157  | 
+  E11 S 9 | NO_OP       node-0 p=0.00      | 0.8602  | 
+  E0 S10 | SCALE_UP    node-1 p=0.40      | 0.5628  | 
+  E1 S10 | SCALE_UP    node-3 p=0.30      | 0.8056  | 
+  E2 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S10 | NO_OP       node-0 p=0.00      | 0.7274  | 
+  E4 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S10 | NO_OP       node-0 p=0.00      | 0.6082  | 
+  E8 S10 | NO_OP       node-0 p=0.00      | 0.6081  | 
+  E9 S10 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E10 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S10 | NO_OP       node-0 p=0.00      | 0.7610  | 
+  E0 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S11 | NO_OP       node-0 p=0.00      | 0.6131  | 
+  E2 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S11 | NO_OP       node-0 p=0.00      | 0.8356  | INVALID: invalid target_node_id: null
+  E5 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S11 | NO_OP       node-0 p=0.00      | 0.8007  | 
+  E8 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S11 | NO_OP       node-0 p=0.00      | 0.8688  | 
+  E10 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S11 | NO_OP       node-0 p=0.00      | 0.6979  | 
+  E0 S12 | NO_OP       node-0 p=0.00      | 0.8242  | 
+  E1 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S12 | SCALE_UP    node-1 p=0.30      | 0.5577  | 
+  E4 S12 | NO_OP       node-0 p=0.00      | 0.6669  | 
+  E5 S12 | NO_OP       node-0 p=0.00      | 0.6079  | 
+  E6 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S12 | NO_OP       node-0 p=0.00      | 0.6084  | 
+  E10 S12 | NO_OP       node-0 p=0.00      | 0.8706  | 
+  E11 S12 | NO_OP       node-0 p=0.00      | 0.7552  | 
+  E0 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S13 | SCALE_UP    node-1 p=0.30      | 0.5577  | 
+  E2 S13 | SCALE_UP    node-3 p=0.30      | 0.5577  | 
+  E3 S13 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E4 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S13 | NO_OP       node-0 p=0.00      | 0.6516  | 
+  E6 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S13 | NO_OP       node-0 p=0.00      | 0.8184  | 
+  E8 S13 | NO_OP       node-0 p=0.00      | 0.8144  | 
+  E9 S13 | NO_OP       node-0 p=0.00      | 0.8319  | 
+  E10 S13 | NO_OP       node-0 p=0.00      | 0.6582  | 
+  E11 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S14 | SCALE_UP    node-1 p=0.30      | 0.7297  | 
+  E3 S14 | SCALE_UP    node-1 p=0.70      | 0.7466  | 
+  E4 S14 | NO_OP       node-0 p=0.00      | 0.6081  | 
+  E5 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S14 | NO_OP       node-0 p=0.00      | 0.6222  | 
+  E7 S14 | NO_OP       node-0 p=0.00      | 0.6451  | 
+  E8 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S14 | NO_OP       node-0 p=0.00      | 0.6111  | 
+  E10 S14 | NO_OP       node-0 p=0.00      | 0.6080  | 
+  E11 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S15 | SCALE_DOWN  node-1 p=0.30      | 0.5579  | 
+  E1 S15 | NO_OP       node-0 p=0.00      | 0.6236  | 
+  E2 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S15 | NO_OP       node-0 p=0.00      | 0.6147  | 
+  E4 S15 | NO_OP       node-0 p=0.00      | 0.7437  | 
+  E5 S15 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E6 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S15 | NO_OP       node-0 p=0.00      | 0.6278  | 
+  E9 S15 | NO_OP       node-0 p=0.00      | 0.6171  | 
+  E10 S15 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E11 S15 | NO_OP       node-0 p=0.00      | 0.6113  | 
+  [VRAM @i7_after_offload]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  [VRAM @i7_after_train]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  [VRAM @i7_post_grad]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  [iter    7] loss=0.0069  avg_reward=0.6506  invalid=10  grad_norm=0.3502  time=604.7s
+  [VRAM @i8_pre_rollout]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  E0 S 1 | NO_OP       node-0 p=0.00      | 0.6094  | 
+  E1 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S 1 | NO_OP       node-0 p=0.00      | 0.6797  | INVALID: invalid target_node_id: null
+  E4 S 1 | NO_OP       node-0 p=0.00      | 0.6197  | 
+  E5 S 1 | NO_OP       node-0 p=0.00      | 0.7034  | INVALID: invalid target_node_id: null
+  E6 S 1 | NO_OP       node-0 p=0.00      | 0.6191  | 
+  E7 S 1 | NO_OP       node-0 p=0.00      | 0.6323  | 
+  E8 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 1 | NO_OP       node-0 p=0.00      | 0.8576  | 
+  E10 S 1 | NO_OP       node-0 p=0.00      | 0.6800  | 
+  E11 S 1 | NO_OP       node-0 p=0.00      | 0.7394  | 
+  E0 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S 2 | NO_OP       node-0 p=0.00      | 0.7547  | 
+  E2 S 2 | NO_OP       node-0 p=0.00      | 0.7203  | 
+  E3 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S 2 | NO_OP       node-0 p=0.00      | 0.6121  | 
+  E5 S 2 | NO_OP       node-0 p=0.00      | 0.8234  | 
+  E6 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E7 S 2 | NO_OP       node-0 p=0.00      | 0.6088  | 
+  E8 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 2 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E10 S 2 | NO_OP       node-0 p=0.00      | 0.6891  | 
+  E11 S 2 | NO_OP       node-0 p=0.00      | 0.7663  | 
+  E0 S 3 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E1 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S 3 | SCALE_UP    node-1 p=0.50      | 0.7290  | 
+  E3 S 3 | NO_OP       node-0 p=0.00      | 0.6492  | 
+  E4 S 3 | NO_OP       node-0 p=0.00      | 0.6222  | 
+  E5 S 3 | NO_OP       node-0 p=0.00      | 0.6089  | 
+  E6 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S 3 | NO_OP       node-0 p=0.00      | 0.6223  | 
+  E8 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 3 | NO_OP       node-0 p=0.00      | 0.6124  | 
+  E11 S 3 | NO_OP       node-0 p=0.00      | 0.6887  | 
+  E0 S 4 | SCALE_UP    node-1 p=0.30      | 0.8158  | 
+  E1 S 4 | NO_OP       node-0 p=0.00      | 0.8190  | 
+  E2 S 4 | NO_OP       node-0 p=0.00      | 0.6590  | 
+  E3 S 4 | SCALE_UP    node-3 p=0.30      | 0.6541  | 
+  E4 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 4 | NO_OP       node-0 p=0.00      | 0.6995  | 
+  E6 S 4 | NO_OP       node-0 p=0.00      | 0.6606  | 
+  E7 S 4 | NO_OP       node-0 p=0.00      | 0.7591  | 
+  E8 S 4 | NO_OP       node-0 p=0.00      | 0.6096  | 
+  E9 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S 5 | SCALE_UP    node-3 p=0.50      | 0.5577  | 
+  E2 S 5 | NO_OP       node-0 p=0.00      | 0.6081  | 
+  E3 S 5 | SCALE_UP    node-3 p=0.50      | 0.5577  | 
+  E4 S 5 | NO_OP       node-0 p=0.00      | 0.6137  | 
+  E5 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S 5 | NO_OP       node-0 p=0.00      | 0.8006  | 
+  E7 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 5 | NO_OP       node-0 p=0.00      | 0.6081  | 
+  E9 S 5 | NO_OP       node-0 p=0.00      | 0.8285  | 
+  E10 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S 5 | NO_OP       node-0 p=0.00      | 0.6314  | 
+  E0 S 6 | SCALE_DOWN  node-1 p=0.30      | 0.5864  | 
+  E1 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S 6 | NO_OP       node-0 p=0.00      | 0.6172  | 
+  E8 S 6 | NO_OP       node-0 p=0.00      | 0.6095  | 
+  E9 S 6 | NO_OP       node-0 p=0.00      | 0.6265  | 
+  E10 S 6 | NO_OP       node-0 p=0.00      | 0.6805  | 
+  E11 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S 7 | SCALE_UP    node-1 p=0.60      | 0.5577  | 
+  E2 S 7 | NO_OP       node-0 p=0.00      | 0.7492  | 
+  E3 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 7 | NO_OP       node-0 p=0.00      | 0.8248  | 
+  E6 S 7 | NO_OP       node-0 p=0.00      | 0.8515  | 
+  E7 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 7 | NO_OP       node-0 p=0.00      | 0.6084  | 
+  E9 S 7 | NO_OP       node-0 p=0.00      | 0.6975  | 
+  E10 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S 7 | NO_OP       node-0 p=0.00      | 0.6489  | INVALID: invalid target_node_id: null
+  E0 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S 8 | NO_OP       node-0 p=0.00      | 0.6163  | 
+  E2 S 8 | NO_OP       node-0 p=0.00      | 0.7354  | 
+  E3 S 8 | SCALE_UP    node-1 p=0.30      | 0.5577  | 
+  E4 S 8 | NO_OP       node-0 p=0.00      | 0.6223  | 
+  E5 S 8 | NO_OP       node-0 p=0.00      | 0.6253  | 
+  E6 S 8 | NO_OP       node-0 p=0.00      | 0.7185  | 
+  E7 S 8 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E8 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 8 | NO_OP       node-0 p=0.00      | 0.6080  | 
+  E10 S 8 | NO_OP       node-0 p=0.00      | 0.6079  | 
+  E11 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S 9 | NO_OP       node-0 p=0.00      | 0.6081  | 
+  E2 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S 9 | NO_OP       node-0 p=0.00      | 0.6137  | 
+  E5 S 9 | NO_OP       node-0 p=0.00      | 0.6899  | 
+  E6 S 9 | NO_OP       node-0 p=0.00      | 0.6976  | 
+  E7 S 9 | NO_OP       node-0 p=0.00      | 0.7281  | 
+  E8 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 9 | NO_OP       node-0 p=0.00      | 0.8426  | 
+  E11 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S10 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E1 S10 | SCALE_UP    node-1 p=0.50      | 0.7273  | 
+  E2 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S10 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E4 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S10 | NO_OP       node-0 p=0.00      | 0.8515  | 
+  E6 S10 | NO_OP       node-0 p=0.00      | 0.6080  | 
+  E7 S10 | NO_OP       node-0 p=0.00      | 0.6543  | 
+  E8 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S10 | NO_OP       node-0 p=0.00      | 0.7701  | 
+  E10 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S10 | NO_OP       node-0 p=0.00      | 0.8349  | 
+  E0 S11 | NO_OP       node-0 p=0.00      | 0.6165  | 
+  E1 S11 | NO_OP       node-0 p=0.00      | 0.6283  | 
+  E2 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S11 | SCALE_UP    node-1 p=0.30      | 0.6409  | 
+  E4 S11 | NO_OP       node-0 p=0.00      | 0.6078  | 
+  E5 S11 | NO_OP       node-0 p=0.00      | 0.6293  | 
+  E6 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S11 | NO_OP       node-0 p=0.00      | 0.8725  | 
+  E9 S11 | NO_OP       node-0 p=0.00      | 0.6204  | 
+  E10 S11 | NO_OP       node-0 p=0.00      | 0.6115  | 
+  E11 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S12 | NO_OP       node-0 p=0.00      | 0.6676  | 
+  E2 S12 | SCALE_UP    node-1 p=0.30      | 0.5577  | 
+  E3 S12 | NO_OP       node-0 p=0.00      | 0.7369  | 
+  E4 S12 | NO_OP       node-0 p=0.00      | 0.8427  | INVALID: invalid target_node_id: null
+  E5 S12 | NO_OP       node-0 p=0.00      | 0.6622  | 
+  E6 S12 | NO_OP       node-0 p=0.00      | 0.6560  | 
+  E7 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S12 | NO_OP       node-0 p=0.00      | 0.6080  | 
+  E10 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S12 | NO_OP       node-0 p=0.00      | 0.8179  | 
+  E0 S13 | SCALE_UP    node-1 p=0.30      | 0.7056  | 
+  E1 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S13 | SCALE_UP    node-1 p=0.30      | 0.7611  | 
+  E4 S13 | NO_OP       node-0 p=0.00      | 0.8778  | INVALID: invalid target_node_id: null
+  E5 S13 | NO_OP       node-0 p=0.00      | 0.6092  | 
+  E6 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S13 | NO_OP       node-0 p=0.00      | 0.8635  | 
+  E9 S13 | NO_OP       node-0 p=0.00      | 0.6079  | 
+  E10 S13 | NO_OP       node-0 p=0.00      | 0.8647  | 
+  E11 S13 | NO_OP       node-0 p=0.00      | 0.6079  | 
+  E0 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S14 | NO_OP       node-0 p=0.00      | 0.7650  | 
+  E2 S14 | NO_OP       node-0 p=0.00      | 0.7910  | INVALID: invalid target_node_id: null
+  E3 S14 | NO_OP       node-0 p=0.00      | 0.6086  | 
+  E4 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S14 | NO_OP       node-0 p=0.00      | 0.6085  | 
+  E7 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S14 | NO_OP       node-0 p=0.00      | 0.6130  | 
+  E10 S14 | NO_OP       node-0 p=0.00      | 0.6079  | 
+  E11 S14 | NO_OP       node-0 p=0.00      | 0.8737  | 
+  E0 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S15 | SCALE_UP    node-3 p=0.40      | 0.5577  | 
+  E2 S15 | NO_OP       node-0 p=0.00      | 0.6111  | 
+  E3 S15 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E4 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S15 | NO_OP       node-0 p=0.00      | 0.8019  | 
+  E6 S15 | NO_OP       node-0 p=0.00      | 0.6105  | 
+  E7 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S15 | NO_OP       node-0 p=0.00      | 0.6421  | 
+  E11 S15 | NO_OP       node-0 p=0.00      | 0.6082  | 
+  [VRAM @i8_after_offload]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  [VRAM @i8_after_train]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  [VRAM @i8_post_grad]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  [iter    8] loss=0.0220  avg_reward=0.6518  invalid=8  grad_norm=0.4987  time=605.3s
+  [VRAM @i9_pre_rollout]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  E0 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S 1 | NO_OP       node-0 p=0.00      | 0.7902  | 
+  E3 S 1 | NO_OP       node-0 p=0.00      | 0.8341  | 
+  E4 S 1 | NO_OP       node-0 p=0.00      | 0.8418  | 
+  E5 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S 1 | NO_OP       node-0 p=0.00      | 0.6105  | 
+  E8 S 1 | NO_OP       node-0 p=0.00      | 0.6121  | 
+  E9 S 1 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 1 | NO_OP       node-0 p=0.00      | 0.6147  | 
+  E11 S 1 | NO_OP       node-0 p=0.00      | 0.8612  | 
+  E0 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S 2 | NO_OP       node-0 p=0.00      | 0.8457  | INVALID: invalid target_node_id: null
+  E2 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 2 | NO_OP       node-0 p=0.00      | 0.6332  | 
+  E6 S 2 | NO_OP       node-0 p=0.00      | 0.7247  | 
+  E7 S 2 | NO_OP       node-0 p=0.00      | 0.6096  | 
+  E8 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 2 | NO_OP       node-0 p=0.00      | 0.6087  | 
+  E11 S 2 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 3 | NO_OP       node-0 p=0.00      | 0.6084  | 
+  E1 S 3 | SCALE_UP    node-1 p=0.40      | 0.6377  | 
+  E2 S 3 | SCALE_UP    node-1 p=0.40      | 0.5577  | 
+  E3 S 3 | SCALE_UP    node-1 p=0.70      | 0.7757  | 
+  E4 S 3 | NO_OP       node-0 p=0.00      | 0.8607  | 
+  E5 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S 3 | NO_OP       node-0 p=0.00      | 0.6210  | INVALID: invalid target_node_id: null
+  E7 S 3 | NO_OP       node-0 p=0.00      | 0.6739  | 
+  E8 S 3 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 3 | NO_OP       node-0 p=0.00      | 0.8484  | INVALID: invalid target_node_id: null
+  E10 S 3 | NO_OP       node-0 p=0.00      | 0.7551  | 
+  E11 S 3 | NO_OP       node-0 p=0.00      | 0.6080  | 
+  E0 S 4 | SCALE_UP    node-1 p=0.30      | 0.5577  | 
+  E1 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S 4 | SCALE_UP    node-1 p=0.30      | 0.5577  | 
+  E3 S 4 | NO_OP       node-0 p=0.00      | 0.6371  | 
+  E4 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 4 | NO_OP       node-0 p=0.00      | 0.8211  | 
+  E6 S 4 | NO_OP       node-0 p=0.00      | 0.6950  | 
+  E7 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E8 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 4 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 4 | NO_OP       node-0 p=0.00      | 0.6366  | 
+  E11 S 4 | NO_OP       node-0 p=0.00      | 0.8486  | 
+  E0 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S 5 | NO_OP       node-0 p=0.00      | 0.8732  | 
+  E2 S 5 | SCALE_UP    node-3 p=0.30      | 0.7966  | 
+  E3 S 5 | NO_OP       node-0 p=0.00      | 0.7558  | 
+  E4 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S 5 | NO_OP       node-0 p=0.00      | 0.7222  | 
+  E7 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 5 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 5 | NO_OP       node-0 p=0.00      | 0.6080  | 
+  E10 S 5 | NO_OP       node-0 p=0.00      | 0.7077  | 
+  E11 S 5 | NO_OP       node-0 p=0.00      | 0.6142  | 
+  E0 S 6 | NO_OP       node-0 p=0.00      | 0.6457  | 
+  E1 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S 6 | SCALE_UP    node-1 p=0.60      | 0.6173  | 
+  E4 S 6 | NO_OP       node-0 p=0.00      | 0.8369  | 
+  E5 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S 6 | NO_OP       node-0 p=0.00      | 0.7033  | 
+  E7 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S 6 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 6 | NO_OP       node-0 p=0.00      | 0.6659  | 
+  E11 S 6 | NO_OP       node-0 p=0.00      | 0.7999  | 
+  E0 S 7 | SCALE_UP    node-3 p=0.40      | 0.7591  | 
+  E1 S 7 | NO_OP       node-0 p=0.00      | 0.6426  | 
+  E2 S 7 | SCALE_UP    node-1 p=0.70      | 0.7617  | 
+  E3 S 7 | NO_OP       node-0 p=0.00      | 0.6738  | 
+  E4 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E5 S 7 | NO_OP       node-0 p=0.00      | 0.7907  | 
+  E6 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S 7 | NO_OP       node-0 p=0.00      | 0.7794  | 
+  E8 S 7 | NO_OP       node-0 p=0.00      | 0.7986  | 
+  E9 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S 7 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S 8 | NO_OP       node-0 p=0.00      | 0.8601  | 
+  E1 S 8 | NO_OP       node-0 p=0.00      | 0.6347  | 
+  E2 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S 8 | NO_OP       node-0 p=0.00      | 0.8575  | 
+  E4 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E6 S 8 | NO_OP       node-0 p=0.00      | 0.7711  | 
+  E7 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S 8 | NO_OP       node-0 p=0.00      | 0.8564  | 
+  E9 S 8 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S 8 | NO_OP       node-0 p=0.00      | 0.6993  | 
+  E11 S 8 | NO_OP       node-0 p=0.00      | 0.6986  | 
+  E0 S 9 | SCALE_UP    node-1 p=0.40      | 0.5577  | 
+  E1 S 9 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E2 S 9 | NO_OP       node-0 p=0.00      | 0.6080  | 
+  E3 S 9 | NO_OP       node-0 p=0.00      | 0.6651  | 
+  E4 S 9 | NO_OP       node-0 p=0.00      | 0.7240  | 
+  E5 S 9 | NO_OP       node-0 p=0.00      | 0.6200  | 
+  E6 S 9 | NO_OP       node-0 p=0.00      | 0.7713  | 
+  E7 S 9 | NO_OP       node-0 p=0.00      | 0.8299  | 
+  E8 S 9 | NO_OP       node-0 p=0.00      | 0.7342  | 
+  E9 S 9 | NO_OP       node-0 p=0.00      | 0.6140  | 
+  E10 S 9 | NO_OP       node-0 p=0.00      | 0.7194  | 
+  E11 S 9 | NO_OP       node-0 p=0.00      | 0.6535  | 
+  E0 S10 | NO_OP       node-0 p=0.00      | 0.6449  | 
+  E1 S10 | SCALE_UP    node-1 p=0.50      | 0.5577  | 
+  E2 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S10 | NO_OP       node-0 p=0.00      | 0.6897  | 
+  E4 S10 | NO_OP       node-0 p=0.00      | 0.6077  | INVALID: invalid target_node_id: null
+  E5 S10 | NO_OP       node-0 p=0.00      | 0.6103  | 
+  E6 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S10 | NO_OP       node-0 p=0.00      | 0.8324  | 
+  E8 S10 | NO_OP       node-0 p=0.00      | 0.6107  | 
+  E9 S10 | NO_OP       node-0 p=0.00      | 0.6142  | 
+  E10 S10 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S10 | NO_OP       node-0 p=0.00      | 0.6167  | 
+  E0 S11 | NO_OP       node-0 p=0.00      | 0.8666  | 
+  E1 S11 | SCALE_UP    node-1 p=0.30      | 0.5577  | 
+  E2 S11 | SCALE_UP    node-3 p=0.30      | 0.7071  | 
+  E3 S11 | NO_OP       node-0 p=0.00      | 0.6100  | 
+  E4 S11 | NO_OP       node-0 p=0.00      | 0.7313  | 
+  E5 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E6 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S11 | NO_OP       node-0 p=0.00      | 0.6393  | INVALID: invalid target_node_id: null
+  E8 S11 | NO_OP       node-0 p=0.00      | 0.6081  | 
+  E9 S11 | NO_OP       node-0 p=0.00      | 0.8033  | 
+  E10 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E11 S11 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S12 | SCALE_UP    node-1 p=0.50      | 0.5579  | 
+  E1 S12 | SCALE_UP    node-3 p=0.30      | 0.5577  | 
+  E2 S12 | SCALE_UP    node-1 p=0.60      | 0.5596  | 
+  E3 S12 | SCALE_UP    node-1 p=0.60      | 0.5589  | 
+  E4 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S12 | NO_OP       node-0 p=0.00      | 0.8773  | 
+  E6 S12 | NO_OP       node-0 p=0.00      | 0.8243  | 
+  E7 S12 | NO_OP       node-0 p=0.00      | 0.8132  | 
+  E8 S12 | NO_OP       node-0 p=0.00      | 0.7713  | 
+  E9 S12 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S12 | NO_OP       node-0 p=0.00      | 0.7229  | 
+  E11 S12 | NO_OP       node-0 p=0.00      | 0.8073  | 
+  E0 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S13 | NO_OP       node-0 p=0.00      | 0.7029  | 
+  E2 S13 | NO_OP       node-0 p=0.00      | 0.8045  | 
+  E3 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S13 | NO_OP       node-0 p=0.00      | 0.7903  | 
+  E5 S13 | NO_OP       node-0 p=0.00      | 0.7982  | INVALID: invalid target_node_id: null
+  E6 S13 | NO_OP       node-0 p=0.00      | 0.6158  | 
+  E7 S13 | NO_OP       node-0 p=0.00      | 0.7787  | 
+  E8 S13 | NO_OP       node-0 p=0.00      | 0.6536  | 
+  E9 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S13 | NO_OP       node-0 p=0.00      | 0.8507  | 
+  E11 S13 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E0 S14 | NO_OP       node-0 p=0.00      | 0.6089  | 
+  E1 S14 | NO_OP       node-0 p=0.00      | 0.6717  | 
+  E2 S14 | NO_OP       node-0 p=0.00      | 0.6844  | 
+  E3 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E5 S14 | NO_OP       node-0 p=0.00      | 0.8549  | INVALID: invalid target_node_id: null
+  E6 S14 | NO_OP       node-0 p=0.00      | 0.6129  | 
+  E7 S14 | NO_OP       node-0 p=0.00      | 0.7227  | 
+  E8 S14 | NO_OP       node-0 p=0.00      | 0.8677  | 
+  E9 S14 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S14 | NO_OP       node-0 p=0.00      | 0.7757  | 
+  E11 S14 | NO_OP       node-0 p=0.00      | 0.6863  | 
+  E0 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E1 S15 | NO_OP       node-0 p=0.00      | 0.6079  | 
+  E2 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E3 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E4 S15 | NO_OP       node-0 p=0.00      | 0.8011  | 
+  E5 S15 | NO_OP       node-0 p=0.00      | 0.6079  | 
+  E6 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E7 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E8 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E9 S15 | NO_OP       node-0 p=0.00      | 0.6077  | 
+  E10 S15 | NO_OP       node-0 p=0.00      | 0.6087  | 
+  E11 S15 | NO_OP       node-0 p=0.00      | 0.6106  | 
+  [VRAM @i9_after_offload]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  [VRAM @i9_after_train]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  [VRAM @i9_post_grad]  alloc=  4.07GiB  reserved=  4.63GiB  peak= 19.67GiB  free=17.3/22.3GiB
+  [iter    9] loss=-0.0088  avg_reward=0.6704  invalid=10  grad_norm=0.2985  time=604.5s
+Unsloth: Restored added_tokens_decoder metadata in /workspace/antiatropos_checkpoints/grpo_run_001/checkpoint-0010/tokenizer_config.json.
+  [ckpt] Saved → /workspace/antiatropos_checkpoints/grpo_run_001/checkpoint-0010  (reward=0.6704  loss=-0.0088)
+Processing Files (0 / 0)      : |          |  0.00B /  0.00B            
+New Data Upload               : |          |  0.00B /  0.00B            [A
+
+  ...point-0010/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors:   0%|          | 17.8kB /  340MB            [A[A[A
+
+  ...point-0010/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors:   0%|          | 17.8kB /  340MB            [A[A[A
+
+  ...point-0010/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors:  20%|#9        | 66.6MB /  340MB            [A[A[A
+
+  ...point-0010/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors:  39%|###9      |  133MB /  340MB            [A[A[A
+
+  ...point-0010/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors:  59%|#####8    |  200MB /  340MB            [A[A[A
+
+  ...point-0010/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors:  87%|########7 |  296MB /  340MB            [A[A[AProcessing Files (1 / 2)      :  88%|########7 |  316MB /  360MB,  370MB/s  
+New Data Upload               :  87%|########7 |  296MB /  340MB,  370MB/s  [A
+
+  ...point-0010/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors: 100%|#########9|  338MB /  340MB            [A[A[A
+
+  ...point-0010/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors: 100%|#########9|  339MB /  340MB            [A[A[A
+
+  ...point-0010/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors: 100%|#########9|  339MB /  340MB            [A[A[A
+
+  ...point-0010/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors: 100%|#########9|  340MB /  340MB            [A[A[A
+
+  ...point-0010/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors: 100%|##########|  340MB /  340MB            [A[A[AProcessing Files (2 / 2)      : 100%|##########|  360MB /  360MB,  189MB/s  
+New Data Upload               : 100%|##########|  340MB /  340MB,  189MB/s  [A
+
+  ...point-0010/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors: 100%|##########|  340MB /  340MB            [A[A[A
+
+  ...point-0010/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors: 100%|##########|  340MB /  340MB            [A[A[A
+
+  ...point-0010/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors: 100%|##########|  340MB /  340MB            [A[A[AProcessing Files (2 / 2)      : 100%|##########|  360MB /  360MB,  154MB/s  
+New Data Upload               : 100%|##########|  340MB /  340MB,  154MB/s  
+  ...point-0010/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            
+  ...adapter_model.safetensors: 100%|##########|  340MB /  340MB            
+[model_utils] Pushed → Keshav051/antiatropos-qlora/grpo_run_001/checkpoint-0010
+[huggingface_hub.hf_api|WARNING]No files have been modified since last commit. Skipping to prevent empty commit.
+  [push] → HF model Keshav051/antiatropos-qlora/grpo_run_001/: step_metrics.jsonl, iter_metrics.jsonl, training.log, run_info.json
+/workspace/AntiAtropos/training/plotting.py:119: UserWarning: No artists with labels found to put in legend.  Note that artists whose label start with an underscore are ignored when legend() is called with no argument.
+  ax.legend(loc="lower right")
+[plotting] Saved /workspace/antiatropos_checkpoints/grpo_run_001/plots/reward_curve.png
+[plotting] Saved /workspace/antiatropos_checkpoints/grpo_run_001/plots/loss_curve.png
+[plotting] Saved /workspace/antiatropos_checkpoints/grpo_run_001/plots/gradient_norm.png
+[plotting] Saved /workspace/antiatropos_checkpoints/grpo_run_001/plots/action_distribution.png
+/workspace/AntiAtropos/training/plotting.py:258: UserWarning: No artists with labels found to put in legend.  Note that artists whose label start with an underscore are ignored when legend() is called with no argument.
+  ax.legend(fontsize=8)
+[plotting] Saved /workspace/antiatropos_checkpoints/grpo_run_001/plots/per_task_rewards.png
+[plotting] Saved /workspace/antiatropos_checkpoints/grpo_run_001/plots/iteration_time.png
+[plotting] Saved /workspace/antiatropos_checkpoints/grpo_run_001/plots/episode_length.png
+[plotting] Saved /workspace/antiatropos_checkpoints/grpo_run_001/plots/reward_distribution.png
+/workspace/AntiAtropos/training/plotting.py:393: UserWarning: No artists with labels found to put in legend.  Note that artists whose label start with an underscore are ignored when legend() is called with no argument.
+  ax1.legend(fontsize=8); ax1.grid(True, alpha=0.3)
+/workspace/AntiAtropos/training/plotting.py:440: UserWarning: No artists with labels found to put in legend.  Note that artists whose label start with an underscore are ignored when legend() is called with no argument.
+  ax4.legend(fontsize=8); ax4.grid(True, alpha=0.3)
+/workspace/AntiAtropos/training/plotting.py:468: UserWarning: No artists with labels found to put in legend.  Note that artists whose label start with an underscore are ignored when legend() is called with no argument.
+  ax6.legend(fontsize=8); ax6.grid(True, alpha=0.3, axis="y")
+[plotting] Saved /workspace/antiatropos_checkpoints/grpo_run_001/plots/dashboard.png
+Processing Files (0 / 0)      : |          |  0.00B /  0.00B            
+New Data Upload               : |          |  0.00B /  0.00B            [A
+
+  ...n_001/plots/dashboard.png: 100%|##########|  125kB /  125kB            [A[A
+
+  ...n_001/plots/dashboard.png: 100%|##########|  125kB /  125kB            [A[A
+
+  ...n_001/plots/dashboard.png: 100%|##########|  125kB /  125kB            [A[AProcessing Files (1 / 1)      : 100%|##########|  125kB /  125kB,  0.00B/s  
+New Data Upload               : 100%|##########|  125kB /  125kB,  0.00B/s  
+  ...n_001/plots/dashboard.png: 100%|##########|  125kB /  125kB            
+[plotting] Pushed 9 plots to Keshav051/antiatropos-qlora/grpo_run_001/plots/
+
+======================================================================
+TRAINING COMPLETE
+======================================================================
+Unsloth: Restored added_tokens_decoder metadata in /workspace/antiatropos_checkpoints/grpo_run_001/final_adapter/tokenizer_config.json.
+[train] Final adapter saved to /workspace/antiatropos_checkpoints/grpo_run_001/final_adapter
+Processing Files (0 / 0)      : |          |  0.00B /  0.00B            
+New Data Upload               : |          |  0.00B /  0.00B            [A
+
+  ...al_adapter/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors:  64%|######3   |  216MB /  340MB            [A[A[A
+
+  ...al_adapter/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors:  64%|######3   |  216MB /  340MB            [A[A[A
+
+  ...al_adapter/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors: 100%|##########|  340MB /  340MB            [A[A[A
+
+  ...al_adapter/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors: 100%|##########|  340MB /  340MB            [A[A[A
+
+  ...al_adapter/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            [A[A
+
+
+  ...adapter_model.safetensors: 100%|##########|  340MB /  340MB            [A[A[AProcessing Files (2 / 2)      : 100%|##########|  360MB /  360MB,  309MB/s  
+New Data Upload               : |          |  0.00B /  0.00B,  0.00B/s  
+  ...al_adapter/tokenizer.json: 100%|##########| 20.0MB / 20.0MB            
+  ...adapter_model.safetensors: 100%|##########|  340MB /  340MB            
+[model_utils] Pushed → Keshav051/antiatropos-qlora/grpo_run_001/final_adapter
+
+======================================================================
+EVALUATION — 2 episodes per task, 30 steps
+======================================================================
+  S 1  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S 2  | NO_OP       node-0 p=0.00      | 0.6133  | 
+  S 3  | NO_OP       node-0 p=0.00      | 0.6139  | 
+  S 4  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S 5  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S 6  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S 7  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S 8  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S 9  | SCALE_UP    node-1 p=0.60      | 0.5577  | 
+  S10  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S11  | SCALE_UP    node-1 p=0.40      | 0.5577  | 
+  S12  | NO_OP       node-0 p=0.00      | 0.6142  | 
+  S13  | NO_OP       node-0 p=0.00      | 0.6088  | 
+  S14  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S15  | NO_OP       node-0 p=0.00      | 0.6670  | 
+  S16  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S17  | NO_OP       node-0 p=0.00      | 0.6803  | 
+  S18  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S19  | NO_OP       node-0 p=0.00      | 0.6116  | 
+  S20  | NO_OP       node-0 p=0.00      | 0.6744  | 
+  S21  | NO_OP       node-0 p=0.00      | 0.6079  | 
+  S22  | NO_OP       node-0 p=0.00      | 0.8631  | 
+  S23  | NO_OP       node-0 p=0.00      | 0.6340  | 
+  S24  | NO_OP       node-0 p=0.00      | 0.6819  | 
+  S25  | SCALE_UP    node-1 p=0.30      | 0.6507  | 
+  S26  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S27  | NO_OP       node-0 p=0.00      | 0.8464  | 
+  S28  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S29  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S30  | NO_OP       node-0 p=0.00      | 0.6940  | 
+  S 1  | NO_OP       node-0 p=0.00      | 0.7845  | 
+  S 2  | NO_OP       node-0 p=0.00      | 0.6082  | 
+  S 3  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S 4  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S 5  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S 6  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S 7  | NO_OP       node-0 p=0.00      | 0.8724  | 
+  S 8  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S 9  | SCALE_UP    node-1 p=0.70      | 0.5577  | 
+  S10  | SCALE_UP    node-1 p=0.30      | 0.6832  | 
+  S11  | NO_OP       node-0 p=0.00      | 0.8528  | 
+  S12  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S13  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S14  | NO_OP       node-0 p=0.00      | 0.6107  | 
+  S15  | NO_OP       node-0 p=0.00      | 0.6087  | 
+  S16  | NO_OP       node-0 p=0.00      | 0.8602  | 
+  S17  | SCALE_UP    node-3 p=0.40      | 0.5577  | 
+  S18  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S19  | SCALE_UP    node-3 p=0.40      | 0.5998  | 
+  S20  | NO_OP       node-0 p=0.00      | 0.6091  | 
+  S21  | SCALE_UP    node-1 p=0.30      | 0.8271  | 
+  S22  | NO_OP       node-0 p=0.00      | 0.6091  | 
+  S23  | SCALE_UP    node-1 p=0.30      | 0.7513  | 
+  S24  | SCALE_UP    node-1 p=0.40      | 0.6232  | 
+  S25  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S26  | NO_OP       node-0 p=0.00      | 0.6155  | 
+  S27  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S28  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S29  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S30  | NO_OP       node-0 p=0.00      | 0.6077  | 
+
+  task-1:
+    FT model avg reward:    0.6435
+    Heuristic avg reward:   0.6163
+    Result: FT WINS
+    Invalid actions (FT): 0
+  S 1  | NO_OP       node-0 p=0.00      | 0.5327  | INVALID: invalid target_node_id: null
+  S 2  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S 3  | NO_OP       node-0 p=0.00      | 0.6191  | 
+  S 4  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S 5  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S 6  | NO_OP       node-0 p=0.00      | 0.6190  | 
+  S 7  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S 8  | NO_OP       node-0 p=0.00      | 0.8038  | 
+  S 9  | NO_OP       node-0 p=0.00      | 0.6082  | 
+  S10  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S11  | NO_OP       node-0 p=0.00      | 0.6777  | 
+  S12  | NO_OP       node-0 p=0.00      | 0.6226  | 
+  S13  | NO_OP       node-0 p=0.00      | 0.7745  | 
+  S14  | NO_OP       node-0 p=0.00      | 0.6832  | 
+  S15  | NO_OP       node-0 p=0.00      | 0.6079  | 
+  S16  | NO_OP       node-0 p=0.00      | 0.6498  | 
+  S17  | NO_OP       node-0 p=0.00      | 0.6803  | 
+  S18  | NO_OP       node-0 p=0.00      | 0.7400  | 
+  S19  | NO_OP       node-0 p=0.00      | 0.7703  | 
+  S20  | NO_OP       node-0 p=0.00      | 0.6096  | 
+  S21  | NO_OP       node-0 p=0.00      | 0.6253  | 
+  S22  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S23  | NO_OP       node-0 p=0.00      | 0.6145  | 
+  S24  | NO_OP       node-0 p=0.00      | 0.6152  | 
+  S25  | NO_OP       node-0 p=0.00      | 0.7451  | 
+  S26  | NO_OP       node-0 p=0.00      | 0.6081  | 
+  S27  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S28  | NO_OP       node-0 p=0.00      | 0.6162  | 
+  S29  | NO_OP       node-0 p=0.00      | 0.8578  | 
+  S30  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S 1  | NO_OP       node-0 p=0.00      | 0.8619  | 
+  S 2  | NO_OP       node-0 p=0.00      | 0.8648  | 
+  S 3  | NO_OP       node-0 p=0.00      | 0.8222  | 
+  S 4  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S 5  | NO_OP       node-0 p=0.00      | 0.5713  | INVALID: invalid target_node_id: null
+  S 6  | NO_OP       node-0 p=0.00      | 0.6122  | 
+  S 7  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S 8  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S 9  | NO_OP       node-0 p=0.00      | 0.6556  | 
+  S10  | NO_OP       node-0 p=0.00      | 0.8223  | 
+  S11  | NO_OP       node-0 p=0.00      | 0.7358  | 
+  S12  | NO_OP       node-0 p=0.00      | 0.8367  | 
+  S13  | NO_OP       node-0 p=0.00      | 0.6869  | 
+  S14  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S15  | NO_OP       node-0 p=0.00      | 0.8123  | 
+  S16  | NO_OP       node-0 p=0.00      | 0.8120  | 
+  S17  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S18  | NO_OP       node-0 p=0.00      | 0.8166  | 
+  S19  | NO_OP       node-0 p=0.00      | 0.5510  | INVALID: invalid target_node_id: null
+  S20  | NO_OP       node-0 p=0.00      | 0.6607  | 
+  S21  | NO_OP       node-0 p=0.00      | 0.6211  | 
+  S22  | NO_OP       node-0 p=0.00      | 0.8297  | 
+  S23  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S24  | NO_OP       node-0 p=0.00      | 0.6078  | 
+  S25  | NO_OP       node-0 p=0.00      | 0.6307  | 
+  S26  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S27  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S28  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S29  | NO_OP       node-0 p=0.00      | 0.7266  | 
+  S30  | NO_OP       node-0 p=0.00      | 0.6077  | 
+
+  task-2:
+    FT model avg reward:    0.6693
+    Heuristic avg reward:   0.6221
+    Result: FT WINS
+    Invalid actions (FT): 3
+  S 1  | NO_OP       node-0 p=0.00      | 0.6233  | 
+  S 2  | NO_OP       node-0 p=0.00      | 0.6443  | 
+  S 3  | NO_OP       node-0 p=0.00      | 0.6185  | 
+  S 4  | NO_OP       node-0 p=0.00      | 0.8605  | 
+  S 5  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S 6  | NO_OP       node-0 p=0.00      | 0.8255  | 
+  S 7  | NO_OP       node-0 p=0.00      | 0.7609  | 
+  S 8  | NO_OP       node-0 p=0.00      | 0.6085  | 
+  S 9  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S10  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S11  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S12  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S13  | NO_OP       node-0 p=0.00      | 0.6101  | 
+  S14  | NO_OP       node-0 p=0.00      | 0.6384  | 
+  S15  | NO_OP       node-0 p=0.00      | 0.6348  | 
+  S16  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S17  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S18  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S19  | NO_OP       node-0 p=0.00      | 0.6712  | 
+  S20  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S21  | NO_OP       node-0 p=0.00      | 0.7162  | 
+  S22  | NO_OP       node-0 p=0.00      | 0.8265  | 
+  S23  | NO_OP       node-0 p=0.00      | 0.7291  | 
+  S24  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S25  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S26  | NO_OP       node-0 p=0.00      | 0.7917  | 
+  S27  | NO_OP       node-0 p=0.00      | 0.6079  | 
+  S28  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S29  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S30  | NO_OP       node-0 p=0.00      | 0.7067  | 
+  S 1  | NO_OP       node-0 p=0.00      | 0.6529  | 
+  S 2  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S 3  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S 4  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S 5  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S 6  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S 7  | NO_OP       node-0 p=0.00      | 0.7010  | 
+  S 8  | NO_OP       node-0 p=0.00      | 0.7289  | 
+  S 9  | NO_OP       node-0 p=0.00      | 0.6169  | 
+  S10  | NO_OP       node-0 p=0.00      | 0.6109  | 
+  S11  | NO_OP       node-0 p=0.00      | 0.6478  | 
+  S12  | NO_OP       node-0 p=0.00      | 0.6803  | 
+  S13  | NO_OP       node-0 p=0.00      | 0.6305  | 
+  S14  | NO_OP       node-0 p=0.00      | 0.6103  | 
+  S15  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S16  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S17  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S18  | NO_OP       node-0 p=0.00      | 0.7318  | 
+  S19  | NO_OP       node-0 p=0.00      | 0.6103  | 
+  S20  | NO_OP       node-0 p=0.00      | 0.5363  | INVALID: invalid target_node_id: null
+  S21  | NO_OP       node-0 p=0.00      | 0.8406  | 
+  S22  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S23  | NO_OP       node-0 p=0.00      | 0.8035  | 
+  S24  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S25  | NO_OP       node-0 p=0.00      | 0.8052  | 
+  S26  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S27  | NO_OP       node-0 p=0.00      | 0.6077  | 
+  S28  | NO_OP       node-0 p=0.00      | 0.6078  | 
+  S29  | NO_OP       node-0 p=0.00      | 0.7628  | 
+  S30  | NO_OP       node-0 p=0.00      | 0.6077  | 
+
+  task-3:
+    FT model avg reward:    0.6542
+    Heuristic avg reward:   0.6968
+    Result: HEURISTIC WINS
+    Invalid actions (FT): 1
+
+======================================================================
+EVALUATION SUMMARY
+======================================================================
+  FT model overall avg:    0.6556
+  Heuristic overall avg:   0.6451
+  FT wins on: 2/3 tasks
+  Overall: FT WINS
+  [eval] Saved results → /workspace/antiatropos_checkpoints/grpo_run_001/final_eval/eval_results.json
+[plotting] Saved /workspace/antiatropos_checkpoints/grpo_run_001/plots/reward_curve.png
+[plotting] Saved /workspace/antiatropos_checkpoints/grpo_run_001/plots/loss_curve.png
+[plotting] Saved /workspace/antiatropos_checkpoints/grpo_run_001/plots/gradient_norm.png
+[plotting] Saved /workspace/antiatropos_checkpoints/grpo_run_001/plots/action_distribution.png
+[plotting] Saved /workspace/antiatropos_checkpoints/grpo_run_001/plots/per_task_rewards.png
+[plotting] Saved /workspace/antiatropos_checkpoints/grpo_run_001/plots/iteration_time.png
+[plotting] Saved /workspace/antiatropos_checkpoints/grpo_run_001/plots/episode_length.png
+[plotting] Saved /workspace/antiatropos_checkpoints/grpo_run_001/plots/reward_distribution.png
+/workspace/AntiAtropos/training/plotting.py:468: UserWarning: No artists with labels found to put in legend.  Note that artists whose label start with an underscore are ignored when legend() is called with no argument.
+  ax6.legend(fontsize=8); ax6.grid(True, alpha=0.3, axis="y")
+[plotting] Saved /workspace/antiatropos_checkpoints/grpo_run_001/plots/dashboard.png
+[huggingface_hub.hf_api|WARNING]No files have been modified since last commit. Skipping to prevent empty commit.
+[huggingface_hub.hf_api|WARNING]No files have been modified since last commit. Skipping to prevent empty commit.
+[huggingface_hub.hf_api|WARNING]No files have been modified since last commit. Skipping to prevent empty commit.
+[huggingface_hub.hf_api|WARNING]No files have been modified since last commit. Skipping to prevent empty commit.
+[huggingface_hub.hf_api|WARNING]No files have been modified since last commit. Skipping to prevent empty commit.
+[huggingface_hub.hf_api|WARNING]No files have been modified since last commit. Skipping to prevent empty commit.
+Processing Files (0 / 0)      : |          |  0.00B /  0.00B            
+New Data Upload               : |          |  0.00B /  0.00B            [A
+
+  ...n_001/plots/dashboard.png: 100%|##########|  156kB /  156kB            [A[A
+
+  ...n_001/plots/dashboard.png: 100%|##########|  156kB /  156kB            [A[A
+
+  ...n_001/plots/dashboard.png: 100%|##########|  156kB /  156kB            [A[AProcessing Files (1 / 1)      : 100%|##########|  156kB /  156kB,  0.00B/s  
+New Data Upload               : 100%|##########|  156kB /  156kB,  0.00B/s  
+  ...n_001/plots/dashboard.png: 100%|##########|  156kB /  156kB            
+[plotting] Pushed 9 plots to Keshav051/antiatropos-qlora/grpo_run_001/plots/
+
+[train] All done. Final adapter: /workspace/antiatropos_checkpoints/grpo_run_001/final_adapter
+[train] Hub repo: https://huggingface.co/Keshav051/antiatropos-qlora
+[huggingface_hub.hf_api|WARNING]No files have been modified since last commit. Skipping to prevent empty commit.
+[huggingface_hub.hf_api|WARNING]No files have been modified since last commit. Skipping to prevent empty commit.
