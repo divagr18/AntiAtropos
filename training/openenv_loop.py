@@ -66,29 +66,20 @@ TASK_BRIEFS = {
     ),
 }
 
-SYSTEM_PROMPT = """SRE controller for a 5-node microservice cluster. Output ONE JSON object. No tags. No text.
+SYSTEM_PROMPT = """SRE controller for a 5-node cluster. Output ONE JSON object. No tags. No text.
 
-CLUSTER TOPOLOGY (traffic flows parent → children):
-  node-0(VIP) → node-1, node-2
-  node-2 → node-3
-  node-4 (independent Auth ingress)
-FAILED nodes have outflow=0 — their children are starved.
-Boot delay: new capacity takes 5 ticks to become active.
+Topology: node-0(VIP)→node-1,node-2 | node-2→node-3 | node-4(Auth)
+Boot delay: 5 ticks for new capacity. FAILED → outflow=0, children starved.
 
-ACTIONS (pick the BEST one for the current state):
-  SCALE_UP   <node> param=0.3-0.5 normal, 0.6-0.8 heavy surge. Use when q rising or status=DEGRADED. This is the PRIMARY action for growing queues.
-  SCALE_DOWN <node> param=0.2-0.4 safe, 0.5-0.7 aggressive. Use when q low AND capacity wasted. Cancels pending boots first.
-  SHED_LOAD  <node> param=0.3-0.5. Only on non-critical spike (node-3, node-4). NEVER on node-0.
-  REROUTE_TRAFFIC <node> param=0.3-0.5. ONLY when status=FAILED. Reduces THIS node capacity, redistributes to peers.
-  NO_OP      node-0 param=0.0. ONLY when ALL nodes have q<0.2 and status=Healthy.
+Actions — choose based on node state:
+  SCALE_UP   node param 0.3-0.8   when queue rising OR status=DEGRADED
+  SCALE_DOWN node param 0.2-0.5   when queue low AND (capacity>0.6 OR pending>0)
+  SHED_LOAD  node param 0.3-0.5   queue spike on node-3 or node-4; NEVER node-0/1/2
+  REROUTE    node param 0.5-1.0   ONLY when status=FAILED
+  NO_OP      node-0 param 0.0     ALL queues <0.1 AND all Healthy
 
-DECISION PRIORITY:
-  1. Growing queue on any node → SCALE_UP that node immediately (do not wait)
-  2. FAILED node → REROUTE_TRAFFIC from it, then SCALE_UP starved children
-  3. Safe queues with excess capacity → SCALE_DOWN to save cost
-  4. Everything stable → NO_OP
-
-Do NOT over-use NO_OP or REROUTE_TRAFFIC. SCALE_UP is the most common action.
+Key rules:
+  q>0.3 rising → SCALE_UP.  q<0.1 with spare cap → SCALE_DOWN.  FAILED → REROUTE then SCALE_UP children.
 {"action_type":"SCALE_UP","target_node_id":"node-1","parameter":0.5}"""
 
 
@@ -169,32 +160,36 @@ def format_observation(obs_dict: Dict, task_id: str, step: int,
     r_tag = "GOOD" if reward > 0.5 else ("OK" if reward > 0.2 else ("BAD" if reward > 0.05 else "STOP-SCALING"))
     cluster_summary = f"Cost: {cost_dev} (${cost_hour:.2f}/hr) | Queues: {queue_trend}{sla_note} | Reward: {reward:.2f}={r_tag}"
 
-    # Build compact observation dict (trimmed for speed: 40% fewer tokens)
+    # Build observation — readable keys so the model can reason about action choice.
+    # The model needs to clearly see: queue depth (SCALE_UP vs SCALE_DOWN),
+    # status (REROUTE for FAILED), capacity/pending (SCALE_DOWN when excess).
     nodes_data = []
     for n in obs_dict.get("nodes", []):
+        status_str = n.get("status", "HEALTHY")
+        if isinstance(status_str, str) and len(status_str) > 1:
+            status_str = status_str[0]  # H/D/F
         nodes_data.append({
-            "n": n.get("node_id"),
-            "s": n.get("status", "HEALTHY")[0],  # H/D/F = Healthy/Degraded/Failed
-            "q": n.get("queue_depth", 0),
-            "l": n.get("latency_ms", 0),
-            "r": n.get("incoming_request_rate", 0),
-            "c": n.get("capacity", 0),
-            "pc": n.get("pending_capacity", 0),
-            "o": n.get("outflow_rate", 0),
+            "node": n.get("node_id"),
+            "status": status_str,
+            "queue": round(n.get("queue_depth", 0), 2),
+            "lat_ms": round(n.get("latency_ms", 0), 1),
+            "inflow": round(n.get("incoming_request_rate", 0), 1),
+            "capacity": round(n.get("capacity", 0), 2),
+            "pending": round(n.get("pending_capacity", 0), 2),
         })
     
     obs_compact = {
-        "t": task_id,
-        "st": step,
-        "mx": max_steps,
-        "fn": [n["node_id"] for n in obs_dict.get("nodes", []) if n.get("status") == "FAILED"],
-        "dn": [n["node_id"] for n in obs_dict.get("nodes", []) if n.get("status") == "DEGRADED"],
-        "al": obs_dict.get("average_latency_ms", 0),
-        "er": obs_dict.get("error_rate", 0),
-        "qb": obs_dict.get("total_queue_backlog", 0),
-        "co": obs_dict.get("current_cost_per_hour", 0),
-        "sv": sla_violations,
-        "nd": nodes_data,
+        "task": task_id,
+        "step": step,
+        "max_steps": max_steps,
+        "failed": [n["node_id"] for n in obs_dict.get("nodes", []) if n.get("status") == "FAILED"],
+        "degraded": [n["node_id"] for n in obs_dict.get("nodes", []) if n.get("status") == "DEGRADED"],
+        "avg_lat_ms": round(obs_dict.get("average_latency_ms", 0), 1),
+        "err_rate": round(obs_dict.get("error_rate", 0), 4),
+        "queue_backlog": round(obs_dict.get("total_queue_backlog", 0), 2),
+        "cost_hr": round(obs_dict.get("current_cost_per_hour", 0), 2),
+        "sla_violations": sla_violations,
+        "nodes": nodes_data,
     }
 
     return textwrap.dedent(f"""

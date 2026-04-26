@@ -67,7 +67,7 @@ def gpu_scaled_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
         }
     elif tier == "a10g":
         safe_defaults = {
-            "max_seq_length": 512,    # keep tight: logits at 1024 blow past 22 GiB
+            "max_seq_length": 768,    # 512→768: longer system prompt needs more room; safe with loss_batch_size=1
             "lora_rank": 64,          # verified safe: +83 MiB vs rank-32
             "lora_alpha": 64,         # keep == lora_rank
             "per_device_train_batch_size": 2,
