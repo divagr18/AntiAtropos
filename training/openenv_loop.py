@@ -414,10 +414,11 @@ def rollout_episode(
         # ── Build full sequence (prompt + generated action) for REINFORCE loss ──
         # The loss function needs log π(action | prompt), which requires
         # the full tokenized sequence so it can mask out the prompt portion.
-        full_input_ids = torch.cat([inputs["input_ids"].squeeze(0), generated_ids.cpu()])
+        # Keep everything on CPU — train.py moves to GPU in the loss forward pass.
+        full_input_ids = torch.cat([inputs["input_ids"].squeeze(0).cpu(), generated_ids.cpu()])
         full_attention_mask = torch.ones(full_input_ids.shape[0], dtype=torch.long)
         # Copy prompt mask portion
-        prompt_mask = inputs["attention_mask"].squeeze(0)
+        prompt_mask = inputs["attention_mask"].squeeze(0).cpu()
         full_attention_mask[:prompt_mask.shape[0]] = prompt_mask
 
         # Step environment (even if parse failed — NO_OP fallback)
@@ -709,11 +710,12 @@ def rollout_batch(
             )
 
             # Record transition — build full (prompt + action) sequence for REINFORCE
-            prompt_ids = all_input_ids[idx]
-            gen_ids = generated_id_list[idx]
+            # Keep on CPU — train.py moves to GPU in the loss forward pass.
+            prompt_ids = all_input_ids[idx].cpu()
+            gen_ids = generated_id_list[idx]  # already on CPU
             full_input_ids = torch.cat([prompt_ids, gen_ids])
             full_attention_mask = torch.ones(full_input_ids.shape[0], dtype=torch.long)
-            prompt_mask = all_attention_masks[idx]
+            prompt_mask = all_attention_masks[idx].cpu()
             full_attention_mask[:prompt_mask.shape[0]] = prompt_mask
 
             transition = Transition(
