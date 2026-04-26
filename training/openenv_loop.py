@@ -301,8 +301,9 @@ def parse_action(text: str) -> ParsedAction:
 class Transition:
     """Single step in an episode rollout."""
     obs_text: str              # Formatted observation (LLM input)
-    input_ids: Any             # Tokenized input IDs (tensor)
-    attention_mask: Any        # Tokenized attention mask (tensor)
+    input_ids: Any             # Tokenized full sequence IDs (prompt + action)
+    attention_mask: Any        # Tokenized full sequence attention mask
+    prompt_len: int = 0        # Number of tokens in the prompt (before generated action)
     action: ParsedAction       # The action taken
     reward: float              # Reward from environment
     log_prob: float = 0.0     # Log probability of action under policy
@@ -313,6 +314,7 @@ class Transition:
 class Episode:
     """Complete episode rollout."""
     task_id: str
+    seed: int = 0                      # initial env seed — used by GRPO to group same-state rollouts
     transitions: List[Transition] = field(default_factory=list)
     total_reward: float = 0.0
     avg_reward: float = 0.0
@@ -343,7 +345,7 @@ def rollout_episode(
     The model generates text → we parse the JSON action → step the env →
     collect the reward. We also compute log_probs for REINFORCE.
     """
-    episode = Episode(task_id=task_id)
+    episode = Episode(task_id=task_id, seed=seed or 0)
 
     # Reset environment
     env_mode = cfg.get("env_mode", "simulated")
@@ -409,6 +411,15 @@ def rollout_episode(
         # The train.py will compute log_probs during the loss step.
         generated_ids = outputs[0][input_len:]
 
+        # ── Build full sequence (prompt + generated action) for REINFORCE loss ──
+        # The loss function needs log π(action | prompt), which requires
+        # the full tokenized sequence so it can mask out the prompt portion.
+        full_input_ids = torch.cat([inputs["input_ids"].squeeze(0), generated_ids.cpu()])
+        full_attention_mask = torch.ones(full_input_ids.shape[0], dtype=torch.long)
+        # Copy prompt mask portion
+        prompt_mask = inputs["attention_mask"].squeeze(0)
+        full_attention_mask[:prompt_mask.shape[0]] = prompt_mask
+
         # Step environment (even if parse failed — NO_OP fallback)
         step_resp = client.step(
             action.action_type, action.target_node_id, action.parameter
@@ -437,11 +448,12 @@ def rollout_episode(
         action_str = f"{action.action_type:11s} {action.target_node_id} p={action.parameter:.2f}"
         print(f"  S{step:2d}  | {action_str:30s} | {step_reward:.4f}  | {notes}", flush=True)
 
-        # Record transition (with adjusted reward)
+        # Record transition (with full prompt+action sequence and prompt_len)
         transition = Transition(
             obs_text=obs_text,
-            input_ids=inputs["input_ids"].squeeze(0),
-            attention_mask=inputs["attention_mask"].squeeze(0),
+            input_ids=full_input_ids,
+            attention_mask=full_attention_mask,
+            prompt_len=input_len,
             action=action,
             reward=step_reward,
             obs_dict=obs_dict,  # raw cluster state for per-step metrics
@@ -553,7 +565,8 @@ def rollout_batch(
                 reset_results[idx] = None
 
     # Initialize episode state
-    episodes = [Episode(task_id=task_ids[i]) for i in range(num_episodes)]
+    episodes = [Episode(task_id=task_ids[i], seed=seeds[i] if seeds else 0)
+                for i in range(num_episodes)]
     obs_dicts: List[Dict] = [{}] * num_episodes
     episode_rewards = [0.0] * num_episodes
     sla_violations_list = [0] * num_episodes
@@ -631,25 +644,23 @@ def rollout_batch(
                 pad_token_id=pad_id,
             )
 
-        # ── Parse actions ──
-        # Free the generation output tensor immediately — it holds the full
-        # KV-cache for all 36 layers on GPU.
+        # ── Parse actions AND capture generated token IDs for REINFORCE ──
+        # Free the generation output tensor immediately after extracting what we need
+        # — it holds the full KV-cache for all 36 layers on GPU.
         #
         # DECODING BUG FIX: slice at `max_len` (padded length), NOT `input_lens[idx]`.
         # All sequences are left-padded to max_len, so outputs[idx] has shape
         # [max_len + num_generated_tokens]. The generated tokens always start at
         # position max_len regardless of the original (unpadded) input length.
-        #
-        # Using input_lens[idx] (unpadded) causes shorter-input episodes to include
-        # the trailing portion of their padded input tokens as "generated" text,
-        # producing garbage that parse_action can't find valid JSON in.
-        # This is why invalids only appear when num_episodes > 1.
+        padded_len = batch_input_ids.shape[1]  # = max_len, same for all in batch
         actions = []
         decoded_texts = []
-        padded_len = batch_input_ids.shape[1]  # = max_len, same for all in batch
+        generated_id_list = []  # Store generated token IDs per episode for REINFORCE
         for idx in range(len(active_indices)):
+            gen_ids = outputs[idx][padded_len:]
+            generated_id_list.append(gen_ids.cpu())
             generated_text = tokenizer.decode(
-                outputs[idx][padded_len:], skip_special_tokens=True  # ← was input_lens[idx]
+                gen_ids, skip_special_tokens=True
             )
             decoded_texts.append(generated_text)
         del outputs  # Free KV-cache before parsing
@@ -697,11 +708,19 @@ def rollout_batch(
                 "sla_violations", sla_violations_list[i]
             )
 
-            # Record transition
+            # Record transition — build full (prompt + action) sequence for REINFORCE
+            prompt_ids = all_input_ids[idx]
+            gen_ids = generated_id_list[idx]
+            full_input_ids = torch.cat([prompt_ids, gen_ids])
+            full_attention_mask = torch.ones(full_input_ids.shape[0], dtype=torch.long)
+            prompt_mask = all_attention_masks[idx]
+            full_attention_mask[:prompt_mask.shape[0]] = prompt_mask
+
             transition = Transition(
                 obs_text=all_obs_texts[idx],
-                input_ids=all_input_ids[idx],
-                attention_mask=all_attention_masks[idx],
+                input_ids=full_input_ids,
+                attention_mask=full_attention_mask,
+                prompt_len=all_input_ids[idx].shape[0],  # unpadded prompt length
                 action=actions[idx],
                 reward=step_reward,
                 obs_dict=obs_dicts[i],  # raw cluster state for per-step metrics

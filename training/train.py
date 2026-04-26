@@ -193,17 +193,39 @@ def reinforce_baseline_loss_fn(
         batch_ids  = [ids[-max_seq_len_cap:]  if ids.shape[0]  > max_seq_len_cap else ids  for ids  in batch_ids]
         batch_masks = [m[-max_seq_len_cap:]   if m.shape[0]    > max_seq_len_cap else m    for m    in batch_masks]
 
+        # Build per-transition action masks: only compute log-probs over
+        # the GENERATED action tokens, not the prompt tokens.
+        # prompt_len is stored on each transition; after possible truncation
+        # we need to recompute the mask offset.
+        batch_action_masks = []
+        for ids, p in zip(batch_ids, batch):
+            plen = p[0].prompt_len  # original prompt length before truncation
+            seq_len = ids.shape[0]
+            # If sequence was truncated from the left, adjust prompt_len:
+            # the kept portion starts at max(0, original_len - max_seq_len_cap)
+            original_len = p[0].input_ids.shape[0] if not isinstance(p[0].input_ids, int) else seq_len
+            if isinstance(p[0].input_ids, torch.Tensor) and p[0].input_ids.shape[0] > max_seq_len_cap:
+                offset = p[0].input_ids.shape[0] - max_seq_len_cap
+                plen = max(0, plen - offset)
+            amask = torch.zeros(seq_len, dtype=torch.long)
+            if plen < seq_len:
+                amask[plen:] = 1  # action tokens after prompt
+            batch_action_masks.append(amask)
+
         # Left-pad to same length within mini-batch
         max_len = max(ids.shape[0] for ids in batch_ids)
-        padded_ids, padded_masks = [], []
-        for ids, mask in zip(batch_ids, batch_masks):
+        padded_ids, padded_masks, padded_action_masks = [], [], []
+        for ids, mask, amask in zip(batch_ids, batch_masks, batch_action_masks):
             pad_len = max_len - ids.shape[0]
             if pad_len > 0:
                 padded_ids.append(torch.cat([torch.full((pad_len,), pad_id, device=ids.device), ids]))
                 padded_masks.append(torch.cat([torch.zeros(pad_len, device=mask.device, dtype=mask.dtype), mask]))
+                # Action mask: left-pad with zeros (padding tokens are never action tokens)
+                padded_action_masks.append(torch.cat([torch.zeros(pad_len, dtype=torch.long), amask]))
             else:
                 padded_ids.append(ids)
                 padded_masks.append(mask)
+                padded_action_masks.append(amask)
 
         input_ids     = torch.stack(padded_ids)
         attention_mask = torch.stack(padded_masks)
@@ -230,65 +252,94 @@ def reinforce_baseline_loss_fn(
             print(f"  [loss_fwd b{batch_idx+1}/{n_batches}] "
                   f"post-fwd peak={peak:.2f}GiB free={free2/1024**3:.1f}GiB", flush=True)
 
-        # ── Memory-efficient log-prob via log_softmax (shared with entropy) ──
+        # ── Memory-efficient NLL via fused cross_entropy ─────────────────────
+        # F.cross_entropy(reduction='none') uses a single fused CUDA kernel:
+        # it never materialises the full [B, S-1, V] log-prob matrix (~623 MiB
+        # at V=151936, batch=1, seq=512) — it computes log-softmax + NLL in one
+        # pass, keeping only the per-token scalar result.
         logits = outputs.logits
-        shift_logits = logits[:, :-1, :].contiguous()
-        shift_labels  = input_ids[:, 1:].contiguous()
-        B, S_minus1 = shift_labels.shape
+        shift_logits = logits[:, :-1, :].contiguous()   # (B, S-1, V)
+        shift_labels  = input_ids[:, 1:].contiguous()   # (B, S-1)
+        shift_labels  = shift_labels.to(model.device)
+        shift_mask    = attention_mask[:, 1:].to(model.device)  # (B, S-1)
 
-        # Compute log_softmax once, use for both NLL (chosen tokens) and entropy
-        log_probs_all = shift_logits.log_softmax(dim=-1)  # (B, S_minus1, V)
+        # token_nll: (B, S-1), zero for padded positions
+        token_nll = torch.nn.functional.cross_entropy(
+            shift_logits.view(-1, shift_logits.size(-1)),
+            shift_labels.clamp(min=0).view(-1),
+            reduction="none",
+        ).view(shift_labels.shape)  # (B, S-1)
+        token_nll = token_nll * shift_mask
 
-        # NLL for chosen tokens (same as cross_entropy but shares log_softmax)
-        safe_labels = shift_labels.clone()
-        safe_labels[safe_labels == -100] = 0  # Avoid negative-index wrap in gather
-        valid_mask = (shift_labels != -100).to(log_probs_all.device)
-        token_nll = -log_probs_all.gather(
-            dim=-1,
-            index=safe_labels.unsqueeze(-1).to(log_probs_all.device),
-        ).squeeze(-1)  # (B, S_minus1)
-        token_nll = token_nll * valid_mask  # Zero out ignored positions
+        # ── Action-only log-probs for REINFORCE ──
+        # Only sum NLL over action tokens (past prompt_len), not the prompt.
+        # This is critical: log π(action | prompt) ≠ log π(prompt+action).
+        # Masking out prompt tokens prevents the gradient from pushing on
+        # tokens the model can't control and eliminates a massive source of
+        # noise and variance in the REINFORCE gradient.
+        stacked_action_masks = torch.stack(padded_action_masks)  # (B, S)
+        shift_action_mask = stacked_action_masks[:, 1:].to(model.device)  # (B, S-1)
+        # Zero out NLL for prompt positions — only keep action token NLL
+        action_nll = token_nll * shift_action_mask
+        seq_log_probs = -(action_nll.sum(dim=1))  # (B,) sum of action-token log-probs only
+        # Number of action tokens per sequence (for optional normalization)
+        n_action_tokens = shift_action_mask.sum(dim=1).clamp(min=1)  # (B,)
 
-        # Entropy of the policy distribution (discourages premature convergence)
-        probs_all = log_probs_all.exp()
-        entropy_per_token = -(probs_all * log_probs_all).sum(dim=-1)  # (B, S_minus1)
-        del log_probs_all, probs_all
+        # ── Chunked vocab entropy (avoids materialising full [B, S, V]) ────────
+        # logsumexp over V gives the log-normaliser (1 scalar per token, ~4 MiB).
+        # We then accumulate -sum(p*log_p) chunk-by-chunk: each chunk is CHUNK_V
+        # columns → peak extra alloc ≈ B×S×CHUNK_V×4B = 1×511×4096×4 ≈ 8 MiB
+        # instead of 623 MiB for the full V=151936 matrix.
+        CHUNK_V = 4096
+        # Exact single-pass entropy without materialising [B,S,V]:
+        # logsumexp over V gives the normaliser; we then compute -sum(p*log_p) chunk-by-chunk.
+        log_Z = shift_logits.logsumexp(dim=-1, keepdim=True)   # (B, S-1, 1)
+        entropy_per_token = torch.zeros(shift_logits.shape[:2], device=model.device)
+        for v_start in range(0, shift_logits.size(-1), CHUNK_V):
+            chunk_logits = shift_logits[:, :, v_start:v_start + CHUNK_V]  # (B, S-1, c)
+            log_p_chunk  = chunk_logits - log_Z                           # log-prob for this slice
+            p_chunk      = log_p_chunk.exp()                              # prob for this slice
+            entropy_per_token += -(p_chunk * log_p_chunk).sum(dim=-1)    # accumulate (B, S-1)
+        del log_Z
 
-        shift_mask = attention_mask[:, 1:].to(model.device)
-        token_log_probs = (-token_nll) * shift_mask
-        seq_log_probs = token_log_probs.sum(dim=1)  # (B,)
-
-        # Per-token average entropy (NOT sum).
-        # sum(dim=1) would give ~700 for seq=512, swamping the REINFORCE signal.
-        # mask.sum() normalises to ~1-12 nats, so ent_coef=0.005 stays well-scaled.
-        n_valid_tokens = shift_mask.sum(dim=1).clamp(min=1)  # (B,) avoid div/0
-        avg_token_entropy = ((entropy_per_token * shift_mask).sum(dim=1) / n_valid_tokens).mean()
-
-        # Free logits immediately
-        del outputs, logits, shift_logits, token_nll, token_log_probs, entropy_per_token
+        # Free logits immediately before backward
+        del outputs, logits, shift_logits, token_nll
         torch.cuda.empty_cache()
 
+        if torch.cuda.is_available():
+            peak = torch.cuda.max_memory_allocated() / 1024**3
+            free2, _ = torch.cuda.mem_get_info()
+            print(f"  [loss_fwd b{batch_idx+1}/{n_batches}] "
+                  f"post-fwd peak={peak:.2f}GiB free={free2/1024**3:.1f}GiB", flush=True)
+
         # ── Per-mini-batch loss: REINFORCE + entropy bonus ────────────────────
-        # ent_coef * avg_token_entropy ≈ 0.005 × 1.37 ≈ 0.007 (well-scaled vs REINFORCE ±1.0)
-        # Was broken: ent_coef * sum_entropy ≈ 0.01 × 700 ≈ 7.0 → dominated gradients
-        ent_coef = cfg.get("entropy_coef", 0.005)
-        batch_advs_gpu = batch_advs.to(model.device)
-        batch_loss = (
-            -(batch_advs_gpu * seq_log_probs).mean()  # REINFORCE
-            - ent_coef * avg_token_entropy             # Exploration bonus (per-token avg)
-        ) / n_batches
-        reinforce_term = -(batch_advs_gpu * seq_log_probs).mean().item()
+        ent_coef = cfg.get("entropy_coef", 0.001)
+        n_valid_tokens = shift_mask.sum(dim=1).clamp(min=1)  # (B,)
+        # Only compute entropy over action tokens (same region as log-probs)
+        n_action_valid = (shift_action_mask * shift_mask).sum(dim=1).clamp(min=1)  # (B,)
+        avg_token_entropy = ((entropy_per_token * shift_action_mask * shift_mask).sum(dim=1) / n_action_valid).mean()
+
         print(f"    [entropy b{batch_idx+1}/{n_batches}] "
               f"avg_token_entropy={avg_token_entropy.item():.3f}nats  "
               f"ent_coef={ent_coef}  "
-              f"reinforce={reinforce_term:.4f}  "
+              f"reinforce={-(batch_advs.to(model.device) * seq_log_probs).mean().item():.4f}  "
               f"ent_bonus={ent_coef * avg_token_entropy.item():.4f}", flush=True)
+
+        batch_advs_gpu = batch_advs.to(model.device)
+        # Normalize log-probs by number of action tokens to prevent
+        # length-dependent gradient scaling. Without this, sequences with
+        # more action tokens get disproportionately large gradients.
+        norm_seq_log_probs = seq_log_probs / n_action_tokens  # (B,)
+        batch_loss = (
+            -(batch_advs_gpu * norm_seq_log_probs).mean()  # REINFORCE (length-normalized)
+            - ent_coef * avg_token_entropy             # per-token entropy bonus
+        ) / n_batches
 
         # ── Backward immediately — frees entire computation graph ─────────────
         batch_loss.backward()
 
-        total_loss_val += batch_loss.item() * n_batches  # unscale for logging
-        del batch_loss, seq_log_probs, batch_advs_gpu, avg_token_entropy
+        total_loss_val += batch_loss.item() * n_batches
+        del batch_loss, seq_log_probs, batch_advs_gpu, avg_token_entropy, entropy_per_token
         torch.cuda.empty_cache()
 
     # Return detached scalar for logging (requires_grad=False → caller skips backward)
@@ -303,39 +354,47 @@ def grpo_loss_fn(
     episodes: List,
     cfg: Dict[str, Any],
 ) -> torch.Tensor:
-    """Compute GRPO (Group Relative Policy Optimization) loss.
+    """GRPO (Group Relative Policy Optimization) loss.
 
-    GRPO uses a group of K rollouts from the same initial state,
-    then computes advantages relative to the group mean. This eliminates
-    the need for a learned value function.
+    Requires episodes to be structured as K groups of same-(task_id, seed) rollouts.
+    Each group's advantages are normalised relative to that group's mean/std,
+    eliminating the need for a value-function baseline.
 
-    Uses batched forward passes for GPU efficiency.
+    Uses the same OOM-safe per-mini-batch backward() as reinforce_baseline_loss_fn.
     """
-    gamma = cfg.get("reward_gamma", 0.99)
-    k = cfg.get("grpo_k", 4)
-    loss_batch_size = cfg.get("loss_batch_size", 32)
+    import math as _math
+    gamma           = cfg.get("reward_gamma", 0.99)
+    loss_batch_size = cfg.get("loss_batch_size", 1)
+    max_seq_len_cap = cfg.get("max_seq_length", 512)
+    pad_id = tokenizer.pad_token_id or tokenizer.eos_token_id
 
-    # Group episodes by (task_id, initial_seed)
+    # ── Phase 1: Group episodes by (task_id, seed), compute group advantages ─
+    # Key: (task_id, seed) — both must match for same-state comparison.
+    # Seed is stored on Episode.seed (set during rollout collection).
     groups: Dict[tuple, List] = {}
     for ep in episodes:
-        key = (ep.task_id, id(ep) % 1000)  # Approximate grouping
+        key = (ep.task_id, ep.seed)  # EXACT grouping — not id() approximation
         groups.setdefault(key, []).append(ep)
 
     all_pairs: List[Tuple] = []  # (transition, advantage)
 
     for key, group in groups.items():
-        # Compute group-level returns
+        if len(group) == 1:
+            # Group of 1 — advantage=0, no gradient signal.
+            # Happens if num_episodes is not a multiple of grpo_k.
+            print(f"  [grpo] WARNING: group {key} has only 1 episode — "
+                  f"num_episodes must be grpo_k × num_tasks", flush=True)
+
+        # Episode-level returns (discounted sum from step 0)
         group_returns = []
         for ep in group:
-            rewards = [t.reward for t in ep.transitions]
-            returns = compute_returns(rewards, gamma)
-            ep_return = returns[0] if returns else 0.0
-            group_returns.append(ep_return)
+            rewards  = [t.reward for t in ep.transitions]
+            returns  = compute_returns(rewards, gamma)
+            group_returns.append(returns[0] if returns else 0.0)
 
-        # Group advantage = return - group_mean
         group_mean = sum(group_returns) / len(group_returns)
-        group_std = (sum((r - group_mean)**2 for r in group_returns)
-                     / len(group_returns)) ** 0.5 + 1e-8
+        group_std  = (sum((r - group_mean) ** 2 for r in group_returns)
+                      / max(len(group_returns) - 1, 1)) ** 0.5 + 1e-8  # Bessel-corrected
 
         for ep, ep_return in zip(group, group_returns):
             advantage = (ep_return - group_mean) / group_std
@@ -344,64 +403,116 @@ def grpo_loss_fn(
                     all_pairs.append((trans, advantage))
 
     if not all_pairs:
-        return torch.tensor(0.0, requires_grad=True, device=model.device)
+        return torch.tensor(0.0, device=model.device)
 
-    all_log_probs = []
-    all_advantages = []
-    pad_id = tokenizer.pad_token_id or tokenizer.eos_token_id
+    # ── Phase 2: Advantage tensor on CPU ────────────────────────────────────
+    advantages = torch.tensor([p[1] for p in all_pairs], dtype=torch.float32)
 
-    # Process transitions in batches
-    for batch_start in range(0, len(all_pairs), loss_batch_size):
-        batch = all_pairs[batch_start:batch_start + loss_batch_size]
-        batch_ids = [p[0].input_ids for p in batch]
+    # ── Phase 3: OOM-safe mini-batch forward/backward ───────────────────────
+    n_batches     = _math.ceil(len(all_pairs) / loss_batch_size)
+    total_loss_val = 0.0
+    ent_coef       = cfg.get("entropy_coef", 0.001)
+    CHUNK_V        = 4096
+
+    for batch_idx, batch_start in enumerate(range(0, len(all_pairs), loss_batch_size)):
+        batch      = all_pairs[batch_start:batch_start + loss_batch_size]
+        batch_advs = advantages[batch_start:batch_start + loss_batch_size]
+
+        batch_ids   = [p[0].input_ids    for p in batch]
         batch_masks = [p[0].attention_mask for p in batch]
-        batch_advs = [p[1] for p in batch]
 
+        # Truncate + left-pad
+        batch_ids   = [ids[-max_seq_len_cap:] if ids.shape[0] > max_seq_len_cap else ids
+                       for ids  in batch_ids]
+        batch_masks = [m[-max_seq_len_cap:]   if m.shape[0]   > max_seq_len_cap else m
+                       for m    in batch_masks]
+
+        # Build action masks (same as reinforce_baseline_loss_fn)
+        batch_action_masks = []
+        for ids, p in zip(batch_ids, batch):
+            plen = p[0].prompt_len
+            seq_len = ids.shape[0]
+            if isinstance(p[0].input_ids, torch.Tensor) and p[0].input_ids.shape[0] > max_seq_len_cap:
+                offset = p[0].input_ids.shape[0] - max_seq_len_cap
+                plen = max(0, plen - offset)
+            amask = torch.zeros(seq_len, dtype=torch.long)
+            if plen < seq_len:
+                amask[plen:] = 1
+            batch_action_masks.append(amask)
         max_len = max(ids.shape[0] for ids in batch_ids)
-        padded_ids = []
-        padded_masks = []
-        for ids, mask in zip(batch_ids, batch_masks):
+        padded_ids, padded_masks, padded_action_masks = [], [], []
+        for ids, mask, amask in zip(batch_ids, batch_masks, batch_action_masks):
             pad_len = max_len - ids.shape[0]
             if pad_len > 0:
-                padded_ids.append(torch.cat([
-                    torch.full((pad_len,), pad_id, device=ids.device), ids
-                ]))
-                padded_masks.append(torch.cat([
-                    torch.zeros(pad_len, device=mask.device, dtype=mask.dtype), mask
-                ]))
+                padded_ids.append(torch.cat(
+                    [torch.full((pad_len,), pad_id, device=ids.device), ids]))
+                padded_masks.append(torch.cat(
+                    [torch.zeros(pad_len, device=mask.device, dtype=mask.dtype), mask]))
+                padded_action_masks.append(torch.cat(
+                    [torch.zeros(pad_len, dtype=torch.long), amask]))
             else:
                 padded_ids.append(ids)
                 padded_masks.append(mask)
+                padded_action_masks.append(amask)
 
-        input_ids = torch.stack(padded_ids)
+        input_ids      = torch.stack(padded_ids)
         attention_mask = torch.stack(padded_masks)
 
-        # Forward pass WITH gradient
+        torch.cuda.empty_cache()
         outputs = model(
             input_ids=input_ids.to(model.device),
             attention_mask=attention_mask.to(model.device),
+            use_cache=False,
         )
-        logits = outputs.logits
-        shift_logits = logits[:, :-1, :]
-        shift_labels = input_ids[:, 1:]
-        log_probs_all = torch.nn.functional.log_softmax(shift_logits, dim=-1)
-        token_log_probs = log_probs_all.gather(
-            2, shift_labels.unsqueeze(-1)
-        ).squeeze(-1)
-        shift_mask = attention_mask[:, 1:]
-        token_log_probs = token_log_probs * shift_mask
-        seq_log_probs = token_log_probs.sum(dim=1)
 
-        all_log_probs.append(seq_log_probs)
-        all_advantages.extend(batch_advs)
+        # Fused cross_entropy NLL (no [B,S,V] materialisation)
+        logits       = outputs.logits
+        shift_logits = logits[:, :-1, :].contiguous()   # (B, S-1, V)
+        shift_labels = input_ids[:, 1:].contiguous().to(model.device)
+        shift_mask_g = attention_mask[:, 1:].to(model.device)
 
-    if not all_log_probs:
-        return torch.tensor(0.0, requires_grad=True, device=model.device)
+        token_nll = torch.nn.functional.cross_entropy(
+            shift_logits.view(-1, shift_logits.size(-1)),
+            shift_labels.clamp(min=0).view(-1),
+            reduction="none",
+        ).view(shift_labels.shape)
+        token_nll  = token_nll * shift_mask_g
 
-    log_probs = torch.cat(all_log_probs)
-    advantages = torch.tensor(all_advantages, device=model.device).detach()
-    loss = -(advantages * log_probs).mean()
-    return loss
+        # ── Action-only log-probs for GRPO ──
+        stacked_action_masks = torch.stack(padded_action_masks)  # (B, S)
+        shift_action_mask = stacked_action_masks[:, 1:].to(model.device)  # (B, S-1)
+        action_nll = token_nll * shift_action_mask
+        seq_log_probs = -(action_nll.sum(dim=1))  # (B,)
+
+        # Chunked entropy
+        log_Z = shift_logits.logsumexp(dim=-1, keepdim=True)
+        entropy_per_token = torch.zeros(shift_logits.shape[:2], device=model.device)
+        for v_start in range(0, shift_logits.size(-1), CHUNK_V):
+            chunk    = shift_logits[:, :, v_start:v_start + CHUNK_V] - log_Z
+            p_chunk  = chunk.exp()
+            entropy_per_token += -(p_chunk * chunk).sum(dim=-1)
+        del log_Z, outputs, logits, shift_logits, token_nll
+        torch.cuda.empty_cache()
+
+        n_valid = (shift_action_mask * shift_mask_g).sum(dim=1).clamp(min=1)
+        avg_entropy = ((entropy_per_token * shift_action_mask * shift_mask_g).sum(dim=1) / n_valid).mean()
+
+        batch_advs_gpu = batch_advs.to(model.device)
+        # Length-normalized log-probs (same as reinforce_baseline_loss_fn)
+        n_action_tokens_grpo = shift_action_mask.sum(dim=1).clamp(min=1)  # (B,)
+        norm_seq_log_probs = seq_log_probs / n_action_tokens_grpo
+        batch_loss = (
+            -(batch_advs_gpu * norm_seq_log_probs).mean()
+            - ent_coef * avg_entropy
+        ) / n_batches
+        batch_loss.backward()
+
+        total_loss_val += batch_loss.item() * n_batches
+        del batch_loss, seq_log_probs, batch_advs_gpu, avg_entropy, entropy_per_token
+        torch.cuda.empty_cache()
+
+    return torch.tensor(total_loss_val / n_batches, device=model.device)
+
 
 
 # ────────────────────────────────────────────────────────────
@@ -784,8 +895,25 @@ def train(cfg: Dict[str, Any]) -> None:
         iter_start = time.time()
 
         # ---- Collect rollouts (parallel batch) ----
-        task_ids = [tasks[ep_idx % len(tasks)] for ep_idx in range(num_episodes)]
-        seeds = [seed + iteration * 1000 + ep_idx for ep_idx in range(num_episodes)]
+        # GRPO requires K episodes per task from the SAME seed so grpo_loss_fn
+        # can group by (task_id, seed) and compute within-group advantages.
+        # REINFORCE uses unique seeds per episode for diversity.
+        if loss_type == "grpo":
+            k = cfg.get("grpo_k", 2)
+            # Validate: num_episodes must be k * num_tasks
+            expected = k * len(tasks)
+            if num_episodes != expected:
+                print(f"  [grpo] WARNING: num_episodes={num_episodes} ≠ "
+                      f"grpo_k({k}) × num_tasks({len(tasks)})={expected}. "
+                      f"Forcing to {expected}.", flush=True)
+                num_episodes = expected
+            # Each task gets k copies with the same per-task seed
+            task_ids = [tasks[t] for t in range(len(tasks)) for _ in range(k)]
+            task_seeds = [seed + iteration * 100 + t for t in range(len(tasks))]
+            seeds    = [task_seeds[t] for t in range(len(tasks)) for _ in range(k)]
+        else:
+            task_ids = [tasks[ep_idx % len(tasks)] for ep_idx in range(num_episodes)]
+            seeds    = [seed + iteration * 1000 + ep_idx for ep_idx in range(num_episodes)]
 
         _log_vram(f"i{iteration}_pre_rollout")
 

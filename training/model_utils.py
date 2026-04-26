@@ -71,7 +71,7 @@ def gpu_scaled_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
             "lora_rank": 64,          # verified safe: +83 MiB vs rank-32
             "lora_alpha": 64,         # keep == lora_rank
             "per_device_train_batch_size": 2,
-            "loss_batch_size": 2,     # verified safe: peak ~17.8 GiB with 4.5 GiB headroom
+            "loss_batch_size": 1,     # proven safe. New fused-CE path may allow 2 — test after validating.
         }
         # Hard floors — values below these will always OOM on A10G
         hard_floors = {

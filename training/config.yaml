@@ -52,8 +52,8 @@ num_episodes_per_iteration: 6         # 6 = 2×tasks. CRITICAL: must be multiple
                                       # With 4 eps: task-1 gets 2× gradient signal (ep_idx % 3 → [0,1,2,0])
 num_iterations: 15                    # timing: 6ep × 20steps × ~5s/step-batch ≈ 5 min/iter → 15 iters ≈ 1.25hr
 parallel_episodes: true               # Batch generation across episodes (single GPU forward per step)
-loss_batch_size: 2                    # 9 GiB headroom → batch=2 safe (~17.8 GiB peak). Do NOT set to 3.
-learning_rate: 2.0e-4
+loss_batch_size: 1                    # A10G: batch=1 proven safe (peak ~9 GiB). Retry 2 after validating new entropy path.
+learning_rate: 1.0e-5
 per_device_train_batch_size: 2        # A10G can handle 2 with seq_len=1024
 gradient_accumulation_steps: 4        # Effective batch = 2*4 = 8 transitions
 warmup_steps: 50
@@ -70,7 +70,7 @@ rloo_k: 2                            # Leave-one-out group size
 reward_gamma: 0.99                    # Discount factor for returns
 reward_gae_lambda: 0.95              # GAE lambda (if using GAE)
 advantage_normalize: true             # Normalize advantages across batch
-entropy_coef: 0.005                   # Per-token avg entropy bonus (normalized by mask.sum() — do not increase)
+entropy_coef: 0.001                   # Per-token avg entropy bonus (reduced from 0.005 — high entropy coef fights REINFORCE signal and pushes policy toward random actions)
 
 # ---- Generation ----
 generation_max_new_tokens: 50         # JSON action is ~30 tokens; 50 is safe cap

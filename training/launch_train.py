@@ -130,6 +130,7 @@ def build_job_command() -> str:
         "--num-iterations $NUM_ITERATIONS "
         "--num-episodes $NUM_EPISODES "
         "--max-steps $MAX_STEPS "
+        "--loss-type $LOSS_TYPE "
         "--eval-interval $EVAL_INTERVAL "
         "--checkpoint-interval $CHECKPOINT_INTERVAL "
         "--plot-interval $PLOT_INTERVAL\n"
@@ -257,6 +258,20 @@ def main() -> None:
         help=f"Checkpoint every N iterations (default: {DEFAULT_CHECKPOINT_INTERVAL})",
     )
     parser.add_argument(
+        "--loss-type",
+        default="reinforce_baseline",
+        choices=["reinforce_baseline", "grpo"],
+        help="RL loss function. 'grpo' requires num-episodes = grpo-k × 3 tasks "
+             "(default: reinforce_baseline)",
+    )
+    parser.add_argument(
+        "--grpo-k",
+        type=int,
+        default=2,
+        help="GRPO group size K (rollouts per task per iteration). "
+             "Sets num-episodes = K × 3 automatically. (default: 2)",
+    )
+    parser.add_argument(
         "--plot-interval",
         type=int,
         default=DEFAULT_PLOT_INTERVAL,
@@ -287,6 +302,9 @@ def main() -> None:
     print(f"  Hub model repo:      {args.hub_model_repo}")
     print(f"  Hub metrics dataset: {args.hub_metrics_dataset}")
     print(f"  Run ID:              {run_id}")
+    print(f"  Loss type:           {args.loss_type}")
+    if args.loss_type == "grpo":
+        print(f"  GRPO K:              {args.grpo_k} (episodes={args.grpo_k * 3})")
     print(f"  Iterations:          {args.num_iterations}")
     print(f"  Episodes/iter:       {args.num_episodes}")
     print(f"  Steps/episode:       {args.max_steps}")
@@ -371,6 +389,7 @@ def main() -> None:
             "NUM_ITERATIONS": str(args.num_iterations),
             "NUM_EPISODES": str(args.num_episodes),
             "MAX_STEPS": str(args.max_steps),
+            "LOSS_TYPE": args.loss_type,
             "EVAL_INTERVAL": str(args.eval_interval),
             "CHECKPOINT_INTERVAL": str(args.checkpoint_interval),
             "PLOT_INTERVAL": str(args.plot_interval),
