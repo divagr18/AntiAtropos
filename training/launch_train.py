@@ -182,9 +182,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--hub-model-repo",
-        required=True,
+        default="Keshav051/antiatropos-qlora",
         help="HF Hub model repo for checkpoints, metrics, logs, and plots "
-        "(e.g. Keshav051/antiatropos-qlora). All run artifacts go under <run_id>/.",
+        "(default: Keshav051/antiatropos-qlora). All run artifacts go under <run_id>/.",
     )
     parser.add_argument(
         "--run-id",

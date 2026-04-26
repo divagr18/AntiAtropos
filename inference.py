@@ -41,7 +41,7 @@ if not API_KEY:
     API_KEY = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY")
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 
-DEFAULT_ENV_URL = "https://pranavkk-antiatropos.hf.space"
+DEFAULT_ENV_URL = "https://keshav051-antiatropos.hf.space"
 ENV_URL = os.getenv("ENV_URL") or os.getenv("ANTIATROPOS_ENV_URL") or DEFAULT_ENV_URL
 ENV_MODE = os.getenv("ANTIATROPOS_MODE", "simulated")
 TASK_NAME = os.getenv("ANTIATROPOS_TASK", "task-1")
