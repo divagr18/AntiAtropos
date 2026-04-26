@@ -25,7 +25,7 @@ env_mode: "simulated"                # "simulated" | "live" | "hybrid" — set t
 
 # ---- Model ----
 base_model: "Qwen/Qwen3.5-4B"
-max_seq_length: 512                  # 40% smaller observation + shorter prompt = ~350 tokens peak
+max_seq_length: 768                  # System prompt ~350 + observation ~200 + action ~40 + chat template ~50 = ~640 peak; 768 gives 20% headroom
 load_in_4bit: true
 
 # ---- LoRA ----

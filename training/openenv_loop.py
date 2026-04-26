@@ -49,34 +49,46 @@ CRITICAL_NODES = {"node-0", "node-1", "node-2"}
 
 TASK_BRIEFS = {
     "task-1": (
-        "Traffic ramps every tick — SCALE_UP stressed nodes (node-1, node-2, node-3) "
-        "before queues overflow; boot takes 5 ticks so act early. "
-        "SCALE_DOWN idle nodes when safe. node-0 is rarely the bottleneck."
+        "Traffic ramps linearly every tick. Scale up proactively — new capacity takes 5 ticks to boot. "
+        "Keep latency under SLA (200ms) while minimizing cost. Scale down when queues are safe. "
+        "Focus SCALE_UP on node-1, node-2, node-3. node-0 is rarely the bottleneck."
     ),
     "task-2": (
-        "A node will permanently FAIL — REROUTE_TRAFFIC away from it immediately. "
-        "SCALE_UP its starved children. SCALE_DOWN excess capacity once stable."
+        "One node will permanently FAIL. Wait until you SEE a FAILED node — do NOT pre-scale. "
+        "Once a node shows status=FAILED: reroute traffic FROM the failed node, and SCALE_UP any starved children. "
+        "SCALE_DOWN cancels pending boots and reduces cost. If reward is falling, stop scaling."
     ),
     "task-3": (
-        "Surge hits node-1 and node-2 only (node-0 is unaffected — do not scale it). "
-        "SCALE_UP node-1 and node-2 as queues rise. SHED_LOAD node-4 if overloaded. "
-        "SCALE_DOWN when queues recover."
+        "A surge will hit node-1 and node-2. Do NOT scale node-0 — it is NOT affected. "
+        "ONLY scale node-1 or node-2 when their queue_depth rises. Do NOT pre-scale. "
+        "3-4 SCALE_UPs on each is sufficient. SCALE_DOWN when queues recover. "
+        "If reward is falling, STOP scaling and SCALE_DOWN to recover."
     ),
 }
 
 SYSTEM_PROMPT = """SRE controller for a 5-node microservice cluster. Output ONE JSON object. No tags. No text.
 
-Topology: node-0(VIP)→node-1,node-2 | node-2→node-3 | node-4(Auth)
-Observation: q=queue_depth s=H/D/F(Healthy/Degraded/Failed) r=inflow c=capacity
+CLUSTER TOPOLOGY (traffic flows parent → children):
+  node-0(VIP) → node-1, node-2
+  node-2 → node-3
+  node-4 (independent Auth ingress)
+FAILED nodes have outflow=0 — their children are starved.
+Boot delay: new capacity takes 5 ticks to become active.
 
-Actions:
-  SCALE_UP   <node> param=0.3-0.8  when q rising or status=DEGRADED
-  SCALE_DOWN <node> param=0.2-0.5  when q low and capacity wasted
-  SHED_LOAD  <node> param=0.3-0.6  non-critical spike; never node-0
-  REROUTE_TRAFFIC <node> param=0.5-1.0  only when status=FAILED
-  NO_OP      node-0 param=0.0      only when ALL nodes q<0.2 and healthy
+ACTIONS (pick the BEST one for the current state):
+  SCALE_UP   <node> param=0.3-0.5 normal, 0.6-0.8 heavy surge. Use when q rising or status=DEGRADED. This is the PRIMARY action for growing queues.
+  SCALE_DOWN <node> param=0.2-0.4 safe, 0.5-0.7 aggressive. Use when q low AND capacity wasted. Cancels pending boots first.
+  SHED_LOAD  <node> param=0.3-0.5. Only on non-critical spike (node-3, node-4). NEVER on node-0.
+  REROUTE_TRAFFIC <node> param=0.3-0.5. ONLY when status=FAILED. Reduces THIS node capacity, redistributes to peers.
+  NO_OP      node-0 param=0.0. ONLY when ALL nodes have q<0.2 and status=Healthy.
 
-Rising queues on any node → SCALE_UP that node immediately.
+DECISION PRIORITY:
+  1. Growing queue on any node → SCALE_UP that node immediately (do not wait)
+  2. FAILED node → REROUTE_TRAFFIC from it, then SCALE_UP starved children
+  3. Safe queues with excess capacity → SCALE_DOWN to save cost
+  4. Everything stable → NO_OP
+
+Do NOT over-use NO_OP or REROUTE_TRAFFIC. SCALE_UP is the most common action.
 {"action_type":"SCALE_UP","target_node_id":"node-1","parameter":0.5}"""
 
 
