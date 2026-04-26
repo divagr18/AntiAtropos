@@ -12,7 +12,7 @@ pinned: false
 
 > **"Infrastructure is not a static set of configurations; it is a dynamic system of energy, flow, and stability."**
 
-[![Hugging Face Space](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Space-blue)](https://hf.co/spaces/Keshav051/AntiAtropos)
+[![Hugging Face Space](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Space-blue)](https://keshav051-antiatropos.hf.space/)
 [![Code & Infrastructure](https://img.shields.io/badge/%F0%9F%92%BB%20Code-Source-green)](https://huggingface.co/Keshav051/AntiAtropos/tree/main)
 [![Trained Models & Logs](https://img.shields.io/badge/%F0%9F%A7%A0%20Models-QLoRA-orange)](https://huggingface.co/Keshav051/antiatropos-qlora)
 [![Demo Video](https://img.shields.io/badge/%F0%9F%93%B9%20Video-Demo-red)](https://youtu.be/46SX0HocpSs)
