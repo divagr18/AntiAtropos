@@ -596,17 +596,13 @@ def train(cfg: Dict[str, Any]) -> None:
         _log_vram(f"i{iteration}_after_train")
         loss = loss_fn(model, tokenizer, episodes, cfg)
 
-        # ---- Backward + update ----
-        if loss.requires_grad:
-            loss.backward()
-            grad_norm = torch.nn.utils.clip_grad_norm_(
-                filter(lambda p: p.requires_grad, model.parameters()),
-                max_grad_norm,
-            )
-            optimizer.step()
-            optimizer.zero_grad()
-        else:
-            grad_norm = 0.0
+        # ---- Optimizer step (loss_fn already called .backward() per mini-batch) ----
+        grad_norm = torch.nn.utils.clip_grad_norm_(
+            filter(lambda p: p.requires_grad, model.parameters()),
+            max_grad_norm,
+        )
+        optimizer.step()
+        optimizer.zero_grad()
 
         # Clear training intermediates and return to eval for next rollout
         torch.cuda.empty_cache()
