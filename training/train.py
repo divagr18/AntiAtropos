@@ -16,14 +16,19 @@ Architecture (from training.md):
   - Metrics = structured + queryable
 
 Usage:
-  # On HF Jobs (A10G recommended):
-  python training/train.py
+  # RECOMMENDED: Launch via HF Jobs (auto-provisions GPU, pushes to Hub):
+  python training/launch_train.py --run-id my_run
 
-  # Local with custom config:
-  HF_SPACE_URL=http://localhost:8000 python training/train.py --config my_config.yaml
+  # Or run directly (requires a running AntiAtropos server):
+  ANTIATROPOS_ENV_URL=http://localhost:8000 \
+    ANTIATROPOS_HUB_MODEL_REPO=Keshav051/antiatropos-qlora \
+    python training/train.py --run-id my_run --num-iterations 15
 
-  # Override specific values via CLI:
-  python training/train.py --num-iterations 100 --loss-type grpo
+  # Override defaults:
+  python training/train.py --run-id run_007 --num-iterations 500 --num-episodes 6
+
+  # See all options:
+  python training/train.py --help
 """
 
 from __future__ import annotations
