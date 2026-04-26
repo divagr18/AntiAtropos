@@ -48,46 +48,83 @@ VALID_NODES = ["node-0", "node-1", "node-2", "node-3", "node-4"]
 CRITICAL_NODES = {"node-0", "node-1", "node-2"}
 
 TASK_BRIEFS = {
-    "task-1": "Traffic ramps linearly every tick. Scale up proactively — new capacity takes 5 ticks to boot. Keep latency under SLA (200ms) while minimizing cost. Scale down when queues are safe. CRITICAL: Your response MUST be valid JSON with a non-empty action_type.",
-    "task-2": "One node (node-1 through node-4) will fail permanently. Wait until you SEE a FAILED node — do NOT pre-scale. Once a node shows status=FAILED: reroute traffic FROM the failed node to healthy peers, and scale up any starved children. Do NOT scale node-0 unless node-4 failed independently. SCALE_DOWN cancels pending boots and reduces cost. If reward is falling, stop scaling. CRITICAL: action_type must be one of the 5 valid values, NEVER empty.",
-    "task-3": "A surge (~75 req/tick) will hit node-1 and node-2 via a side channel bypassing node-0. Do NOT scale node-0 — it is NOT affected. ONLY scale node-1 or node-2 when their queue_depth rises. Do NOT pre-scale. 3-4 SCALE_UPs on each is sufficient. SCALE_DOWN cancels pending boots and reduces cost — use it when queues are safe. If reward is falling, STOP scaling and SCALE_DOWN to recover. CRITICAL: action_type MUST be non-empty and from the valid set.",
+    "task-1": (
+        "Traffic ramps linearly — queues build progressively on node-1, node-2, and node-3. "
+        "Your job: keep latency under SLA while controlling cost. "
+        "Relevant actions: SCALE_UP stressed downstream nodes before queues overflow; "
+        "SCALE_DOWN nodes that are over-provisioned after the ramp stabilises; NO_OP when healthy. "
+        "Boot delay is 5 ticks — act before queues peak, not after. "
+        "All three downstream nodes (node-1, node-2, node-3) may need attention at different times. "
+        "node-0 is rarely the bottleneck here."
+    ),
+    "task-2": (
+        "One of node-1..node-4 will permanently FAIL mid-episode. "
+        "Your job: reroute traffic away from the failed node and stabilise its downstream neighbours. "
+        "Relevant actions: REROUTE_TRAFFIC from the failed node; SCALE_UP starved children; "
+        "SCALE_DOWN where excess capacity accumulates post-reroute; NO_OP once stable. "
+        "The failed node itself cannot be scaled — reroute away from it. "
+        "REROUTE parameter controls what fraction of traffic is redirected — higher is more aggressive. "
+        "Do not pre-scale before a failure is observed."
+    ),
+    "task-3": (
+        "A traffic surge hits node-1 and node-2 via a side-channel bypassing node-0. "
+        "node-0 is not affected — focus on node-1, node-2, and their downstream node-3. "
+        "Relevant actions: SCALE_UP the surging nodes; SHED_LOAD on overloaded non-critical nodes; "
+        "SCALE_DOWN when queues recover to reclaim cost; NO_OP when stable. "
+        "Over-scaling wastes cost and reduces reward — scale proportionally to pressure. "
+        "node-4 may also become overloaded from auth traffic side-effects."
+    ),
 }
 
-SYSTEM_PROMPT = """You are an autonomous SRE controller managing a five-node microservice cluster.
+SYSTEM_PROMPT = """You are an autonomous SRE controller for a five-node microservice cluster.
 
-CRITICAL: /no_think mode. Output ONLY a single JSON object. NO tags. NO reasoning.
+OUTPUT: One JSON object only. No thinking tags. No explanation.
 
-OBSERVATION LEGEND (compact keys):
-  t=task_id st=step mx=max_steps fn=failed_nodes dn=degraded_nodes
-  al=avg_latency er=error_rate qb=queue_backlog co=cost_per_hour sv=sla_violations
-  nd[]=nodes: n=node_id s=status(H/D/F) q=queue_depth l=latency r=incoming_rate
-           c=capacity pc=pending_capacity o=outflow_rate
+━━━ TOPOLOGY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  node-0 (VIP Ingress) → node-1 (Checkout), node-2 (Catalog)
+  node-2 → node-3 (Database)
+  node-4 (Auth) — independent ingress
+  Backpressure: overloaded children throttle their parent's outflow.
 
-TOPOLOGY: node-0→node-1,node-2 | node-2→node-3 | node-4 independent
-FAILED nodes: outflow=0, children starved. Backpressure: overloaded children reduce parent.
+━━━ OBSERVATION KEYS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  fn=failed_nodes  dn=degraded_nodes  al=avg_latency  er=error_rate
+  qb=queue_backlog  co=cost/hr  sv=sla_violations
+  per node: n=id  s=H/D/F  q=queue_depth  l=latency  r=inflow  c=capacity  pc=pending  o=outflow
 
-ACTIONS (boot delay=5 ticks):
-  SCALE_UP       — add capacity, clears DEGRADED (use on stressed nodes)
-  SCALE_DOWN     — cancel pending then reduce active (use on idle overprovisioned)
-  REROUTE_TRAFFIC — drain FAILED/overloaded node to healthy peers
-  SHED_LOAD      — drop traffic on non-critical nodes (NEVER node-0)
-  NO_OP          — do nothing (use when cluster is healthy)
+━━━ ACTIONS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SCALE_UP        target=stressed node    param=0.3-0.8  (adds capacity; 5-tick boot delay)
+  SCALE_DOWN      target=idle node        param=0.2-0.5  (cancels pending first, then reduces)
+  REROUTE_TRAFFIC target=failed/hot node  param=0.5-1.0  (redirects traffic to healthy peers)
+  SHED_LOAD       target=non-critical     param=0.3-0.6  (drops traffic fraction; NEVER node-0)
+  NO_OP           target=node-0           param=0.0      (hold position)
 
-DIVERSITY RULE: Use ALL action types when appropriate. Don't fixate on SCALE_UP.
-  - See FAILED node? → REROUTE_TRAFFIC, not SCALE_UP
-  - Non-critical overloaded? → SHED_LOAD first, SCALE_UP only if pressure persists
-  - Cluster healthy with high capacity? → SCALE_DOWN to save cost
-  - Only SCALE_UP when queues are actively rising and REROUTE/SHED aren't appropriate
+━━━ NODE ROLES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  node-0: VIP ingress — almost never the scaling target; target it only for REROUTE if it FAILs
+  node-1: Checkout — downstream; scales independently from node-0
+  node-2: Catalog  — downstream; feeds node-3; failure starves the database
+  node-3: Database — leaf node; can become bottleneck under node-2 backpressure
+  node-4: Auth     — independent; failure affects auth traffic separately from checkout/catalog
 
-REWARD: [0,1]. >0.5=good 0.15-0.5=ok <0.15=bad.
-  Falling reward → STOP current strategy, switch action type.
-  Repeating same action when reward<0.1 is ALWAYS wrong.
+━━━ PARAMETER SCALE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Low (0.2-0.3): mild adjustment — conservative scaling or light reroute
+  Mid (0.4-0.6): meaningful intervention — moderate queue pressure or partial reroute
+  High (0.7-1.0): aggressive — severe overload, FAILED node, or emergency reroute
 
-JSON FORMAT (MUST follow exactly — action_type must be one of the 5 actions above, NEVER empty):
-{"action_type":"SCALE_UP|SCALE_DOWN|REROUTE_TRAFFIC|SHED_LOAD|NO_OP","target_node_id":"node-0","parameter":0.0}
+━━━ PRIORITIES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Respond to the most urgent signal first:
+  failed nodes > degraded nodes > rising latency > excess capacity > stable
 
-Valid action_type values: SCALE_UP, SCALE_DOWN, REROUTE_TRAFFIC, SHED_LOAD, NO_OP.
-The action_type field MUST NOT be empty. If you are unsure, output NO_OP."""
+━━━ ANTI-PATTERNS (reduce reward) ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ✗ Scaling node-0 when downstream nodes are the actual bottleneck
+  ✗ Repeating NO_OP while queues or latency are visibly rising
+  ✗ Using parameter=0.0 for SCALE_UP or REROUTE_TRAFFIC (has no effect)
+  ✗ Same action on the same node many steps in a row with no improvement
+
+━━━ OUTPUT FORMAT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{"action_type":"SCALE_UP","target_node_id":"node-2","parameter":0.5}
+
+action_type MUST be one of: SCALE_UP SCALE_DOWN REROUTE_TRAFFIC SHED_LOAD NO_OP
+Choose the action that best addresses the current cluster state."""
 
 
 # ────────────────────────────────────────────────
@@ -363,9 +400,10 @@ def rollout_episode(
 
     # Generation config (reduced for speed)
     max_new_tokens = cfg.get("generation_max_new_tokens", 50)
-    temperature = cfg.get("generation_temperature", 0.7)
+    temperature = cfg.get("generation_temperature", 0.85)  # 0.85 > 0.7: more exploration
     top_p = cfg.get("generation_top_p", 0.9)
     do_sample = cfg.get("generation_do_sample", True)
+    invalid_penalty = cfg.get("invalid_action_penalty", 0.15)  # reward penalty for empty/bad JSON
 
     for step in range(1, max_steps + 1):
         # Format observation for the LLM
@@ -423,6 +461,14 @@ def rollout_episode(
         )
         obs_dict = step_resp.get("observation", step_resp)
         step_reward = step_resp.get("reward", 0.0)
+
+        # Invalid action penalty — teaches the model that malformed JSON hurts.
+        # Without this, the model gets full env reward even for empty action_type
+        # (which falls back to NO_OP), so it never learns to generate valid JSON.
+        if not action.is_valid:
+            penalty = invalid_penalty if "empty" in action.parse_error else invalid_penalty * 0.5
+            step_reward = max(0.0, step_reward - penalty)
+
         episode_reward = step_reward
         done = step_resp.get("done", False)
         sla_violations = obs_dict.get("sla_violations", sla_violations)
@@ -437,7 +483,7 @@ def rollout_episode(
         action_str = f"{action.action_type:11s} {action.target_node_id} p={action.parameter:.2f}"
         print(f"  S{step:2d}  | {action_str:30s} | {step_reward:.4f}  | {notes}", flush=True)
 
-        # Record transition
+        # Record transition (with adjusted reward)
         transition = Transition(
             obs_text=obs_text,
             input_ids=inputs["input_ids"].squeeze(0),
@@ -632,16 +678,26 @@ def rollout_batch(
 
         # ── Parse actions ──
         # Free the generation output tensor immediately — it holds the full
-        # KV-cache for all 36 layers on GPU. Without this, each step
-        # accumulates a stale KV-cache tensor that is never freed.
+        # KV-cache for all 36 layers on GPU.
+        #
+        # DECODING BUG FIX: slice at `max_len` (padded length), NOT `input_lens[idx]`.
+        # All sequences are left-padded to max_len, so outputs[idx] has shape
+        # [max_len + num_generated_tokens]. The generated tokens always start at
+        # position max_len regardless of the original (unpadded) input length.
+        #
+        # Using input_lens[idx] (unpadded) causes shorter-input episodes to include
+        # the trailing portion of their padded input tokens as "generated" text,
+        # producing garbage that parse_action can't find valid JSON in.
+        # This is why invalids only appear when num_episodes > 1.
         actions = []
         decoded_texts = []
+        padded_len = batch_input_ids.shape[1]  # = max_len, same for all in batch
         for idx in range(len(active_indices)):
             generated_text = tokenizer.decode(
-                outputs[idx][input_lens[idx]:], skip_special_tokens=True
+                outputs[idx][padded_len:], skip_special_tokens=True  # ← was input_lens[idx]
             )
             decoded_texts.append(generated_text)
-        del outputs  # Free KV-cache before parsing (no GPU ops needed for parsing)
+        del outputs  # Free KV-cache before parsing
         torch.cuda.empty_cache()
 
         for idx, generated_text in enumerate(decoded_texts):

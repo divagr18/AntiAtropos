@@ -257,28 +257,38 @@ def reinforce_baseline_loss_fn(
         shift_mask = attention_mask[:, 1:].to(model.device)
         token_log_probs = (-token_nll) * shift_mask
         seq_log_probs = token_log_probs.sum(dim=1)  # (B,)
-        entropy = (entropy_per_token * shift_mask).sum(dim=1)  # (B,)
+
+        # Per-token average entropy (NOT sum).
+        # sum(dim=1) would give ~700 for seq=512, swamping the REINFORCE signal.
+        # mask.sum() normalises to ~1-12 nats, so ent_coef=0.005 stays well-scaled.
+        n_valid_tokens = shift_mask.sum(dim=1).clamp(min=1)  # (B,) avoid div/0
+        avg_token_entropy = ((entropy_per_token * shift_mask).sum(dim=1) / n_valid_tokens).mean()
 
         # Free logits immediately
         del outputs, logits, shift_logits, token_nll, token_log_probs, entropy_per_token
         torch.cuda.empty_cache()
 
         # ── Per-mini-batch loss: REINFORCE + entropy bonus ────────────────────
-        ent_coef = cfg.get("entropy_coef", 0.01)
+        # ent_coef * avg_token_entropy ≈ 0.005 × 1.37 ≈ 0.007 (well-scaled vs REINFORCE ±1.0)
+        # Was broken: ent_coef * sum_entropy ≈ 0.01 × 700 ≈ 7.0 → dominated gradients
+        ent_coef = cfg.get("entropy_coef", 0.005)
         batch_advs_gpu = batch_advs.to(model.device)
-        avg_entropy = entropy.mean()
         batch_loss = (
             -(batch_advs_gpu * seq_log_probs).mean()  # REINFORCE
-            - ent_coef * avg_entropy                   # Entropy bonus (maximise exploration)
+            - ent_coef * avg_token_entropy             # Exploration bonus (per-token avg)
         ) / n_batches
-        print(f"    [entropy b{batch_idx+1}/{n_batches}] avg_token_entropy={avg_entropy:.2f}  "
-              f"ent_coef={ent_coef}", flush=True)
+        reinforce_term = -(batch_advs_gpu * seq_log_probs).mean().item()
+        print(f"    [entropy b{batch_idx+1}/{n_batches}] "
+              f"avg_token_entropy={avg_token_entropy.item():.3f}nats  "
+              f"ent_coef={ent_coef}  "
+              f"reinforce={reinforce_term:.4f}  "
+              f"ent_bonus={ent_coef * avg_token_entropy.item():.4f}", flush=True)
 
         # ── Backward immediately — frees entire computation graph ─────────────
         batch_loss.backward()
 
         total_loss_val += batch_loss.item() * n_batches  # unscale for logging
-        del batch_loss, seq_log_probs, batch_advs_gpu, entropy, avg_entropy
+        del batch_loss, seq_log_probs, batch_advs_gpu, avg_token_entropy
         torch.cuda.empty_cache()
 
     # Return detached scalar for logging (requires_grad=False → caller skips backward)
